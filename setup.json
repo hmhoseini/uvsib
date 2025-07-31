@@ -1,0 +1,35 @@
+{
+    "author": "Hossein Mirhosseini",
+    "author_email": "mirhoseini@gmail.com",
+    "description": "AiiDA Plugin",
+    "license": "",
+    "name": "uvsib",
+    "url": "https://github.com/hmhoseini/aiida-datagen",
+    "version": "0.0",
+    "license": "MIT license",
+    "reentry_register": true,
+    "python_requires": ">=3.10",
+    "install_requires": [
+        "aiida-submission-controller", "mp-api"
+    ],
+    "entry_points": {
+	"aiida.calculations": [
+	    "sleep = codes.sleep.calculation:SleepCalculation",
+            "mattergen = codes.mattergen.calculations:MatterGenCalculation",
+            "mattersim = codes.mattersim.calculations:MatterSimCalculation",
+            "mace = codes.mace.calculations:MACECalculation"
+	],
+	"aiida.parsers": [
+	    "mattergen_parser = codes.mattergen.parser:MatterGenParser",
+	    "mattersim_parser = codes.mattersim.parser:MatterSimParser",
+	    "mace_parser = codes.mace.parser:MACEParser"
+	],
+	"aiida.workflows": [
+	    "mattergen.base = codes.mattergen.workchain:MatterGenBaseWorkChain",
+	    "mattergen.csp = codes.mattergen.workchain:MatterGenCSPWorkChain",
+	    "mattersim.base = codes.mattersim.workchain:MatterSimBaseWorkChain",
+	    "mace.base = codes.mace.workchain:MACEBaseWorkChain",
+	    "phasediagramml = workchains.phase_diagram:PhaseDiagramMLWorkChain"
+	]
+    }
+}

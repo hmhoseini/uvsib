@@ -1,0 +1,76 @@
+PBEsol: 
+  kpoint_distance: 0.25
+  incar:
+    ALGO: Fast
+    EDIFF: 1.0e-05
+    EDIFFG: -0.02
+    ENCUT: 520
+    GGA: PS
+    IBRION: 1
+    ISMEAR: 0
+    ISIF: 3
+    ISPIN: 1
+    ISYM: 2
+    KPAR: 4
+    LCHARG: False
+    LMAXMIX: 2
+    LREAL: Auto
+    LWAVE: True
+    NCORE: 4
+    NELM: 200
+    NELMIN: 6
+    NSW: 200
+    POTIM: 0.2
+    PREC: Accurate
+    SIGMA: 0.05
+r2SCAN: 
+  kpoint_distance: 0.20
+  incar:
+    ADDGRID: True
+    ALGO: All
+    EDIFF: 1.0e-05
+    EDIFFG: -0.02
+    ENCUT: 600
+    IBRION: 1
+    ISMEAR: 0
+    ISIF: 3
+    ISPIN: 1
+    ISYM: 2
+    KPAR: 4
+    LCHARG: False
+    LMAXMIX: 2
+    LREAL: Auto
+    LASPH: True
+    LWAVE: True
+    METAGGA: R2SCAN
+    NCORE: 4
+    NELM: 200
+    NELMIN: 6
+    NSW: 200
+    POTIM: 0.2
+    PREC: Accurate
+    SIGMA: 0.05
+HSE:
+  kpoint_distance: 0.20
+  incar:
+    AEXX: 0.25
+    ALGO: D
+    EDIFF: 1.0E-5
+    EDIFFG: -0.02
+    ENCUT: 600
+    IBRION: -1
+    ICHARG: 1    
+    ISMEAR: 0
+    HFSCREEN: 0.2   
+    KPAR: 4
+    LCHARG: False
+    LHFCALC: True
+    LREAL: Auto
+    LWAVE: False
+    NCORE: 4          
+    NELM: 100
+    NELMIN: 6
+    NSW: 0
+    PREC: Accurate
+    SIGMA: 0.05
+    TIME: 0.4

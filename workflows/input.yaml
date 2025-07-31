@@ -1,0 +1,14 @@
+MatterGen_generate:
+  energy_above_hull: 0.1
+  batch_size: 10
+  num_batches: 3
+MatterGen_CSP:
+  num_runs: 3 
+  batch_size: 10
+  num_batches: 1
+MatterSim_relax:
+  fmax: 0.2
+  max_steps: 500
+MACE_relax:
+  fmax: 0.2
+  max_steps: 500
