@@ -1,4 +1,3 @@
-potential_family: PBE.64
 potential_mapping: 
  {H: H,
  He: He,
@@ -43,7 +42,7 @@ potential_mapping:
  Nb: Nb_sv,
  Mo: Mo_pv,
  Tc: Tc_pv,
- Ru: Ry_pv,
+ Ru: Ru_pv,
  Rh: Rh_pv,
  Pd: Pd,
  Ag: Ag,

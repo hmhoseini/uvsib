@@ -10,7 +10,7 @@ from uvsib.workchains.utils import (get_output_as_entry,
                              )
 from uvsib.workflows import settings
 
-class GenWorkChain(WorkChain):
+class GeneratorWorkChain(WorkChain):
     """Work chain for generating structures"""
 
     @classmethod
@@ -117,8 +117,9 @@ class GenWorkChain(WorkChain):
             return self.exit_codes.ERROR_ML_RELAX_FAILED
 
     def final_report(self):
-        self.report(f"MatterGenWorkChain for {self.ctx.chemical_systems} finished successfully")
-################################################################################
+        self.report(f"GeneratorWorkChain for {self.ctx.chemical_systems} finished successfully")
+
+    ################################################################################
     @staticmethod
     def _construct_mattergen_gen_builder(chemical_system):
         """MatterGen gen Builder"""
@@ -126,10 +127,11 @@ class GenWorkChain(WorkChain):
         builder = Workflow.get_builder()
         builder.chemical_system = Str(chemical_system)
         builder.code = get_code("MatterGen")
+        model_name, _, _ = get_model_device("MatterGen")
 
         builder.job_info = Dict(
                 {"job_type": "gen",
-                 "model_name":  settings.configs["codes"]["MatterGen"]["model_name"],
+                 "model_name":  model_name,
                  "energy_above_hull": settings.inputs["MatterGen_generate"]["energy_above_hull"],
                  "batch_size": settings.inputs["MatterGen_generate"]["batch_size"],
                  "num_batches": settings.inputs["MatterGen_generate"]["num_batches"]
@@ -150,7 +152,7 @@ class GenWorkChain(WorkChain):
         builder.input_structures = List(structures)
         builder.code = get_code(ML_model)
 
-        model_path, device = get_model_device(ML_model)
+        _, model_path, device = get_model_device(ML_model)
 
         relax_key = "bulk_relax"
         job_info = {

@@ -1,10 +1,10 @@
 from aiida.orm import Str, List
 from aiida.plugins import WorkflowFactory
 from aiida.engine import WorkChain, if_, while_
-from aiida_pythonjob import PythonJob
+from aiida_pythonjob import PythonJob, prepare_pythonjob_inputs
 from uvsib.db.tables import DBComposition
 from uvsib.db.utils import update_row, query_by_columns
-from uvsib.workchains.pythonjob_inputs import get_pythonjob_input
+from uvsib.workchains.pythonjob_inputs import wait_sleep
 
 class MainWorkChain(WorkChain):
     """ Main WorkChain"""
@@ -149,9 +149,10 @@ class MainWorkChain(WorkChain):
 
     def wait_sleep(self):
         """Wait until the other workchain for this compoistion ends"""
-        inputs = get_pythonjob_input("wait_sleep",
-                                     {},
-                                     "localhost"
+        inputs = prepare_pythonjob_inputs(
+            wait_sleep,
+            function_inputs= {},
+            computer="localhost",
         )
         future = self.submit(PythonJob, inputs=inputs)
         self.to_context(**{"pyjob_sleep": future})
@@ -194,7 +195,7 @@ class MainWorkChain(WorkChain):
                      "step_status": row.step_status
                     }
             )
-            self.report("PhaseDiagramML Workchain failed")
+            self.report("PhaseDiagramML WorkChain failed")
             return self.exit_codes.ERROR_CALCULATION_FAILED
 
         # update row status in DBComposition table
@@ -238,7 +239,7 @@ class MainWorkChain(WorkChain):
                      "step_status": row.step_status
                     }
             )
-            self.report("PDVerification Workchain failed")
+            self.report("PDVerification WorkChain failed")
             return self.exit_codes.ERROR_CALCULATION_FAILED
 
         # update row status in DBComposition table
@@ -282,7 +283,7 @@ class MainWorkChain(WorkChain):
                      "step_status": row.step_status
                     }
             )
-            self.report("BandAlignment Workchain failed")
+            self.report("BandAlignment WorkChain failed")
             return self.exit_codes.ERROR_CALCULATION_FAILED
 
         # update row status in DBComposition table
@@ -326,7 +327,7 @@ class MainWorkChain(WorkChain):
                      "step_status": row.step_status
                     }
             )
-            self.report("SurfaceBuilder Workchain failed")
+            self.report("SurfaceBuilder WorkChain failed")
             return self.exit_codes.ERROR_CALCULATION_FAILED
 
         # update row status in DBComposition table
@@ -370,7 +371,7 @@ class MainWorkChain(WorkChain):
                      "step_status": row.step_status
                     }
             )
-            self.report("Adsorbated Workchain failed")
+            self.report("Adsorbated WorkChain failed")
             return self.exit_codes.ERROR_CALCULATION_FAILED
 
         # update row status in DBComposition table
@@ -383,7 +384,7 @@ class MainWorkChain(WorkChain):
                 }
         )
 
-    #######################################################################
+    ################################################################################
     def _construct_pd_ml_builder(self):
         """Build PhaseDiagramML WorkChain builder"""
         PhaseDiagramMLWorkChain = WorkflowFactory("phasediagram")
@@ -424,4 +425,3 @@ class MainWorkChain(WorkChain):
         builder.ML_model = self.ctx.ML_model
         builder.reaction = self.ctx.reaction
         return builder
-#######################################################################

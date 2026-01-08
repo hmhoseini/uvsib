@@ -94,7 +94,7 @@ class AdsorbatesWorkChain(WorkChain):
         builder.input_structures = List(structure)
         builder.code = get_code(ML_model)
 
-        model_path, device = get_model_device(ML_model)
+        _, model_path, device = get_model_device(ML_model)
 
         relax_key = "adsorbates"
         job_info = {

@@ -5,7 +5,7 @@ from pymatgen.io.vasp import Vasprun
 from aiida.orm import Str, load_code, StructureData
 from aiida.engine import WorkChain
 from uvsib.codes.vasp.workchains import construct_vasp_builder
-from uvsib.codes.vasp.bp import get_band_info
+from uvsib.codes.vasp.band_info import get_band_info, get_core_state
 from uvsib.db.utils import query_structure, add_version_to_existing_structure
 from uvsib.workchains.utils import refine_primitive_cell
 from uvsib.workflows import settings
@@ -65,9 +65,9 @@ class BandAlignmentWorkChain(WorkChain):
         self.ctx.protocol = read_yaml(
                 os.path.join(settings.vasp_files_path, "protocol.yaml")
         )
-        self.ctx.potentials = read_yaml(
-                os.path.join(settings.vasp_files_path, "potentials.yaml")
-        )
+        self.ctx.potential_family = settings.configs["codes"]["VASP"]["potential_family"]
+        potential_mapping = read_yaml(os.path.join(settings.vasp_files_path, "potential_mapping.yaml"))
+        self.ctx.potential_mapping = potential_mapping["potential_mapping"]
         self.ctx.vasp_code = load_code(
                 settings.configs["codes"]["VASP"]["code_string"]
         )
@@ -83,7 +83,8 @@ class BandAlignmentWorkChain(WorkChain):
             builder = construct_vasp_builder(
                 StructureData(pymatgen=pmg_structure),
                 self.ctx.protocol["PBE"],
-                self.ctx.potentials,
+                self.ctx.potential_family,
+                self.ctx.potential_mapping,
                 self.ctx.vasp_code
             )
             future = self.submit(builder)
@@ -96,11 +97,14 @@ class BandAlignmentWorkChain(WorkChain):
         for _, uuid_str in self.ctx.struct_uuid:
             pbe_wch = self.ctx[f"pbe_{uuid_str}"]
             if pbe_wch.is_finished_ok:
+                core_state_dict = get_core_state(pbe_wch) 
+
                 add_version_to_existing_structure(
                         uuid_str,
                         "PBE",
                         {"structure": pbe_wch.inputs.structure.get_pymatgen().as_dict(),
                          "energy": pbe_wch.outputs.misc["total_energies"]["energy_extrapolated"],
+                         "band_info": core_state_dict,
                         },
                         "override"
                 )
@@ -118,7 +122,8 @@ class BandAlignmentWorkChain(WorkChain):
             builder = construct_vasp_builder(
                     pbe_wch.outputs.structure,
                     self.ctx.protocol["HSE"],
-                    self.ctx.potentials,
+                    self.ctx.potential_family,
+                    self.ctx.potential_mapping,
                     self.ctx.vasp_code,
                     pbe_wch.outputs.remote_folder
             )
@@ -130,23 +135,26 @@ class BandAlignmentWorkChain(WorkChain):
         failed_hse = []
         for uuid_str in self.ctx.pbe_results:
             hse_wch = self.ctx[f"hse_{uuid_str}"]
-            if hse_wch.is_finished_ok:
-                vr_str, band_info_dict = get_band_info(hse_wch)
-                add_version_to_existing_structure(
-                        uuid_str,
-                        "HSE",
-                        {"structure": hse_wch.inputs.structure.get_pymatgen().as_dict(),
-                         "energy": hse_wch.outputs.misc["total_energies"]["energy_extrapolated"],
-                         "vasprun_str": vr_str,
-                         "attributes": {"band_info": band_info_dict}
-                        },
-                        "override"
-                )
-            else:
+            if not hse_wch.is_finished_ok:
                 failed_hse.append(uuid_str)
+                continue
+            core_state_dict = get_core_state(hse_wch)
+            band_info_dict = get_band_info(hse_wch)
+            if not band_info_dict:
+                failed_hse.append(uuid_str)
+                continue
+            add_version_to_existing_structure(
+                    uuid_str,
+                    "HSE",
+                    {"structure": hse_wch.inputs.structure.get_pymatgen().as_dict(),
+                     "energy": hse_wch.outputs.misc["total_energies"]["energy_extrapolated"],
+                     "band_info": band_info_dict | core_state_dict
+                    },
+                    "override"
+            )
         if failed_hse:
             self.report(f"Warning: HSE calculations failed (structure uuids: {failed_hse})")
 
     def final_report(self):
         """Final report"""
-        self.report("BandAlignment Workchain finished successfully")
+        self.report("BandAlignment WorkChain finished successfully")

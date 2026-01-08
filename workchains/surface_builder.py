@@ -9,7 +9,7 @@ from uvsib.db.utils import query_structure, add_slab
 from uvsib.workchains.utils import get_code, get_model_device
 from uvsib.workflows import settings
 
-_EG_MIN = 1
+_EG_MIN = 0
 _EG_MAX = 4
 
 def get_struct_uuid(chemical_formula):
@@ -17,8 +17,8 @@ def get_struct_uuid(chemical_formula):
     struct_uuid = []
     results = query_structure({"composition": chemical_formula}, method = "HSE")
     for hse_row in results:
-        eg = hse_row.attributes.get("band_info", {}).get("energy")
-        if eg is None or not _EG_MIN < eg < _EG_MAX:
+        eg = hse_row.band_info.get("energy")
+        if eg is None or not _EG_MIN <= eg <= _EG_MAX:
             continue
         struct_uuid.append([hse_row.structure, str(hse_row.structure_uuid)])
     return struct_uuid
@@ -55,7 +55,7 @@ class SurfaceBuilderWorkChain(WorkChain):
         spec.exit_code(
             301,
             "ERROR_NO_STRUCTURES_FOUND",
-            message="No structures were found for the given formula and the band gap ceriteria"
+            message="No structures were found for the given formula and the band gap criterion"
         )
 
     def setup(self):
@@ -64,9 +64,9 @@ class SurfaceBuilderWorkChain(WorkChain):
         self.ctx.protocol = read_yaml(
                 os.path.join(settings.vasp_files_path, "protocol.yaml")
         )
-        self.ctx.potentials = read_yaml(
-                os.path.join(settings.vasp_files_path, "potentials.yaml")
-        )
+        self.ctx.potential_family = settings.configs["codes"]["VASP"]["potential_family"]
+        potential_mapping = read_yaml(os.path.join(settings.vasp_files_path, "potential_mapping.yaml"))
+        self.ctx.potential_mapping = potential_mapping ["potential_mapping"]
         self.ctx.vasp_code = load_code(
                 settings.configs["codes"]["VASP"]["code_string"]
         )
@@ -74,7 +74,7 @@ class SurfaceBuilderWorkChain(WorkChain):
         self.ctx.ML_model = self.inputs.ML_model.value
         self.ctx.struct_uuid = get_struct_uuid(self.ctx.chemical_formula)
         if not self.ctx.struct_uuid:
-            self.report("No structures were found for the given formula and the band gap ceriteria")
+            self.report("No structures were found for the given formula and the band gap criterion")
             return self.exit_codes.ERROR_NO_STRUCTURES_FOUND
         self.ctx.slabs_uuid = []
 
@@ -112,7 +112,8 @@ class SurfaceBuilderWorkChain(WorkChain):
                 builder = construct_vasp_builder(
                     StructureData(pymatgen=pmg_structure),
                     self.ctx.protocol["PBE_slab"],
-                    self.ctx.potentials,
+                    self.ctx.potential_family,
+                    self.ctx.potential_mapping,
                     self.ctx.vasp_code
                 )
                 future = self.submit(builder)
@@ -134,9 +135,9 @@ class SurfaceBuilderWorkChain(WorkChain):
     def store_results(self):
         """Store results"""
         return
-#        for slabs, uuid_str in self.ctx.slabs_uuid:
-#            for slab in slabs:
-#                add_slab(uuid_str, slab)
+        for slabs, uuid_str in self.ctx.slabs_uuid:
+            for slab in slabs:
+                add_slab(uuid_str, slab)
 
     def final_report(self):
         """Final report"""
@@ -156,7 +157,7 @@ class SurfaceBuilderWorkChain(WorkChain):
         builder.input_structures = List(structure)
         builder.code = get_code(ML_model)
 
-        model_path, device = get_model_device(ML_model)
+        _, model_path, device = get_model_device(ML_model)
 
         relax_key = "face_build"
         job_info = {

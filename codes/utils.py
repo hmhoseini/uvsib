@@ -66,7 +66,6 @@ def get_entries_from_mpdb(chemical_formula, run_type, ehull):
     api_key = settings.api_key
 
     with MPRester(api_key) as mpr:
-        # Step 1: Get all materials with this formula
         material_data = mpr.materials.summary.search(
                 formula=chemical_formula,
                 fields=["material_id", "energy_above_hull", "task_ids"]

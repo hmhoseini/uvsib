@@ -77,6 +77,7 @@ class DBStructureVersion(Base):
     structure = Column(JSONB, nullable=False)
     energy = Column(DOUBLE_PRECISION, nullable=True)
     vasprun_str = Column(Text, nullable=True)
+    band_info = Column(JSONB, nullable=True)
     attributes = Column(JSONB, nullable=True)
     ctime = Column(DateTime(timezone=True), server_default=func.now())
     mtime = Column(DateTime(timezone=True), onupdate=func.now())

@@ -1,9 +1,9 @@
 import os
 from dotenv import load_dotenv
+from uvsib.workflows import settings
 
-current = os.path.dirname(os.path.realpath(__file__))
 keys = ["USER", "PASSWORD", "DB"]
-dotenv_path=os.path.join(current, ".env")
+dotenv_path = os.path.join(settings.run_dir, ".env")
 ENV_NAME="DEV"
 load_dotenv(dotenv_path=dotenv_path)
 config = {key: os.getenv(f"{ENV_NAME}_{key}") for key in keys}

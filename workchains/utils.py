@@ -104,10 +104,14 @@ def get_code(model_key):
 
 def get_model_device(ML_model):
     """Return (model_path, device) for the given ML model."""
-    model_cfg = settings.configs["codes"][ML_model]
-    model_path = os.path.join(
-        model_cfg["path_to_pretrained_models"],
-        model_cfg["pretrained_model"],
-    )
-    device = model_cfg["job_script"]["device"]
-    return model_path, device
+    path_to_pretrained_models = settings.configs["models"]["path_to_pretrained_models"]
+    model = settings.configs["models"][ML_model]
+    if ML_model in ["MatterGen"]:
+        model_path = None
+    else:
+        model_path = os.path.join(path_to_pretrained_models, model)
+    if ML_model in ["MatterGen", "MatterGenCSP"]:
+        device = None
+    else:
+        device = settings.configs["codes"][ML_model]["job_script"]["device"]
+    return model, model_path, device

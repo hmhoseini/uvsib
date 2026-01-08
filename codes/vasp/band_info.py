@@ -1,6 +1,6 @@
 import tempfile
 import numpy as np
-from pymatgen.io.vasp import Vasprun
+from pymatgen.io.vasp import Vasprun, Outcar
 from matminer.featurizers.bandstructure import BranchPointEnergy
 
 def load_vasprun_from_content(wch):
@@ -9,7 +9,15 @@ def load_vasprun_from_content(wch):
         tmp.write(vasprun_str)
         tmp.flush()
         vasprun = Vasprun(tmp.name)
-    return vasprun_str, vasprun
+    return vasprun
+
+def load_outcar_from_content(wch):
+    outcar_str = wch.called[-1].outputs.retrieved.get_object_content("OUTCAR")
+    with tempfile.NamedTemporaryFile(mode="w", delete=False) as tmp:
+        tmp.write(outcar_str)
+        tmp.flush()
+        outcar = Outcar(tmp.name)
+    return outcar
 
 def branch_point_energy_window(bs, window_vb, window_cb):
     """Calculate BPE using all bands within window above CBM and below VBM"""
@@ -88,16 +96,30 @@ def count_bands_within_window(bs, window_vb, window_cb):
 
     return n_valence, n_conduction
 
+def get_core_state(wch):
+    core_state_dict = {}
+    outcar = load_outcar_from_content(wch)
+
+    values = []
+    for cse in outcar.read_core_state_eigen():
+        eigen_list = next(iter(cse.values()))
+        values.append(eigen_list[0])
+    core_state_dict["values"] = values
+    core_state_dict["avg"] = sum(values) / len(values) if values else None
+    return core_state_dict
+
 def get_band_info(wch, w_v=3, w_c=3):
-    vr_str, vr = load_vasprun_from_content(wch)
     efermi = wch.outputs.misc.dict.fermi_level
+    vr = load_vasprun_from_content(wch)
     if efermi:
         bs = vr.get_band_structure(efermi=efermi)
     else:
-        return vr_str, {}
+        return None
 
     if bs.is_metal():
-        return vr_str, {}
+        band_info_dict = {}
+        band_info_dict["energy"]  = 0
+        return band_info_dict
 
     vbm_info = bs.get_vbm()
     cbm_info = bs.get_cbm()
@@ -124,4 +146,4 @@ def get_band_info(wch, w_v=3, w_c=3):
         "bpe_dos": round(bpe_dos, 2),
         "bpe_matminer": bpe_default}
     )
-    return vr_str, band_info_dict
+    return band_info_dict

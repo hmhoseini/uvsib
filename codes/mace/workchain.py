@@ -47,6 +47,7 @@ def get_cmdline(job_info):
         ]
     elif job_type == 'facebuild':
         cmdline = [
+            f"--bulk_energy={job_info['bulk_energy']}",
             f"--model_path={job_info['model_path']}",
             f"--device={job_info['device']}",
             f"--fmax={job_info['fmax']}",

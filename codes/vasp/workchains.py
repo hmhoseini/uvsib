@@ -17,13 +17,13 @@ def get_options(protocol_name):
         options.update({"custom_scheduler_commands" : "#SBATCH --exclusive"})
     return options
 
-def construct_vasp_builder(structure, protocol, potentials, vasp_code, parent_folder = None):
+def construct_vasp_builder(structure, protocol, potential_family, potential_mapping, vasp_code, parent_folder = None):
     """VASP Builder"""
     upd = VaspBuilderUpdater()
     upd.builder.structure = structure
     upd.builder.parameters = Dict(dict={"incar":protocol["incar"]})
-    upd.builder.potential_family = Str(potentials["potential_family"])
-    upd.builder.potential_mapping = Dict(dict=potentials["potential_mapping"])
+    upd.builder.potential_family = Str(potential_family)
+    upd.builder.potential_mapping = Dict(dict=potential_mapping)
     KpointsData = DataFactory("array.kpoints")
     kpoints = KpointsData()
     kpoints.set_cell_from_structure(structure)

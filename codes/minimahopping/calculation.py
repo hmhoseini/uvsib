@@ -8,7 +8,7 @@ from uvsib.workflows import settings
 
 StructureData = DataFactory('core.structure')
 
-class MinimHoppoingCalculation(CalcJob):
+class MinimaHoppingCalculation(CalcJob):
     """AiiDA plugin for MinimaHopping"""
     @classmethod
     def define(cls, spec):

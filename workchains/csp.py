@@ -161,17 +161,18 @@ class CSPWorkChain(WorkChain):
     def final_report(self):
         """Final report"""
         self.report(f"CSPWorkChain for {self.ctx.chemical_formula} finished successfully")
+
 ####################################################################
     def _construct_mattergen_csp_builder(self):
         Workflow = WorkflowFactory("mattergen.csp")
         builder = Workflow.get_builder()
         builder.chemical_formula = Str(self.ctx.chemical_formula)
         builder.code = get_code("MatterGen")
-
+        _, model_path, _ = get_model_device("MatterGenCSP")
         builder.job_info = Dict(
             {
                 "job_type": "csp",
-                "model_path": settings.configs["codes"]["MatterGen"]["path_to_pretrained_models_csp"],
+                "model_path": model_path,
                 "batch_size": settings.inputs["MatterGen_CSP"]["batch_size"],
                 "num_batches": settings.inputs["MatterGen_CSP"]["num_batches"],
             }
@@ -193,7 +194,7 @@ class CSPWorkChain(WorkChain):
         builder.input_structures = List(structures)
         builder.code = get_code(ML_model)
 
-        model_path, device = get_model_device(ML_model)
+        _, model_path, device = get_model_device(ML_model)
 
         relax_key = "bulk_relax"
         job_info = {
@@ -214,7 +215,7 @@ class CSPWorkChain(WorkChain):
         builder.structure = struct
         builder.code = get_code("MinimaHopping")
 
-        model_path, device = get_model_device(ML_model)
+        _, model_path, device = get_model_device(ML_model)
         builder.job_info = Dict(
             {
              "model": ML_model,

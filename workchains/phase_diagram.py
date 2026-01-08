@@ -1,10 +1,10 @@
 from pymatgen.core.structure import Structure
 from pymatgen.analysis.phase_diagram import PhaseDiagram
 from pymatgen.entries.computed_entries import ComputedStructureEntry
-from aiida.orm import Str, List
+from aiida.orm import Str, List, Bool
 from aiida.engine import WorkChain, if_
 from aiida.plugins import WorkflowFactory
-from aiida_pythonjob import PythonJob
+from aiida_pythonjob import PythonJob, prepare_pythonjob_inputs, spec
 from uvsib.db.tables import DBStructure, DBStructureVersion, DBChemsys, DBComposition
 from uvsib.db.session import get_session
 from uvsib.db.utils import (
@@ -13,7 +13,7 @@ from uvsib.db.utils import (
         query_by_columns,
         get_chemical_systems,
         query_structure)
-from uvsib.workchains.pythonjob_inputs import get_pythonjob_input
+from uvsib.workchains.pythonjob_inputs import is_data_available
 from uvsib.workflows import settings
 
 _EHULL = 0.05
@@ -89,10 +89,10 @@ class PhaseDiagramMLWorkChain(WorkChain):
         self.ctx.chemical_systems = self.inputs.chemical_systems.get_list()
         self.ctx.ML_model = self.inputs.ML_model.value
         self.ctx.failed_ml_e = []
-        self.report(f"Running PhaseDiagramML Workchain for {self.ctx.chemical_formula}")
+        self.report(f"Running PhaseDiagramML WorkChain for {self.ctx.chemical_formula}")
 
     def should_run_csp(self):
-        """Check whether should run CSPWorkchain"""
+        """Check whether should run CSPWorkChain"""
         results = query_structure({"composition": self.ctx.chemical_formula}, source = "csp")
         if results:
             return False
@@ -117,7 +117,7 @@ class PhaseDiagramMLWorkChain(WorkChain):
                         failed_chemsys.append(chemsys)
             cleanup_failed_systems(failed_chemsys)
 
-            self.report(f"CSPWorkchain for {self.ctx.chemical_formula} failed. Corresponding rows will be removed from DBChemsys")
+            self.report(f"CSPWorkChain for {self.ctx.chemical_formula} failed. Corresponding rows will be removed from DBChemsys")
             return self.exit_codes.ERROR_CALCULATION_FAILED
 
     def gen_calcs(self):
@@ -145,9 +145,10 @@ class PhaseDiagramMLWorkChain(WorkChain):
     def wait_for_data(self):
         """Wait until all chemical systems are available"""
         all_chemical_systems = get_chemical_systems(self.ctx.chemical_formula, new=False)
-        inputs = get_pythonjob_input("is_data_available",
-                                     {"chemical_systems": all_chemical_systems},
-                                     "localhost"
+        inputs = prepare_pythonjob_inputs(is_data_available,
+            function_inputs= {"chemical_systems": all_chemical_systems},
+            computer="localhost",
+            outputs_spec=spec.namespace(moveon=Bool),
         )
         future = self.submit(PythonJob, inputs=inputs)
         self.to_context(**{"pyjob": future})
@@ -155,7 +156,7 @@ class PhaseDiagramMLWorkChain(WorkChain):
     def check_pythonjob(self):
         """Inspect PythonJob"""
         calculation = self.ctx["pyjob"]
-        if not calculation.is_finished_ok or not calculation.outputs.bool.value:
+        if not calculation.is_finished_ok or not calculation.outputs.moveon.value:
             return self.exit_codes.ERROR_CALCULATION_FAILED
 
     def store_stable_structs(self):
@@ -176,7 +177,7 @@ class PhaseDiagramMLWorkChain(WorkChain):
                 uuid_list.append(str(entry.data["struct_uuid"]))
 
         if not uuid_list:
-            self.report(f"The WorckChain stopped becasue no stable structure for {self.ctx.chemical_formula} has been found")
+            self.report(f"The WorkChain stopped because no stable structure for {self.ctx.chemical_formula} has been found")
             return self.exit_codes.ERROR_CALCULATION_FAILED
 
         # add uuids of stable structures to the DBComposition table
@@ -192,8 +193,9 @@ class PhaseDiagramMLWorkChain(WorkChain):
 
     def final_report(self):
         """Final report"""
-        self.report("PhaseDiagramML Workchain finished successfully")
+        self.report("PhaseDiagramML WorkChain finished successfully")
 
+    ################################################################################
     def _construct_csp_builder(self):
         Workflow = WorkflowFactory("csp")
         builder = Workflow.get_builder()

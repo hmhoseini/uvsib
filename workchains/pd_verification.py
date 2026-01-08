@@ -77,9 +77,9 @@ class PDVerificationWorkChain(WorkChain):
         self.ctx.protocol = read_yaml(
                 os.path.join(settings.vasp_files_path, "protocol.yaml")
         )
-        self.ctx.potentials = read_yaml(
-                os.path.join(settings.vasp_files_path, "potentials.yaml")
-        )
+        self.ctx.potential_family = settings.configs["codes"]["VASP"]["potential_family"]
+        potential_mapping = read_yaml(os.path.join(settings.vasp_files_path, "potential_mapping.yaml"))
+        self.ctx.potential_mapping = potential_mapping["potential_mapping"]
         self.ctx.vasp_code = load_code(
                 settings.configs["codes"]["VASP"]["code_string"]
         )
@@ -92,7 +92,8 @@ class PDVerificationWorkChain(WorkChain):
             builder = construct_vasp_builder(
                 StructureData(pymatgen=pmg_structure),
                 self.ctx.protocol["r2SCAN"],
-                self.ctx.potentials,
+                self.ctx.potential_family,
+                self.ctx.potential_mapping,
                 self.ctx.vasp_code
             )
             future = self.submit(builder)
@@ -126,4 +127,4 @@ class PDVerificationWorkChain(WorkChain):
 
     def final_report(self):
         """Final report"""
-        self.report("PDVerification Workchain finished successfully")
+        self.report("PDVerification WorkChain finished successfully")

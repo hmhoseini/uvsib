@@ -147,6 +147,8 @@ def generate_adsorbates(reaction):
                   info={"adsorbate": "O", "energy": -1.65}),
             Atoms("XOH", positions=[(0, 0, 0), (0, 0, 3.1), (0.1, 0.1, 4.1)],
                   info={"adsorbate": "OH", "energy": 7.55}),
+            Atoms("XOOH", positions=[(0, 0, 0), (0, 0, 3.1), (0.1, 0.1, 5.2), (-0.1, -0.1, 6.2)],
+                  info={"adsorbate": "OH", "energy": 7.55}),
         ]
     return []
 
