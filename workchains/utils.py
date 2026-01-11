@@ -3,6 +3,7 @@ import numpy as np
 from aiida.orm import load_code
 from pymatgen.core.structure import Composition, Lattice, Structure
 from pymatgen.entries.computed_entries import ComputedStructureEntry
+from pymatgen.analysis.structure_matcher import StructureMatcher
 from pymatgen.analysis.phase_diagram import PhaseDiagram
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
 from uvsib.codes.utils import get_element_entries, get_structures_from_mpdb_by_composition
@@ -10,6 +11,16 @@ from uvsib.db.utils import query_structure, add_structures
 from uvsib.workflows import settings
 
 _EHULL = 0.05
+
+matcher = StructureMatcher(
+    ltol=0.7,
+    stol=0.7,
+    angle_tol=5,
+    scale=True,
+    attempt_supercell=False,
+    allow_subset=False,
+    primitive_cell=False,
+)
 
 def refine_primitive_cell(struct_dict):
     """Refine a structure dictionary into its primitive cell"""
@@ -57,13 +68,23 @@ def get_unique_low_energy(entries, chemical_system, ehull_threshold = _EHULL):
     existing_structs = []
 
     for entry in pd.entries:
-        if (
-            entry.composition.chemical_system == chemical_system
-            and pd.get_e_above_hull(entry) < ehull_threshold
-            and not any(entry.structure.matches(existing) for existing in existing_structs)
-        ):
-            existing_structs.append(entry.structure)
-            stable_entries.append(entry)
+        if entry.composition.chemical_system != chemical_system:
+            continue
+        if pd.get_e_above_hull(entry) >= ehull_threshold:
+            continue
+
+        sga = SpacegroupAnalyzer(
+            entry.structure,
+            symprec=0.1,
+            angle_tolerance=5,
+        )
+        prim_struct = sga.find_primitive() or entry.structure
+
+        if any(matcher.fit(prim_struct, s) for s in existing_structs):
+            continue
+
+        existing_structs.append(prim_struct)
+        stable_entries.append(entry)
     return stable_entries
 
 def unique_low_energy_chemsys(chemical_system, entries, method):

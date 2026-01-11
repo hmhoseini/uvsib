@@ -116,6 +116,7 @@ class MainWorkChain(WorkChain):
         """Should wait for another running WorckChain"""
         pd_ml_step_status = self.ctx.dbcomposition_row.step_status.get("pd_ml")
         if pd_ml_step_status in ["Running"]:
+            self.ctx.sts = "phase diagram"
             return True
         return False
 
@@ -123,6 +124,7 @@ class MainWorkChain(WorkChain):
         """Should wait for another running WorckChain"""
         pd_ver_step_status = self.ctx.dbcomposition_row.step_status.get("pd_verification")
         if pd_ver_step_status in ["Running"]:
+            self.ctx.sts = "phase diagram verification"
             return True
         return False
 
@@ -130,6 +132,7 @@ class MainWorkChain(WorkChain):
         """Should wait for another running WorckChain"""
         band_alignment_step_status = self.ctx.dbcomposition_row.step_status.get("band_alignment")
         if band_alignment_step_status in ["Running"]:
+            self.ctx.sts = "band_alignment"
             return True
         return False
 
@@ -149,6 +152,7 @@ class MainWorkChain(WorkChain):
 
     def wait_sleep(self):
         """Wait until the other workchain for this compoistion ends"""
+        self.report(f"Waiting for a simiar WorchChain ({self.ctx.sts})")
         inputs = prepare_pythonjob_inputs(
             wait_sleep,
             function_inputs= {},

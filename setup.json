@@ -4,13 +4,13 @@
     "description": "AiiDA Plugin",
     "license": "",
     "name": "uvsib",
-    "url": "https://github.com/hmhoseini/aiida-datagen",
+    "url": "https://github.com/hmhoseini/uvsib",
     "version": "0.0",
     "license": "MIT license",
     "reentry_register": true,
     "python_requires": ">=3.10",
     "install_requires": [
-        "aiida-submission-controller==0.1.2", "mp-api"
+        "aiida-submission-controller==0.1.2", "mp-api", "moyopy"
     ],
     "entry_points": {
 	"aiida.calculations": [
