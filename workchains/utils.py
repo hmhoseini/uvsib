@@ -61,16 +61,20 @@ def get_output_as_entry(wch):
         )
     return entries
 
-def get_unique_low_energy(entries, chemical_system, ehull_threshold = _EHULL):
-    """Helper to filter unique low-energy structures"""
+def unique_low_energy_chemsys(chemical_system, entries, method):
+    """Select the unique lowest-energy structures for a given chemical system"""
+    if "-" in chemical_system:
+        elements = chemical_system.split("-")
+        entries.extend(get_element_entries(elements, method))
     pd = PhaseDiagram(entries)
+
     stable_entries = []
     existing_structs = []
 
     for entry in pd.entries:
         if entry.composition.chemical_system != chemical_system:
             continue
-        if pd.get_e_above_hull(entry) >= ehull_threshold:
+        if pd.get_e_above_hull(entry) > _EHULL:
             continue
 
         sga = SpacegroupAnalyzer(
@@ -87,20 +91,36 @@ def get_unique_low_energy(entries, chemical_system, ehull_threshold = _EHULL):
         stable_entries.append(entry)
     return stable_entries
 
-def unique_low_energy_chemsys(chemical_system, entries, method):
-    """Select the unique lowest-energy structures for a given chemical system"""
-    if "-" in chemical_system:
-        elements = chemical_system.split("-")
-        entries.extend(get_element_entries(elements, method))
-    return get_unique_low_energy(entries, chemical_system)
-
 def unique_low_energy_comp(chemical_formula, entries, method):
     """Select the lowest-energy unique structures for a given chemical formula"""
     chemical_system = Composition(chemical_formula).chemical_system
     if "-" in chemical_system:
         elements = chemical_system.split("-")
         entries.extend(get_element_entries(elements, method))
-    return get_unique_low_energy(entries, chemical_system)
+    pd = PhaseDiagram(entries)
+
+    stable_entries = []
+    existing_structs = []
+
+    for entry in pd.entries:
+        if entry.composition.reduced_formula != chemical_formula:
+            continue
+        if pd.get_e_above_hull(entry) > _EHULL:
+            continue
+
+        sga = SpacegroupAnalyzer(
+            entry.structure,
+            symprec=0.1,
+            angle_tolerance=5,
+        )
+        prim_struct = sga.find_primitive() or entry.structure
+
+        if any(matcher.fit(prim_struct, s) for s in existing_structs):
+            continue
+
+        existing_structs.append(prim_struct)
+        stable_entries.append(entry)
+    return stable_entries
 
 def add_from_mpdb(chemical_formula):
     """Add structures from MPDB"""

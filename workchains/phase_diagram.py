@@ -1,6 +1,7 @@
 from pymatgen.core.structure import Structure
 from pymatgen.analysis.phase_diagram import PhaseDiagram
 from pymatgen.entries.computed_entries import ComputedStructureEntry
+from pymatgen.analysis.structure_matcher import StructureMatcher
 from aiida.orm import Str, List, Bool
 from aiida.engine import WorkChain, if_
 from aiida.plugins import WorkflowFactory
@@ -13,10 +14,21 @@ from uvsib.db.utils import (
         query_by_columns,
         get_chemical_systems,
         query_structure)
+from uvsib.workchains.utils import unique_low_energy_comp
 from uvsib.workchains.pythonjob_inputs import is_data_available
 from uvsib.workflows import settings
 
 _EHULL = 0.05
+
+matcher = StructureMatcher(
+    ltol=0.7,
+    stol=0.7,
+    angle_tol=5,
+    scale=True,
+    attempt_supercell=False,
+    allow_subset=False,
+    primitive_cell=False,
+)
 
 def cleanup_failed_systems(chemical_systems):
     """Remove database entries for failed calculations"""
@@ -169,12 +181,10 @@ class PhaseDiagramMLWorkChain(WorkChain):
             return self.exit_codes.ERROR_CALCULATION_FAILED
 
         pd = PhaseDiagram(entries)
-
         uuid_list = []
-        for entry in pd.entries:
-            ehull = pd.get_e_above_hull(entry)
-            if entry.composition.reduced_formula == chemical_formula and ehull < _EHULL:
-                uuid_list.append(str(entry.data["struct_uuid"]))
+
+        for entry in unique_low_energy_comp(chemical_formula, pd.entries, "GGA"):
+            uuid_list.append(str(entry.data["struct_uuid"]))
 
         if not uuid_list:
             self.report(f"The WorkChain stopped because no stable structure for {self.ctx.chemical_formula} has been found")
