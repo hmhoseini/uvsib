@@ -25,7 +25,7 @@ PBE:
     SYMPREC: 1.0E-5
 PBE_slab:
   name: PBE_slab
-  kpoint_distance: 0.25
+  kpoint_distance: 0.4
   incar:
     ALGO: Fast
     EDIFF: 1.0E-4

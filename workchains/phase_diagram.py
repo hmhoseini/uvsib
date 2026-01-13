@@ -70,8 +70,10 @@ class PhaseDiagramMLWorkChain(WorkChain):
                 cls.csp_calcs,
                 cls.inspect_csp_cals,
             ),
-            cls.gen_calcs,
-            cls.inspect_gen_calcs,
+            if_(cls.should_run_gen)(
+                cls.gen_calcs,
+                cls.inspect_gen_calcs,
+            ),
             cls.wait_for_data,
             cls.check_pythonjob,
             cls.store_stable_structs,
@@ -119,6 +121,12 @@ class PhaseDiagramMLWorkChain(WorkChain):
 
             self.report(f"CSPWorkChain for {self.ctx.chemical_formula} failed. Corresponding rows will be removed from DBChemsys")
             return self.exit_codes.ERROR_CALCULATION_FAILED
+
+    def should_run_gen(self):
+        """Check whether should run MatterGen"""
+        if self.ctx.chemical_systems:
+            return True
+        return False
 
     def gen_calcs(self):
         """Run MatterGen"""
@@ -173,8 +181,8 @@ class PhaseDiagramMLWorkChain(WorkChain):
             uuid_list.append(str(entry.data["struct_uuid"]))
 
         if not uuid_list:
-            self.report(f"The WorkChain stopped because no stable structure for {self.ctx.chemical_formula} has been found")
-            return self.exit_codes.ERROR_CALCULATION_FAILED
+            self.report(f"WARNING: no stable structure for {self.ctx.chemical_formula} has been found")
+#            return self.exit_codes.ERROR_CALCULATION_FAILED
 
         # add uuids of stable structures to the DBComposition table
         row = query_by_columns(DBComposition,

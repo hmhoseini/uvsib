@@ -1,7 +1,6 @@
 import os
-import numpy as np
 from aiida.orm import load_code
-from pymatgen.core.structure import Composition, Lattice, Structure
+from pymatgen.core.structure import Composition, Structure
 from pymatgen.entries.computed_entries import ComputedStructureEntry
 from pymatgen.analysis.structure_matcher import StructureMatcher
 from pymatgen.analysis.phase_diagram import PhaseDiagram
@@ -25,30 +24,19 @@ matcher = StructureMatcher(
 def refine_primitive_cell(struct_dict):
     """Refine a structure dictionary into its primitive cell"""
     structure = Structure.from_dict(struct_dict)
-    lattice_matrix = structure.lattice.matrix.copy()
-    lattice_matrix[np.abs(lattice_matrix) < 0.1] = 0.0
 
-    new_lattice = Lattice(lattice_matrix)
-    a, b, c = new_lattice.abc
-    alpha, beta, gamma = (round(ang) for ang in new_lattice.angles)
-
-    try:
-        final_lattice = Lattice.from_parameters(a, b, c, alpha, beta, gamma)
-    except ValueError:
-        final_lattice = new_lattice
-
-    refined = Structure(
-        final_lattice,
-        structure.species,
-        structure.frac_coords,
-        coords_are_cartesian=False,
+    sga = SpacegroupAnalyzer(
+        structure,
+        symprec=0.1,
+        angle_tolerance=5,
     )
 
-    primitive = SpacegroupAnalyzer(
-            refined, symprec=0.1, angle_tolerance=5
-            ).find_primitive()
+    try:
+        prim_struct = sga.get_primitive_standard_structure()
+    except:
+        prim_struct = sga.find_primitive() or structure
 
-    return primitive
+    return prim_struct
 
 def get_output_as_entry(wch):
     """Extract structures and energies from an ML energy prediction calculation"""

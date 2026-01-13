@@ -42,8 +42,6 @@ class SurfaceBuilderWorkChain(WorkChain):
             cls.setup,
             cls.run_facebuild,
             cls.inspect_facebuild,
-            cls.pbe_verification,
-            cls.inspect_pbe_verification,
             cls.store_results,
             cls.final_report
         )
@@ -81,11 +79,11 @@ class SurfaceBuilderWorkChain(WorkChain):
     def run_facebuild(self):
         """Run SurfaceBuilder Workchain"""
         for struct_dict, uuid_str in self.ctx.struct_uuid:
-            structure_row = query_structure({"uuid": uuid_str}, method = self.ctx.ML_model)[0]
-            ml_energy = structure_row.energy
+            structure_row = query_structure({"uuid": uuid_str}, method = "PBE")[0]
+            bulk_energy = structure_row.energy
             builder = self._construct_facebuild_builder(
                     struct_dict,
-                    ml_energy,
+                    bulk_energy,
                     self.ctx.ML_model)
             future = self.submit(builder)
             self.to_context(**{f"sfb_{uuid_str}": future})
@@ -104,33 +102,6 @@ class SurfaceBuilderWorkChain(WorkChain):
             except:
                 self.report(f"Warning: no (orthogonal) slab was found for the structure with uuid={uuid_str}")
 
-    def pbe_verification(self):
-        """Run PBE verification"""
-        for slabs, uuid_str in self.ctx.slabs_uuid:
-            for idx, slab_dict in enumerate(slabs):
-                pmg_structure = Structure.from_dict(slab_dict)
-                builder = construct_vasp_builder(
-                    StructureData(pymatgen=pmg_structure),
-                    self.ctx.protocol["PBE_slab"],
-                    self.ctx.potential_family,
-                    self.ctx.potential_mapping,
-                    self.ctx.vasp_code
-                )
-                future = self.submit(builder)
-                self.to_context(**{f"pbe_s{str(idx)}_{uuid_str}": future})
-
-    def inspect_pbe_verification(self):
-        """Inspect PBE calculations"""
-        failed_jobs = 0
-        self.ctx.pbe_results = []
-        for slabs, uuid_str in self.ctx.slabs_uuid:
-            for idx in range(len(slabs)):
-                pbe_wch = self.ctx[f"pbe_s{str(idx)}_{uuid_str}"]
-                if pbe_wch.is_finished_ok:
-                    self.ctx.pbe_results.append(uuid_str)
-                else:
-                    failed_jobs += 1
-                    self.report("Warning: PBE geometry optimization failed")
 
     def store_results(self):
         """Store results"""

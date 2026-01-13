@@ -156,7 +156,7 @@ def run_surface_builder(bulk_energy,
         slab_data.append({"atoms": atoms, "surface_energy": surface_energy})
 
     slab_data.sort(key=lambda x: x["surface_energy"])
-    n_select = max(1, int(len(slab_data) * percentage_to_select))
+    n_select = max(1, int(len(slab_data) * percentage_to_select/100))
     selected = slab_data[:n_select]
 
     built_faces = []
