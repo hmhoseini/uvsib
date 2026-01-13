@@ -1,7 +1,5 @@
 from pymatgen.core.structure import Structure
-from pymatgen.analysis.phase_diagram import PhaseDiagram
 from pymatgen.entries.computed_entries import ComputedStructureEntry
-from pymatgen.analysis.structure_matcher import StructureMatcher
 from aiida.orm import Str, List, Bool
 from aiida.engine import WorkChain, if_
 from aiida.plugins import WorkflowFactory
@@ -19,16 +17,6 @@ from uvsib.workchains.pythonjob_inputs import is_data_available
 from uvsib.workflows import settings
 
 _EHULL = 0.05
-
-matcher = StructureMatcher(
-    ltol=0.7,
-    stol=0.7,
-    angle_tol=5,
-    scale=True,
-    attempt_supercell=False,
-    allow_subset=False,
-    primitive_cell=False,
-)
 
 def cleanup_failed_systems(chemical_systems):
     """Remove database entries for failed calculations"""
@@ -180,10 +168,8 @@ class PhaseDiagramMLWorkChain(WorkChain):
             self.report(f"Constructing phase diagram for {chemical_formula} failed")
             return self.exit_codes.ERROR_CALCULATION_FAILED
 
-        pd = PhaseDiagram(entries)
         uuid_list = []
-
-        for entry in unique_low_energy_comp(chemical_formula, pd.entries, "GGA"):
+        for entry in unique_low_energy_comp(chemical_formula, entries, "GGA"):
             uuid_list.append(str(entry.data["struct_uuid"]))
 
         if not uuid_list:
@@ -194,6 +180,7 @@ class PhaseDiagramMLWorkChain(WorkChain):
         row = query_by_columns(DBComposition,
                                {"composition": self.ctx.chemical_formula}
         )[0]
+
         update_row(
                 DBComposition,
                 row.uuid,

@@ -72,6 +72,7 @@ class PDVerificationWorkChain(WorkChain):
         self.report("Running PDVerification WorkChain")
         self.ctx.chemical_formula = self.inputs.chemical_formula.value
         self.ctx.ML_model = self.inputs.ML_model.value
+        add_from_mpdb(self.ctx.chemical_formula)
         self.ctx.struct_uuid = get_struct_uuid(self.ctx.chemical_formula, self.ctx.ML_model)
 
         self.ctx.protocol = read_yaml(
@@ -83,7 +84,6 @@ class PDVerificationWorkChain(WorkChain):
         self.ctx.vasp_code = load_code(
                 settings.configs["codes"]["VASP"]["code_string"]
         )
-        add_from_mpdb(self.ctx.chemical_formula)
 
     def run_scan(self):
         """Run r2SCAN geometry optimization"""

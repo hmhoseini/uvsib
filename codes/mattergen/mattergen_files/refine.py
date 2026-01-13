@@ -1,6 +1,7 @@
 import json
-import numpy as np
 from pymatgen.core.structure import Lattice, Structure
+from pymatgen.analysis.structure_matcher import StructureMatcher
+from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
 from ase.io import read
 from itertools import product
 
@@ -72,6 +73,16 @@ oxidation_states_dict = {
  'At': [-1, 1, 3, 5, 7]
 }
 
+matcher = StructureMatcher(
+    ltol=0.3,
+    stol=0.5,
+    angle_tol=7,
+    scale=True,
+    attempt_supercell=False,
+    allow_subset=False,
+    primitive_cell=True,
+)
+
 def ase_to_pmg(atoms):
     """
     Convert an ASE Atoms object to a pymatgen Structure dictionary
@@ -121,26 +132,21 @@ def refine_and_filter_structures(structures):
     for s_dict in structures:
         structure = Structure.from_dict(s_dict)
 
-        lattice_matrix = structure.lattice.matrix.copy()
-        lattice_matrix[np.abs(lattice_matrix) < 0.1] = 0.0
-
-        new_lattice = Lattice(lattice_matrix)
-        a, b, c = new_lattice.abc
-        alpha, beta, gamma = (round(ang) for ang in new_lattice.angles)
+        sga = SpacegroupAnalyzer(
+            structure,
+            symprec=0.1,
+            angle_tolerance=5,
+        )
 
         try:
-            final_lattice = Lattice.from_parameters(a, b, c, alpha, beta, gamma)
-        except ValueError:
-            final_lattice = new_lattice
+            prim_struct = sga.get_primitive_standard_structure()
+        except:
+            prim_struct = sga.find_primitive() or structure
 
-        refined_struct = Structure(
-            final_lattice,
-            structure.species,
-            structure.frac_coords,
-            coords_are_cartesian=False)
+        if any(matcher.fit(prim_struct, existing) for existing in unique_structures):
+            continue
 
-        if not any(refined_struct.matches(existing) for existing in unique_structures):
-            unique_structures.append(refined_struct)
+        unique_structures.append(prim_struct)
 
     return [s.as_dict() for s in unique_structures]
 

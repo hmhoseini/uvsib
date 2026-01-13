@@ -13,13 +13,13 @@ from uvsib.workflows import settings
 _EHULL = 0.05
 
 matcher = StructureMatcher(
-    ltol=0.7,
-    stol=0.7,
-    angle_tol=5,
+    ltol=0.3,
+    stol=0.5,
+    angle_tol=7,
     scale=True,
     attempt_supercell=False,
     allow_subset=False,
-    primitive_cell=False,
+    primitive_cell=True,
 )
 
 def refine_primitive_cell(struct_dict):
@@ -82,7 +82,11 @@ def unique_low_energy_chemsys(chemical_system, entries, method):
             symprec=0.1,
             angle_tolerance=5,
         )
-        prim_struct = sga.find_primitive() or entry.structure
+
+        try:
+            prim_struct = sga.get_primitive_standard_structure()
+        except:
+            prim_struct = sga.find_primitive() or entry.structure
 
         if any(matcher.fit(prim_struct, s) for s in existing_structs):
             continue
@@ -113,7 +117,11 @@ def unique_low_energy_comp(chemical_formula, entries, method):
             symprec=0.1,
             angle_tolerance=5,
         )
-        prim_struct = sga.find_primitive() or entry.structure
+
+        try:
+            prim_struct = sga.get_primitive_standard_structure()
+        except:
+            prim_struct = sga.find_primitive() or entry.structure
 
         if any(matcher.fit(prim_struct, s) for s in existing_structs):
             continue
@@ -129,11 +137,23 @@ def add_from_mpdb(chemical_formula):
         return
     stable_structures = get_structures_from_mpdb_by_composition(chemical_formula, _EHULL)
     if stable_structures:
-        for stable_struct in stable_structures:
+        for s in stable_structures:
+            struct = Structure.from_dict(s)
+            sga = SpacegroupAnalyzer(
+                struct,
+                symprec=0.1,
+                angle_tolerance=5,
+            )
+
+            try:
+                prim_struct = sga.get_primitive_standard_structure()
+            except:
+                prim_struct = sga.find_primitive() or struct
+
             add_structures(
                     "MPDB",
                     "mixed",
-                    [(stable_struct, None)]
+                    [(prim_struct.as_dict(), None)]
                 )
 
 def get_code(model_key):

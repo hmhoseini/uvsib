@@ -10,7 +10,7 @@ from uvsib.workchains.utils import get_code, get_model_device
 from uvsib.workflows import settings
 
 _EG_MIN = 0
-_EG_MAX = 4
+_EG_MAX = 6
 
 def get_struct_uuid(chemical_formula):
     """Query structures from the database and return list of (structure_dict, uuid)"""
