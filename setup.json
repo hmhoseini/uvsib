@@ -10,11 +10,10 @@
     "reentry_register": true,
     "python_requires": ">=3.10",
     "install_requires": [
-        "aiida-submission-controller==0.1.2", "mp-api", "moyopy"
+        "aiida-submission-controller==0.1.2", "mp-api"
     ],
     "entry_points": {
 	"aiida.calculations": [
-		"sleep = uvsib.codes.sleep.calculation:SleepCalculation",
 		"mattergen = uvsib.codes.mattergen.calculation:MatterGenCalculation",
 		"mattersim = uvsib.codes.mattersim.calculation:MatterSimCalculation",
 		"mace = uvsib.codes.mace.calculation:MACECalculation",

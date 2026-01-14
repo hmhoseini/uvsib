@@ -97,15 +97,13 @@ class SurfaceBuilderWorkChain(WorkChain):
                 failed_jobs += 1
                 continue
             output_dict = sfb_wch.called[-1].outputs.output_dict
-            try:
+            if output_dict:
                 self.ctx.slabs_uuid.append([output_dict["structures"], uuid_str])
-            except:
+            else:
                 self.report(f"Warning: no (orthogonal) slab was found for the structure with uuid={uuid_str}")
-
 
     def store_results(self):
         """Store results"""
-        return
         for slabs, uuid_str in self.ctx.slabs_uuid:
             for slab in slabs:
                 add_slab(uuid_str, slab)

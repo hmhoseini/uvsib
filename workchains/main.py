@@ -132,7 +132,7 @@ class MainWorkChain(WorkChain):
         """Should wait for another running WorckChain"""
         band_alignment_step_status = self.ctx.dbcomposition_row.step_status.get("band_alignment")
         if band_alignment_step_status in ["Running"]:
-            self.ctx.sts = "band_alignment"
+            self.ctx.sts = "band alignment"
             return True
         return False
 
@@ -140,6 +140,7 @@ class MainWorkChain(WorkChain):
         """Should wait for another running WorckChain"""
         surface_builder_step_status = self.ctx.dbcomposition_row.step_status.get("surface_builder")
         if surface_builder_step_status in ["Running"]:
+            self.ctx.sts = "surface builder"
             return True
         return False
 
@@ -147,6 +148,7 @@ class MainWorkChain(WorkChain):
         """Should wait for another running WorckChain"""
         adsorbates_step_status = self.ctx.dbcomposition_row.step_status.get("adsorbates")
         if adsorbates_step_status in ["Running"]:
+            self.ctx.sts = "adsorbates"
             return True
         return False
 

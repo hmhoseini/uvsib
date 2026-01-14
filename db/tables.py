@@ -105,11 +105,6 @@ class DBSurfaceAdsorbate(Base):
         ForeignKey("db_surface.id", ondelete="CASCADE"),
         nullable=False
     )
-    adsorbate_version_id = Column(
-        Integer,
-        ForeignKey("db_structure_version.id", ondelete="CASCADE"),
-        nullable=False
-    )
     adsorbate = Column(String, nullable=False)
     structure = Column(JSONB, nullable=False)  # slab + adsorbate
     energy = Column(DOUBLE_PRECISION, nullable=True)  # adsorption energy
