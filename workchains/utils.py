@@ -21,13 +21,13 @@ matcher = StructureMatcher(
     primitive_cell=True,
 )
 
-def refine_primitive_cell(struct_dict):
+def get_primitive_cell(struct_dict):
     """Refine a structure dictionary into its primitive cell"""
     structure = Structure.from_dict(struct_dict)
 
     sga = SpacegroupAnalyzer(
         structure,
-        symprec=0.1,
+        symprec=0.05,
         angle_tolerance=5,
     )
 
@@ -65,16 +65,7 @@ def unique_low_energy_chemsys(chemical_system, entries, method):
         if pd.get_e_above_hull(entry) > _EHULL:
             continue
 
-        sga = SpacegroupAnalyzer(
-            entry.structure,
-            symprec=0.1,
-            angle_tolerance=5,
-        )
-
-        try:
-            prim_struct = sga.get_primitive_standard_structure()
-        except:
-            prim_struct = sga.find_primitive() or entry.structure
+        prim_struct = get_primitive_cell(entry.structure.as_dict())
 
         if any(matcher.fit(prim_struct, s) for s in existing_structs):
             continue
@@ -100,16 +91,7 @@ def unique_low_energy_comp(chemical_formula, entries, method):
         if pd.get_e_above_hull(entry) > _EHULL:
             continue
 
-        sga = SpacegroupAnalyzer(
-            entry.structure,
-            symprec=0.1,
-            angle_tolerance=5,
-        )
-
-        try:
-            prim_struct = sga.get_primitive_standard_structure()
-        except:
-            prim_struct = sga.find_primitive() or entry.structure
+        prim_struct = get_primitive_cell(entry.structure.as_dict())
 
         if any(matcher.fit(prim_struct, s) for s in existing_structs):
             continue
@@ -126,17 +108,8 @@ def add_from_mpdb(chemical_formula):
     stable_structures = get_structures_from_mpdb_by_composition(chemical_formula, _EHULL)
     if stable_structures:
         for s in stable_structures:
-            struct = Structure.from_dict(s)
-            sga = SpacegroupAnalyzer(
-                struct,
-                symprec=0.1,
-                angle_tolerance=5,
-            )
 
-            try:
-                prim_struct = sga.get_primitive_standard_structure()
-            except:
-                prim_struct = sga.find_primitive() or struct
+            prim_struct = get_primitive_cell(s)
 
             add_structures(
                     "MPDB",
@@ -155,7 +128,7 @@ def get_model_device(ML_model):
     """Return (model_path, device) for the given ML model."""
     path_to_pretrained_models = settings.configs["models"]["path_to_pretrained_models"]
     model = settings.configs["models"][ML_model]
-    if ML_model in ["MatterGen"]:
+    if ML_model in ["MatterGen", "uPET"]:
         model_path = None
     else:
         model_path = os.path.join(path_to_pretrained_models, model)

@@ -34,7 +34,7 @@ def get_structure_uuid_surface_id(composition):
 
     return [(row.structure_uuid, row.surface_id) for row in results]
 
-def add_slab(existing_uuid, slab_structure):
+def add_slab(existing_uuid, slab_dict):
     with get_session() as session:
         structure_row = (
             session.query(DBStructure)
@@ -43,7 +43,7 @@ def add_slab(existing_uuid, slab_structure):
         )
         slab = DBSurface(
             structure_uuid=existing_uuid,
-            structure=slab_structure,
+            slab=slab_dict,
         )
 
         session.add(slab)

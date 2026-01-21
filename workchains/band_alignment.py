@@ -7,7 +7,7 @@ from aiida.engine import WorkChain
 from uvsib.codes.vasp.workchains import construct_vasp_builder
 from uvsib.codes.vasp.band_info import get_band_info, get_core_state
 from uvsib.db.utils import query_structure, add_version_to_existing_structure
-from uvsib.workchains.utils import refine_primitive_cell
+from uvsib.workchains.utils import get_primitive_cell
 from uvsib.workflows import settings
 
 def read_yaml(file_path):
@@ -79,10 +79,10 @@ class BandAlignmentWorkChain(WorkChain):
     def run_pbe(self):
         """Run PBE SP calculations """
         for struct_dict, uuid_str in self.ctx.struct_uuid:
-            pmg_structure = refine_primitive_cell(struct_dict)
+            pmg_structure = get_primitive_cell(struct_dict)
             builder = construct_vasp_builder(
                 StructureData(pymatgen=pmg_structure),
-                self.ctx.protocol["PBE"],
+                self.ctx.protocol["PBE_sp"],
                 self.ctx.potential_family,
                 self.ctx.potential_mapping,
                 self.ctx.vasp_code
@@ -120,7 +120,7 @@ class BandAlignmentWorkChain(WorkChain):
         for uuid_str in self.ctx.pbe_results:
             pbe_wch = self.ctx[f"pbe_{uuid_str}"]
             builder = construct_vasp_builder(
-                    pbe_wch.outputs.structure,
+                    pbe_wch.inputs.structure,
                     self.ctx.protocol["HSE"],
                     self.ctx.potential_family,
                     self.ctx.potential_mapping,

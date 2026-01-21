@@ -5,7 +5,7 @@ from aiida.engine import BaseRestartWorkChain, while_
 from aiida.orm import List, Dict, SinglefileData, Code
 from aiida.plugins import CalculationFactory
 from uvsib.workflows import settings
-
+from codes.utils import get_cmdline
 
 def get_options():
     """Return scheduler options"""
@@ -22,8 +22,6 @@ def get_options():
     }
     if job_script['exclusive']:
         options.update({'custom_scheduler_commands' : '#SBATCH --exclusive'})
-#    if job_script['gpu']:
-#        options.update({'custom_scheduler_commands' : '#SBATCH --exclusive'})
     return options
 
 def get_structures_file(structures):
@@ -35,44 +33,10 @@ def get_structures_file(structures):
         json.dump(structures, f)
     return SinglefileData(file=file_path)
 
-def get_cmdline(job_info):
-    """Construct MatterSim command line"""
-    job_type = job_info['job_type']
-    if job_type == 'relax':
-        cmdline = [
-            f"--model_path={job_info['model_path']}",
-            f"--device={job_info['device']}",
-            f"--fmax={job_info['fmax']}",
-            f"--max_steps={job_info['max_steps']}",
-        ]
-    elif job_type == 'facebuild':
-        cmdline = [
-            f"--bulk_energy={job_info['bulk_energy']}",
-            f"--model_path={job_info['model_path']}",
-            f"--device={job_info['device']}",
-            f"--fmax={job_info['fmax']}",
-            f"--max_steps={job_info['max_steps']}",
-            f"--max_miller_idx={job_info['max_miller_idx']}",
-            f"--percentage_to_select={job_info['percentage_to_select']}"
-        ]
-    elif job_type == 'adsorbates':
-        cmdline = [
-            f"--model_path={job_info['model_path']}",
-            f"--device={job_info['device']}",
-            f"--fmax={job_info['fmax']}",
-            f"--max_steps={job_info['max_steps']}",
-            f"--reaction={job_info['reaction']}"
-        ]
-    else:
-        cmdline = [
-            f"--model_path={job_info['model_path']}"
-        ]
-    return cmdline
-
 MatterSimCalculation = CalculationFactory('mattersim')
 
 class MatterSimWorkChain(BaseRestartWorkChain):
-    """BaseRestartWorkChain to run MatterSimCalculation with automatic restarts."""
+    """BaseRestartWorkChain to run MatterSimCalculation with automatic restarts"""
 
     _process_class = MatterSimCalculation
 

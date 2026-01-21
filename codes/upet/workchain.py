@@ -9,7 +9,7 @@ from codes.utils import get_cmdline
 
 def get_options():
     """Return scheduler options"""
-    job_script = settings.configs['codes']['MACE']['job_script']
+    job_script = settings.configs['codes']['uPET']['job_script']
     resources = {
         'num_machines': job_script['nodes'],
         'num_mpiprocs_per_machine': job_script['ntasks'],
@@ -18,7 +18,7 @@ def get_options():
     options = {
         'resources': resources,
         'max_wallclock_seconds': job_script['time'],
-        'parser_name': 'mace_parser'
+        'parser_name': 'upet_parser'
     }
     if job_script['exclusive']:
         options.update({'custom_scheduler_commands' : '#SBATCH --exclusive'})
@@ -33,12 +33,12 @@ def get_structures_file(structures):
         json.dump(structures, f)
     return SinglefileData(file=file_path)
 
-MACECalculation = CalculationFactory('mace')
+uPETCalculation = CalculationFactory('upet')
 
-class MACEWorkChain(BaseRestartWorkChain):
-    """BaseRestartWorkChain to run MACECalculation with automatic restarts"""
+class uPETWorkChain(BaseRestartWorkChain):
+    """BaseRestartWorkChain to run uPETCalculation with automatic restarts."""
 
-    _process_class = MACECalculation
+    _process_class = uPETCalculation
 
     @classmethod
     def define(cls, spec):
@@ -60,7 +60,7 @@ class MACEWorkChain(BaseRestartWorkChain):
         spec.exit_code(
             400,
             'ERROR_MAX_RESTARTS_EXCEEDED',
-            message='Maximum number of restarts exceeded for MACEWorkChain.'
+            message='Maximum number of restarts exceeded for uPETWorkChain.'
         )
 
     def setup(self):
@@ -81,6 +81,6 @@ class MACEWorkChain(BaseRestartWorkChain):
             }),
             'metadata': {
                 'options': get_options(),
-                'label': 'MACE calculation'
+                'label': 'uPET calculation'
             }
         }

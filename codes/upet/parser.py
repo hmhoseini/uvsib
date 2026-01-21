@@ -3,9 +3,9 @@ from aiida.common import exceptions
 from aiida.parsers import Parser
 from aiida.orm import Dict
 
-class MACEParser(Parser):
+class uPETParser(Parser):
     """
-    Parser for MACECalculation.
+    Parser for uPET Calculation
 
     Reads generated_crystals.extxyz directly from the retrieved folder
     into memory and converts all frames to StructureData.
@@ -31,7 +31,7 @@ class MACEParser(Parser):
         num_structures = int(content)
 
         failed_filename = 'failed.txt'
-        if failed_filename not in retrieved_folder.list_object_names():
+        if num_filename not in retrieved_folder.list_object_names():
             return self.exit_codes.ERROR_MISSING_OUTPUT
         with retrieved_folder.open(failed_filename, 'r') as f:
             content = f.read()

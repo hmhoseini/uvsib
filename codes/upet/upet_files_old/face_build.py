@@ -6,7 +6,7 @@ from pymatgen.io.ase import AseAtomsAdaptor
 from pymatgen.core import Lattice, Structure
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
 from pymatgen.core.surface import Slab, generate_all_slabs
-from mace.calculators import MACECalculator
+from upet.calculator import UPETCalculator
 
 def pmg_to_ase(slab):
     """
@@ -96,7 +96,7 @@ def process_slab(slab, target_vacuum=10.0, angle_tol=1.0):
     )
 
 def run_surface_builder(bulk_energy,
-                        model_path,
+                        model_name,
                         device,
                         fmax,
                         max_steps,
@@ -105,7 +105,7 @@ def run_surface_builder(bulk_energy,
     """
     Build and relax surfaces with given parameters
     """
-    mace_calc = MACECalculator(model_paths=model_path, device=device)
+    pet_calc = UPETCalculator(model=model_name, device=device)
 
     with open('input_structures.json', 'r') as f:
         structure_list = json.loads(f.read())
@@ -135,7 +135,7 @@ def run_surface_builder(bulk_energy,
 
     for slab in orth_slabs:
         atoms = pmg_to_ase(slab)
-        atoms.calc = mace_calc
+        atoms.calc = pet_calc
         relax = BFGSLineSearch(atoms, maxstep=0.1, logfile='opt.log')
         try:
             converged = relax.run(fmax=fmax, steps=max_steps)
@@ -156,7 +156,7 @@ def run_surface_builder(bulk_energy,
         slab_data.append({"atoms": atoms, "surface_energy": surface_energy})
 
     slab_data.sort(key=lambda x: x["surface_energy"])
-    n_select = max(1, int(len(slab_data) * percentage_to_select))
+    n_select = max(1, int(len(slab_data) * percentage_to_select/100))
     selected = slab_data[:n_select]
 
     built_faces = []
@@ -180,7 +180,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--bulk_energy", type=float)
-    parser.add_argument("--model_path", type=str)
+    parser.add_argument("--model_name", type=str)
     parser.add_argument("--device", type=str)
     parser.add_argument("--fmax", type=float)
     parser.add_argument("--max_steps", type=int)
@@ -188,5 +188,5 @@ if __name__ == "__main__":
     parser.add_argument("--percentage_to_select", type=float)
     args = parser.parse_args()
 
-    run_surface_builder(args.bulk_energy, args.model_path, args.device, args.fmax, args.max_steps,
+    run_surface_builder(args.bulk_energy, args.model_name, args.device, args.fmax, args.max_steps,
                         args.max_miller_idx, args.percentage_to_select)

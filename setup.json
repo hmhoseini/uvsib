@@ -10,19 +10,22 @@
     "reentry_register": true,
     "python_requires": ">=3.10",
     "install_requires": [
-        "aiida-submission-controller==0.1.2", "mp-api"
+        "aiida-submission-controller==0.1.2", "mp-api"," aiida-pythonjob==0.4.8"
+
     ],
     "entry_points": {
 	"aiida.calculations": [
 		"mattergen = uvsib.codes.mattergen.calculation:MatterGenCalculation",
 		"mattersim = uvsib.codes.mattersim.calculation:MatterSimCalculation",
 		"mace = uvsib.codes.mace.calculation:MACECalculation",
+		"upet = uvsib.codes.upet.calculation:uPETCalculation",
 		"mh = uvsib.codes.minimahopping.calculation:MinimaHoppingCalculation"
 	],
 	"aiida.parsers": [
 		"mattergen_parser = uvsib.codes.mattergen.parser:MatterGenParser",
 		"mattersim_parser = uvsib.codes.mattersim.parser:MatterSimParser",
 		"mace_parser = uvsib.codes.mace.parser:MACEParser",
+		"upet_parser = uvsib.codes.upet.parser:uPETParser",
 		"minimahopping_parser = uvsib.codes.minimahopping.parser:MinimaHoppingParser"
 	],
 	"aiida.workflows": [
@@ -30,6 +33,7 @@
 		"mattergen.csp = uvsib.codes.mattergen.workchain:MatterGenCSPWorkChain",
 		"mattersim = uvsib.codes.mattersim.workchain:MatterSimWorkChain",
 		"mace = uvsib.codes.mace.workchain:MACEWorkChain",
+		"upet = uvsib.codes.upet.workchain:uPETWorkChain",
 		"minimahopping = uvsib.codes.minimahopping.workchain:MinimaHoppingWorkChain",
 		"phasediagram = uvsib.workchains.phase_diagram:PhaseDiagramMLWorkChain",
 		"pdverification = uvsib.workchains.pd_verification:PDVerificationWorkChain",

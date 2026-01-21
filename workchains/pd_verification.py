@@ -6,7 +6,7 @@ from aiida.engine import WorkChain
 from uvsib.codes.vasp.workchains import construct_vasp_builder
 from uvsib.db.tables import DBComposition
 from uvsib.db.utils import query_structure, add_version_to_existing_structure, query_by_columns
-from uvsib.workchains.utils import refine_primitive_cell, unique_low_energy_comp, add_from_mpdb
+from uvsib.workchains.utils import get_primitive_cell, unique_low_energy_comp, add_from_mpdb
 from uvsib.workflows import settings
 
 def read_yaml(file_path):
@@ -88,7 +88,7 @@ class PDVerificationWorkChain(WorkChain):
     def run_scan(self):
         """Run r2SCAN geometry optimization"""
         for struct_dict, uuid_str in self.ctx.struct_uuid:
-            pmg_structure = refine_primitive_cell(struct_dict)
+            pmg_structure = get_primitive_cell(struct_dict)
             builder = construct_vasp_builder(
                 StructureData(pymatgen=pmg_structure),
                 self.ctx.protocol["r2SCAN"],

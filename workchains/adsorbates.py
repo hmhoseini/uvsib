@@ -52,7 +52,7 @@ class AdsorbatesWorkChain(WorkChain):
             surface_id = row[1]
             slab_row = query_by_columns(DBSurface, {"id":surface_id})[0]
             uuid_str = str(structure_uuid)
-            builder = self._construct_adsorbate_builder(slab_row.structure,
+            builder = self._construct_adsorbate_builder(slab_row.slab,
                                                         self.ctx.ML_model,
                                                         self.ctx.reaction)
             future = self.submit(builder)
@@ -81,30 +81,38 @@ class AdsorbatesWorkChain(WorkChain):
         self.report(f"AdsorbatesWorkChain for {self.ctx.chemical_formula} finished successfully")
 
     @staticmethod
-    def _construct_adsorbate_builder(ml_structure, ML_model, reaction):
+    def _construct_adsorbate_builder(slab, ML_model, reaction):
         """
         Builder for generating surface and surface optimiziation with MatterSim or MACE
         """
-        structure = [ml_structure]
+        structure = [slab]
+        slab_energy = slab["energy"]
 
-        Workflow = WorkflowFactory(ML_model.lower()) # "MatterSim" -> "mattersim", "MACE" -> "mace"
+        Workflow = WorkflowFactory(ML_model.lower())
 
         builder = Workflow.get_builder()
 
         builder.input_structures = List(structure)
         builder.code = get_code(ML_model)
 
-        _, model_path, device = get_model_device(ML_model)
+        model, model_path, device = get_model_device(ML_model)
 
         relax_key = "adsorbates"
+
         job_info = {
             "job_type": "adsorbates",
-            "model_path": model_path,
+            "ML_model": ML_model,
             "device": device,
+            "slab_energy": slab_energy,
             "fmax": settings.inputs[relax_key]["fmax"],
             "max_steps": settings.inputs[relax_key]["max_steps"],
             "reaction": reaction,
         }
+        if ML_model in ["uPET"]:
+            job_info.update({"model_name": model})
+        else:
+            job_info.update({"model_path": model_path})
 
         builder.job_info = Dict(job_info)
+
         return builder

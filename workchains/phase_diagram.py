@@ -182,7 +182,6 @@ class PhaseDiagramMLWorkChain(WorkChain):
 
         if not uuid_list:
             self.report(f"WARNING: no stable structure for {self.ctx.chemical_formula} has been found")
-#            return self.exit_codes.ERROR_CALCULATION_FAILED
 
         # add uuids of stable structures to the DBComposition table
         row = query_by_columns(DBComposition,

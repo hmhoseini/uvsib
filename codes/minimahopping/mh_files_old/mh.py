@@ -56,23 +56,32 @@ def run_mh(calc, mh_steps):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
+    parser.add_argument("--ML_model", type=str)
     parser.add_argument("--model", type=str)
     parser.add_argument("--model_path", type=str)
     parser.add_argument("--mh_steps", type=str)
     parser.add_argument("--device", type=str)
     args = parser.parse_args()
 
-    if "MACE" in args.model:
+    if "MACE" in args.ML_model:
         from mace.calculators import MACECalculator
         c = MACECalculator(
                 model_path=args.model_path,
                 device=args.device
         )
-    else:
+    elif "PET" in args.ML_model:
+        from upet.calculator import UPETCalculator
+        c = UPETCalculator(model=args.model, device=args.device)
+    elif "MatterSim" in args.ML_model:
         from mattersim.forcefield import MatterSimCalculator
         c = MatterSimCalculator(
                 load_path=args.model_path,
                 device=args.device
+        )
+    else:
+        raise ValueError(
+            f"Unknown ML_model '{args.ML_model}'. "
+            "Expected one of: MACE, PET, MatterSim."
         )
 
     run_mh(c, args.mh_steps)

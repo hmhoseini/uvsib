@@ -20,8 +20,9 @@ with open(os.path.join(run_dir, 'config.yaml'), 'r', encoding='utf8') as fhandle
 api_key = configs['MP_API_KEY']['api_key']
 
 code_folder_path =  os.path.join(uvsib_directory, 'codes')
-mattergen_files_path = os.path.join(code_folder_path, 'mattergen', 'mattergen_files')
-mattersim_files_path = os.path.join(code_folder_path, 'mattersim', 'mattersim_files')
-mace_files_path = os.path.join(code_folder_path, 'mace', 'mace_files')
-minimahopping_files_path = os.path.join(code_folder_path, 'minimahopping', 'mh_files')
-vasp_files_path = os.path.join(code_folder_path, 'vasp', 'vasp_files')
+mattergen_files_path = os.path.join(code_folder_path, 'files')
+mattersim_files_path = os.path.join(code_folder_path, 'files')
+mace_files_path = os.path.join(code_folder_path, 'files')
+upet_files_path = os.path.join(code_folder_path, 'files')
+minimahopping_files_path = os.path.join(code_folder_path, 'files')
+vasp_files_path = os.path.join(code_folder_path, 'files')

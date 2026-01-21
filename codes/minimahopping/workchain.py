@@ -24,12 +24,22 @@ def get_options():
 
 def get_cmdline(job_info):
     """Construct MinimaHopping command line"""
-    cmdline = [
-        f"--model={job_info['model']}",
-        f"--model_path={job_info['model_path']}",
+    cmdline = []
+
+    cmdline.append(f"--ML_model={job_info['ML_model']}")
+
+    model_name = job_info.get("model_name")
+    model_path = job_info.get("model_path")
+
+    if model_name:
+        cmdline.append(f"--model={model_name}")
+    if model_path:
+        cmdline.append(f"--model_path={model_path}")
+
+    cmdline.extend([
         f"--mh_steps={job_info['mh_steps']}",
-        f"--device={job_info['device']}",
-    ]
+        f"--device={job_info['device']}"]
+        )
     return cmdline
 
 MinimaHoppingCalculation = CalculationFactory('mh')

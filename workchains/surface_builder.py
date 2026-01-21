@@ -79,7 +79,7 @@ class SurfaceBuilderWorkChain(WorkChain):
     def run_facebuild(self):
         """Run SurfaceBuilder Workchain"""
         for struct_dict, uuid_str in self.ctx.struct_uuid:
-            structure_row = query_structure({"uuid": uuid_str}, method = "PBE")[0]
+            structure_row = query_structure({"uuid": uuid_str}, method = "r2SCAN")[0]
             bulk_energy = structure_row.energy
             builder = self._construct_facebuild_builder(
                     struct_dict,
@@ -98,7 +98,7 @@ class SurfaceBuilderWorkChain(WorkChain):
                 continue
             output_dict = sfb_wch.called[-1].outputs.output_dict
             if output_dict:
-                self.ctx.slabs_uuid.append([output_dict["structures"], uuid_str])
+                self.ctx.slabs_uuid.append([output_dict["slabs"], uuid_str])
             else:
                 self.report(f"Warning: no (orthogonal) slab was found for the structure with uuid={uuid_str}")
 
@@ -119,19 +119,20 @@ class SurfaceBuilderWorkChain(WorkChain):
         """
         structure = [ml_structure]
 
-        Workflow = WorkflowFactory(ML_model.lower()) # "MatterSim" -> "mattersim", "MACE" -> "mace"
+        Workflow = WorkflowFactory(ML_model.lower())
 
         builder = Workflow.get_builder()
 
         builder.input_structures = List(structure)
         builder.code = get_code(ML_model)
 
-        _, model_path, device = get_model_device(ML_model)
+        model, model_path, device = get_model_device(ML_model)
 
         relax_key = "face_build"
+
         job_info = {
             "job_type": "facebuild",
-            "model_path": model_path,
+            "ML_model": ML_model,
             "device": device,
             "fmax": settings.inputs[relax_key]["fmax"],
             "max_steps": settings.inputs[relax_key]["max_steps"],
@@ -139,6 +140,11 @@ class SurfaceBuilderWorkChain(WorkChain):
             "bulk_energy": ml_energy,
             "percentage_to_select": settings.inputs[relax_key]["percentage_to_select"]
         }
+        if ML_model in ["uPET"]:
+            job_info.update({"model_name": model})
+        else:
+            job_info.update({"model_path": model_path})
 
         builder.job_info = Dict(job_info)
+
         return builder

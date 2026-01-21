@@ -187,23 +187,28 @@ class CSPWorkChain(WorkChain):
         ML_model = self.ctx.ML_model
         structures = self.ctx.csp_structures
 
-        Workflow = WorkflowFactory(ML_model.lower()) # "MatterSim" -> "mattersim", "MACE" -> "mace"
+        Workflow = WorkflowFactory(ML_model.lower())
 
         builder = Workflow.get_builder()
 
         builder.input_structures = List(structures)
         builder.code = get_code(ML_model)
 
-        _, model_path, device = get_model_device(ML_model)
+        model, model_path, device = get_model_device(ML_model)
 
         relax_key = "bulk_relax"
+
         job_info = {
             "job_type": "relax",
-            "model_path": model_path,
+            "ML_model": ML_model,
             "device": device,
             "fmax": settings.inputs[relax_key]["fmax"],
             "max_steps": settings.inputs[relax_key]["max_steps"],
         }
+        if ML_model in ["uPET"]:
+            job_info.update({"model_name": model})
+        else:
+            job_info.update({"model_path": model_path})
 
         builder.job_info = Dict(job_info)
         return builder
@@ -215,14 +220,19 @@ class CSPWorkChain(WorkChain):
         builder.structure = struct
         builder.code = get_code("MinimaHopping")
 
-        _, model_path, device = get_model_device(ML_model)
-        builder.job_info = Dict(
-            {
-             "model": ML_model,
-             "model_path": model_path,
+        model, model_path, device = get_model_device(ML_model)
+
+        job_info = {
+             "ML_model": ML_model,
              "device": device,
              "mh_steps": settings.inputs["MinimaHopping"]["mh_steps"],
              "fmax": settings.inputs["MinimaHopping"]["fmax"],
             }
-        )
+        if ML_model in ["uPET"]:
+            job_info.update({"model_name": model})
+        else:
+            job_info.update({"model_path": model_path})
+
+        builder.job_info = Dict(job_info)
+
         return builder

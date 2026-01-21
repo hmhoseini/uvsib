@@ -9,7 +9,6 @@ from cluskit import Cluster, utils
 from pymatgen.core import Lattice, Structure
 from pymatgen.core.surface import Slab
 from scipy.spatial import distance_matrix, Delaunay
-from mattersim.forcefield import MatterSimCalculator
 
 def simple_delaunator(xyz, rcut):
     """
@@ -138,21 +137,24 @@ def pmg_to_ase(pmg_structure):
     )
 
 def generate_adsorbates(reaction):
-    """Return a list of ASE Atoms objects for a given adsorbate label"""
-    if reaction == "WS":
+    """Return a list of ASE Atoms objects for a given reaction"""
+    if reaction == "OER":
         return [
-            Atoms("XH", positions=[(0, 0, 0), (0, 0, 1.0)],
-                  info={"adsorbate": "H", "energy": -3.05}), #TODO calculate the energy for the isolated adsorbate
-            Atoms("XO", positions=[(0, 0, 0), (0, 0, 3.1)],
-                  info={"adsorbate": "O", "energy": -1.65}),
-            Atoms("XOH", positions=[(0, 0, 0), (0, 0, 3.1), (0.1, 0.1, 4.1)],
-                  info={"adsorbate": "OH", "energy": 7.55}),
-            Atoms("XOOH", positions=[(0, 0, 0), (0, 0, 3.1), (0.1, 0.1, 5.2), (-0.1, -0.1, 6.2)],
-                  info={"adsorbate": "OH", "energy": 7.55}),
-        ]
-    return []
+           Atoms(symbols='X', positions=[(0, 0, 0)],
+                 info={'adsorbate': '*', 'energy': 0}),
+           Atoms(symbols="XO", positions=[(0, 0, 0), (0, 0, 2.0)],
+                 info={"adsorbate": "*O", "energy": 0}),
+           Atoms(symbols="XOH", positions=[(0, 0, 0), (0, 0, 2.0), (0.1, 0.9, 2.9)],
+                 info={"adsorbate": "*OH", "energy": 0}),
+           Atoms(symbols="XOOH", positions=[(0, 0, 0), (0, 0, 2.0), (1.2, -0.2, 2.8), (0.8, -0.2, 3.7)],
+                 info={"adsorbate": "*OOH", "energy": 0})
+       ]
+    elif reaction == "CO2RR":
+        return []
+    else:  # not implemented case
+        raise NotImplementedError('Reaction {} not implemented'.format(reaction))
 
-def run_add_adsorbates(model_path, device, fmax, max_steps, reaction):
+def run_add_adsorbates(slab_energy, calc, fmax, max_steps, reaction):
     """Run"""
     with open('input_structures.json', 'r') as f:
         data = json.load(f)
@@ -164,7 +166,6 @@ def run_add_adsorbates(model_path, device, fmax, max_steps, reaction):
     clean_slab.set_constraint(FixAtoms(indices=fixed_ids))
 
     adsorbates = generate_adsorbates(reaction)
-    mattersim_calc = MatterSimCalculator(load_path=model_path, device=device)
 
     built_faces = []
     for ad in adsorbates:
@@ -181,7 +182,7 @@ def run_add_adsorbates(model_path, device, fmax, max_steps, reaction):
     num_failed = 0
     tmp_data = defaultdict(list)
     for ad, atoms in built_faces:
-        atoms.calc = mattersim_calc
+        atoms.calc = calc
         relax = BFGSLineSearch(atoms, maxstep=0.1, logfile='opt.log')
         try:
             relax.run(fmax=fmax, steps=max_steps)
@@ -208,6 +209,10 @@ def run_add_adsorbates(model_path, device, fmax, max_steps, reaction):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+
+    parser.add_argument("--slab_energy", type=float)
+    parser.add_argument("--ML_model", type=str)
+    parser.add_argument("--model", type=str)
     parser.add_argument("--model_path", type=str)
     parser.add_argument("--device", type=str)
     parser.add_argument("--fmax", type=float)
@@ -215,4 +220,32 @@ if __name__ == "__main__":
     parser.add_argument("--reaction", type=str)
     args = parser.parse_args()
 
-    run_add_adsorbates(args.model_path, args.device, args.fmax, args.max_steps, args.reaction)
+    if "MACE" in args.ML_model:
+        from mace.calculators import MACECalculator
+        calc = MACECalculator(
+                model_paths=args.model_path,
+                device=args.device
+        )
+    elif "PET" in args.ML_model:
+        from upet.calculator import UPETCalculator
+        calc = UPETCalculator(
+                model=args.model,
+                device=args.device
+        )
+    elif "MatterSim" in args.ML_model:
+        from mattersim.forcefield import MatterSimCalculator
+        calc = MatterSimCalculator(
+                load_path=args.model_path,
+                device=args.device
+        )
+    else:
+        raise ValueError(
+            f"Unknown ML_model '{args.ML_model}'. "
+            "Expected one of: MACE, PET, MatterSim."
+        )
+
+    run_add_adsorbates(args.slab_energy,
+                       calc,
+                       args.fmax,
+                       args.max_steps,
+                       args.reaction)

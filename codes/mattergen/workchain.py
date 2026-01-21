@@ -20,8 +20,6 @@ def get_options():
     }
     if job_script['exclusive']:
         options.update({'custom_scheduler_commands' : '#SBATCH --exclusive'})
-#    if job_script['gpu']:
-#        options.update({'custom_scheduler_commands' : '#SBATCH '})
 
     return options
 
