@@ -11,6 +11,7 @@ from pymatgen.core.surface import Slab
 from scipy.spatial import distance_matrix, Delaunay
 from mace.calculators import MACECalculator
 
+
 def simple_delaunator(xyz, rcut):
     """
     Simplified surface detector for slabs or nanoclusters.
@@ -142,7 +143,7 @@ def generate_adsorbates(reaction):
     if reaction == "WS":
         return [
             Atoms("XH", positions=[(0, 0, 0), (0, 0, 1.0)],
-                  info={"adsorbate": "H", "energy": -3.05}), #TODO calculate the energy for the isolated adsorbate
+                  info={"adsorbate": "H", "energy": -3.05}),
             Atoms("XO", positions=[(0, 0, 0), (0, 0, 3.1)],
                   info={"adsorbate": "O", "energy": -1.65}),
             Atoms("XOH", positions=[(0, 0, 0), (0, 0, 3.1), (0.1, 0.1, 4.1)],
@@ -205,12 +206,13 @@ def run_add_adsorbates(model_path, device, fmax, max_steps, reaction):
         f.write(str(num_failed))
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--model_path", type=str)
-    parser.add_argument("--device", type=str)
-    parser.add_argument("--fmax", type=float)
-    parser.add_argument("--max_steps", type=int)
-    parser.add_argument("--reaction", type=str)
-    args = parser.parse_args()
-
-    run_add_adsorbates(args.model_path, args.device, args.fmax, args.max_steps, args.reaction)
+    assert 1 == 2
+    # parser = argparse.ArgumentParser()
+    # parser.add_argument("--model_path", type=str)
+    # parser.add_argument("--device", type=str)
+    # parser.add_argument("--fmax", type=float)
+    # parser.add_argument("--max_steps", type=int)
+    # parser.add_argument("--reaction", type=str)
+    # args = parser.parse_args()
+    #
+    # run_add_adsorbates(args.model_path, args.device, args.fmax, args.max_steps, args.reaction)

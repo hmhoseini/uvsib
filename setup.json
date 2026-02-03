@@ -10,7 +10,7 @@
     "reentry_register": true,
     "python_requires": ">=3.10",
     "install_requires": [
-        "aiida-submission-controller==0.1.2", "mp-api"
+        "aiida-submission-controller==0.1.2", "mp-api", "aiida-vasp==4.1.0", "ase==3.23.0"
     ],
     "entry_points": {
 	"aiida.calculations": [
