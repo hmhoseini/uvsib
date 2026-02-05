@@ -234,7 +234,7 @@ class AdsorbatesWorkChain(WorkChain):
                                                                    self.ctx.potentials, self.ctx.vasp_code)
                     future = self.submit(builder)
                     self.to_context(**{f'final_adsorption_r2scan_{uuid_str}_{idx}_{adsorbate}': future})
-                # break  # debug janK
+                break  # debug janK
 
     def inspect_r2scan(self):
         """Inspect r2SCAN adsorbates WorkChain"""
