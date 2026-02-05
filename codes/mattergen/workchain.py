@@ -4,6 +4,7 @@ from aiida.orm import Str, Dict, Code
 from aiida.plugins import CalculationFactory
 from uvsib.workflows import settings
 
+
 def get_options():
     """Return scheduler options"""
     job_script = settings.configs['codes']['MatterGen']['job_script']
@@ -29,7 +30,7 @@ def get_cmdline(chemical_system, job_info, diffusion_guidance_factor = 2.0):
     """Construct MatterGen command line"""
 
     return [
-        "$RESULTS_PATH",
+        ".",
         f"--pretrained-name={job_info['model_name']}",
         f"--batch_size={job_info['batch_size']}",
         f"--num_batches={job_info['num_batches']}",
@@ -47,7 +48,7 @@ def get_cmdline_csp(chemical_formula, job_info):
     inner = ", ".join(f"\'{k}\': {int(coef*v)}" for k, v in el_amt.items())
     target_str = f"{{{inner}}}"
     return [
-        "$RESULTS_PATH",
+        ".",
         "--sampling-config-name=csp",
         f"--model_path={job_info['model_path']}",
         f"--batch_size={job_info['batch_size']}",
@@ -57,6 +58,7 @@ def get_cmdline_csp(chemical_formula, job_info):
     ]
 
 MatterGenCalculation = CalculationFactory('mattergen')
+
 
 class MatterGenBaseWorkChain(BaseRestartWorkChain):
     """BaseRestartWorkChain to run MatterGenCalculation with automatic restarts"""
@@ -103,6 +105,7 @@ class MatterGenBaseWorkChain(BaseRestartWorkChain):
                 'label': 'MatterGen calculation'
             }
         }
+
 
 class MatterGenCSPWorkChain(BaseRestartWorkChain):
     """BaseRestartWorkChain to run MatterGenCalculation with automatic restarts"""
