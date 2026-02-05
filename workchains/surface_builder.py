@@ -106,8 +106,8 @@ class SurfaceBuilderWorkChain(WorkChain):
         """Store results"""
         for slabs, uuid_str in self.ctx.slabs_uuid:
             for slab in slabs:
-                # add_slab(uuid_str, slab)
                 print(uuid_str, slab)
+                add_slab(uuid_str, slab)
 
 
     def final_report(self):
