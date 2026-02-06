@@ -115,6 +115,7 @@ class SurfaceBuilderWorkChain(WorkChain):
                     print('undef col error')
                     print('contents: UUID: ', uuid_str)
                     print('SLAB: ',slab)
+                    assert 1 == 2
 
 
     def final_report(self):
