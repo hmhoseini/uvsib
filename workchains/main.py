@@ -377,7 +377,7 @@ class MainWorkChain(WorkChain):
                      "step_status": row.step_status
                     }
             )
-            self.report("Adsorbated WorkChain failed")
+            self.report("Adsorbates WorkChain failed")
             return self.exit_codes.ERROR_CALCULATION_FAILED
 
         # update row status in DBComposition table

@@ -1,13 +1,15 @@
 import os
 import yaml
-from pymatgen.core.structure import Structure
+# from pymatgen.core.structure import Structure
 from aiida.engine import WorkChain
 from aiida.plugins import WorkflowFactory
 from aiida.orm import Str, List, Dict, StructureData, load_code
-from uvsib.codes.vasp.workchains import construct_vasp_builder
+# from uvsib.codes.vasp.workchains import construct_vasp_builder
 from uvsib.db.utils import query_structure, add_slab
 from uvsib.workchains.utils import get_code, get_model_device
 from uvsib.workflows import settings
+from psycopg.errors import UndefinedColumn
+
 
 _EG_MIN = 0
 _EG_MAX = 6
@@ -107,7 +109,12 @@ class SurfaceBuilderWorkChain(WorkChain):
         for slabs, uuid_str in self.ctx.slabs_uuid:
             for slab in slabs:
                 print(uuid_str, slab)
-                add_slab(uuid_str, slab)
+                try:
+                    add_slab(uuid_str, slab)
+                except UndefinedColumn:
+                    print('undef col error')
+                    print('contents: UUID: ', uuid_str)
+                    print('SLAB: ',slab)
 
 
     def final_report(self):
@@ -120,14 +127,10 @@ class SurfaceBuilderWorkChain(WorkChain):
         Builder for generating surface and surface optimiziation with MatterSim or MACE
         """
         structure = [ml_structure]
-
-        Workflow = WorkflowFactory(ML_model.lower()) # "MatterSim" -> "mattersim", "MACE" -> "mace"
-
+        Workflow = WorkflowFactory(ML_model.lower())
         builder = Workflow.get_builder()
-
         builder.input_structures = List(structure)
         builder.code = get_code(ML_model)
-
         _, model_path, device = get_model_device(ML_model)
 
         relax_key = "face_build"
