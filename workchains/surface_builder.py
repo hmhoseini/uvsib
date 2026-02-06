@@ -9,6 +9,7 @@ from uvsib.db.utils import query_structure, add_slab
 from uvsib.workchains.utils import get_code, get_model_device
 from uvsib.workflows import settings
 from psycopg.errors import UndefinedColumn
+from sqlalchemy.exc import ProgrammingError
 
 
 _EG_MIN = 0
@@ -111,10 +112,9 @@ class SurfaceBuilderWorkChain(WorkChain):
                 print(uuid_str, slab)
                 try:
                     add_slab(uuid_str, slab)
-                except UndefinedColumn:
-                    print('undef col error')
+                except UndefinedColumn or ProgrammingError:
                     print('contents: UUID: ', uuid_str)
-                    print('SLAB: ',slab)
+                    print('SLAB: ', slab)
                     assert 1 == 2
 
 
