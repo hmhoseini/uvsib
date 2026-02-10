@@ -11,6 +11,7 @@ from uvsib.db.utils import add_structures
 from uvsib.workflows import settings
 
 StructureData = DataFactory('core.structure')
+_DFT_FUNC = "r2SCAN"
 
 class CSPWorkChain(WorkChain):
     """WorkChain for Crystal Structure Prediction (CSP)"""
@@ -98,7 +99,7 @@ class CSPWorkChain(WorkChain):
         self.ctx.low_energy_entries_csp = unique_low_energy_comp(
                 self.ctx.chemical_formula,
                 new_entries,
-                "GGA"
+                _DFT_FUNC
         )
 
     def minimahopping(self):
@@ -135,7 +136,7 @@ class CSPWorkChain(WorkChain):
         self.ctx.low_energy_entries_mh = unique_low_energy_comp(
                 self.ctx.chemical_formula,
                 new_entries,
-                "GGA"
+                _DFT_FUNC
         )
 
     def final_step(self):
@@ -145,7 +146,7 @@ class CSPWorkChain(WorkChain):
         low_energy_entries = unique_low_energy_comp(
                 self.ctx.chemical_formula,
                 all_entries,
-                "GGA"
+                _DFT_FUNC
         )
         structure_energy_pairs = []
 

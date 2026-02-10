@@ -7,7 +7,7 @@ from ase.filters import FrechetCellFilter
 
 def ase_to_pmg(atoms):
     """
-    Convert an ASE Atoms object to a pymatgen Structure dictionary
+    Convert an ASE Atoms object to a pymatgen Structure
     """
     lattice = atoms.cell.array.tolist()
     symbols = atoms.get_chemical_symbols()
@@ -21,12 +21,11 @@ def ase_to_pmg(atoms):
 
 def pmg_to_ase(pmg_structure):
     """
-    Convert a pymatgen Structure to an ASE Atoms object.
+    Convert a pymatgen Structure to an ASE Atoms object
     """
     scaled_positions = pmg_structure.frac_coords
     symbols = [str(site.specie) for site in pmg_structure.sites]
     cell = pmg_structure.lattice.matrix
-
     return Atoms(
         symbols=symbols,
         scaled_positions=scaled_positions,

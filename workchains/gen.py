@@ -10,6 +10,8 @@ from uvsib.workchains.utils import (get_output_as_entry,
                              )
 from uvsib.workflows import settings
 
+_DFT_FUNC = "r2SCAN"
+
 class GeneratorWorkChain(WorkChain):
     """Work chain for generating structures"""
 
@@ -92,7 +94,7 @@ class GeneratorWorkChain(WorkChain):
             low_energy_entries = unique_low_energy_chemsys(
                     chemical_system,
                     new_entries,
-                    "GGA"
+                    _DFT_FUNC
             )
             structure_energy_pairs = []
 

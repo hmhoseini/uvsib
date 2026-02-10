@@ -100,15 +100,21 @@ class DBSurfaceAdsorbate(Base):
     __tablename__ = "db_surface_adsorbate"
 
     id = Column(Integer, primary_key=True)
+    structure_uuid = Column(
+        UUID(as_uuid=True),
+        ForeignKey("db_structure.uuid", ondelete="CASCADE"),
+        nullable=False
+    )
     surface_id = Column(
         Integer,
         ForeignKey("db_surface.id", ondelete="CASCADE"),
         nullable=False
     )
     reaction = Column(String, nullable=False)
-    adsorbate = Column(String, nullable=False)
-    structure = Column(JSONB, nullable=False)  # slab + adsorbate
-    energy = Column(DOUBLE_PRECISION, nullable=False)  # adsorption energy
+    site_map = Column(String, nullable=False)
+    unique_idx = Column(String, nullable=False)
+    dG = Column(DOUBLE_PRECISION, nullable=True) 
+    adsorb_set = Column(JSONB, nullable=False) # structures & energies
     attributes = Column(JSONB, nullable=True)
     ctime = Column(DateTime(timezone=True), server_default=func.now())
     mtime = Column(DateTime(timezone=True), onupdate=func.now())

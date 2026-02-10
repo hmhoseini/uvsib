@@ -73,6 +73,35 @@ PBE_slab:
     PREC: Accurate
     SIGMA: 0.05
     SYMPREC: 1.0E-5
+r2SCAN_slab:
+  name: r2SCAN_slab
+  kpoint_distance: 0.25
+  incar:
+    ADDGRID: True
+    ALGO: All
+    EDIFF: 1.0e-04
+    EDIFFG: -0.1
+    ENCUT: 600
+    IBRION: 1
+    ISMEAR: 0
+    ISIF: 0
+    ISPIN: 1
+    ISYM: 2
+    KPAR: 4
+    LCHARG: True
+    LMAXMIX: 2
+    LREAL: Auto
+    LASPH: True
+    LWAVE: False
+    METAGGA: R2SCAN
+    NCORE: 4
+    NELM: 100
+    NELMIN: 6
+    NSW: 100 
+    POTIM: 0.2
+    PREC: Normal
+    SIGMA: 0.05
+    SYMPREC: 1.0E-5
 r2SCAN:
   name: r2SCAN
   kpoint_distance: 0.25

@@ -1,5 +1,7 @@
 import os
 import json
+import numpy as np
+from ase.constraints import FixAtoms
 from pymatgen.core import Lattice, Structure
 from pymatgen.entries.computed_entries import ComputedStructureEntry
 from mp_api.client import MPRester
@@ -74,14 +76,26 @@ def pmg_to_ase(structure):
 
 def ase_to_pmg(atoms):
     """
-    Convert an ASE Atoms object to a pymatgen Structure dictionary
+    Convert an ASE Atoms object to a pymatgen Structure 
     """
     lattice = atoms.cell.array.tolist()
     symbols = atoms.get_chemical_symbols()
     frac_coords = atoms.get_scaled_positions().tolist()
     lattice_obj = Lattice(lattice)
-    structure = Structure(lattice_obj, symbols, frac_coords, coords_are_cartesian=False)
-    return structure.as_dict()
+
+    selective_dynamics = [[True, True, True] for _ in atoms]
+
+    for constraint in atoms.constraints:
+        if isinstance(constraint, FixAtoms):
+            for idx in constraint.index:
+                selective_dynamics[idx] = [False, False, False]
+    return Structure(
+        lattice=Lattice(lattice),
+        species=symbols,
+        coords=frac_coords,
+        coords_are_cartesian=False,
+        site_properties={"selective_dynamics": selective_dynamics},
+    )
 
 def get_structures_from_mpdb_by_composition(chemical_formula, e_hull):
     """Get the most stable structures from the MPDB"""

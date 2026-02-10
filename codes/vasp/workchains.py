@@ -17,10 +17,17 @@ def get_options(protocol_name):
         options.update({"custom_scheduler_commands" : "#SBATCH --exclusive"})
     return options
 
+def get_selective_dynamics(structure):
+    site_props = structure.base.attributes.all.get('site_properties', {})
+    return site_props.get('selective_dynamics', None)
+
 def construct_vasp_builder(structure, protocol, potential_family, potential_mapping, vasp_code, parent_folder = None):
     """VASP Builder"""
     upd = VaspBuilderUpdater()
     upd.builder.structure = structure
+    selective_dynamics = get_selective_dynamics(structure)
+    if selective_dynamics is not None:
+        upd.builder.dynamics.positions_dof = selective_dynamics
     upd.builder.parameters = Dict(dict={"incar":protocol["incar"]})
     upd.builder.potential_family = Str(potential_family)
     upd.builder.potential_mapping = Dict(dict=potential_mapping)

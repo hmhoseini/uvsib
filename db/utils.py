@@ -3,19 +3,29 @@ from sqlalchemy import inspect, delete, select, text
 from sqlalchemy.orm import aliased
 from pymatgen.core import Composition, Structure
 from uvsib.db.session import get_session
-from uvsib.db.tables import DBChemsys, DBStructure, DBStructureVersion, DBSurface
+from uvsib.db.tables import DBChemsys, DBStructure, DBStructureVersion, DBSurface, DBSurfaceAdsorbate
 
-def add_surface_adsorbate(structure_uuid, adsorbate_name, structure, adsorption_energy, attributes = None):
-    """Store a new DBSurfaceAdsorbate row corresponding to a given DBStructure UUID."""
+def add_surface_adsorbate(existing_uuid, surf_id, reac, s_m, u_idx, dg, ad_set, attributes = None):
+    """Store a new DBSurfaceAdsorbate row corresponding to a given DBStructure UUID and surface ID"""
     with get_session() as session:
-        pass
+        adsorb = DBSurfaceAdsorbate(
+                structure_uuid=existing_uuid,
+                surface_id=surf_id,
+                reaction=reac,
+                site_map=s_m,
+                unique_idx=u_idx,
+                dG=dg,
+                adsorb_set=ad_set
+        )
+        session.add(adsorb)
+        session.commit()
 
     return True
 
 def get_structure_uuid_surface_id(composition):
     """
     Return (structure_uuid, surface_id) tuples for all DBStructure rows
-    with the given composition that have corresponding DBSurface entries.
+    with the given composition that have corresponding DBSurface entries
     """
     structure = aliased(DBStructure)
     surface = aliased(DBSurface)
@@ -36,11 +46,6 @@ def get_structure_uuid_surface_id(composition):
 
 def add_slab(existing_uuid, slab_dict):
     with get_session() as session:
-        structure_row = (
-            session.query(DBStructure)
-            .filter_by(uuid=existing_uuid)
-            .first()
-        )
         slab = DBSurface(
             structure_uuid=existing_uuid,
             slab=slab_dict,
@@ -48,7 +53,7 @@ def add_slab(existing_uuid, slab_dict):
 
         session.add(slab)
         session.commit()
-        return True
+    return True
 
 ####################################
 
@@ -137,23 +142,23 @@ def add_version_to_existing_structure(
         )
         session.add(db_version)
         session.commit()
-        return True
+    return True
 
 def delete_structure(structure_filters: dict, **version_filters):
     """
-    Delete DBStructureVersion entries (and possibly their parent DBStructure).
+    Delete DBStructureVersion entries (and possibly their parent DBStructure)
     
     Parameters
     ----------
     structure_filters : dict
-        Filters for DBStructure (e.g., {'uuid': '...'}).
+        Filters for DBStructure (e.g., {'uuid': '...'})
     version_filters : dict
-        Filters for DBStructureVersion (e.g., version=1, status='draft').
+        Filters for DBStructureVersion (e.g., version=1, status='draft')
     
     Returns
     -------
     int
-        Number of DBStructureVersion rows deleted.
+        Number of DBStructureVersion rows deleted
     """
     deleted_count = 0
 
@@ -225,7 +230,7 @@ def query_structureversions_by_attributes(**filters):
 
 def query_by_columns(table_class, filters):
     """
-    Query a given table for rows matching all column-value pairs in `filters`.
+    Query a given table for rows matching all column-value pairs in "filters"
     Args:
         table_name (str): Name of the table
         filters (dict): Dictionary of column names and their expected values
@@ -247,9 +252,7 @@ def query_by_columns(table_class, filters):
 ####################################
 
 def get_chemical_systems(chemical_formula, new=True):
-    """
-    Given a chemical formula, return iether all or new chemical systems.
-    """
+    """Given a chemical formula, return iether all or new chemical systems"""
     comp = Composition(chemical_formula)
     elements = sorted(el.symbol for el in comp.elements)
 
@@ -278,7 +281,7 @@ def get_chemical_systems(chemical_formula, new=True):
 
 def update_row(table_class, uuid_value, columns_values):
     """
-    Update a row in a table by uuid (overwrite existing data).
+    Update a row in a table by uuid (overwrite existing data)
     Args:
         table_class: table class (declarative)
         uuid_value: UUID value (either UUID object or str)
@@ -299,7 +302,7 @@ def update_row(table_class, uuid_value, columns_values):
 
 def add_row(table_class, rows_data):
     """
-    Add one or more rows to a table.
+    Add one or more rows to a table
 
     Parameters:
     - table_class
@@ -364,9 +367,7 @@ def delete_all_rows(session, table_class):
         session.close()
 
 def print_all_rows(session, table_class):
-    """
-    Reflect the table by name and print all rows.
-    """
+    """Reflect the table by name and print all rows"""
     rows = []
     rows = get_table_data(session, table_class)
     if rows:

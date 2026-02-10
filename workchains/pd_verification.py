@@ -1,6 +1,8 @@
 import os
 import yaml
 from pymatgen.entries.computed_entries import ComputedStructureEntry
+from pymatgen.analysis.structure_matcher import StructureMatcher
+from pymatgen.core.structure import Structure
 from aiida.orm import Str, load_code, StructureData
 from aiida.engine import WorkChain
 from uvsib.codes.vasp.workchains import construct_vasp_builder
@@ -16,6 +18,52 @@ def read_yaml(file_path):
     return data
 
 def get_struct_uuid(chemical_formula, method):
+    """Query structures from the database by formula and method.
+    Return list of (structure, uuid), keeping only unique structures.
+    MPDB results (if exist) are always preserved.
+    """
+    matcher = StructureMatcher(
+        ltol=0.3,
+        stol=0.5,
+        angle_tol=7,
+        scale=True,
+        attempt_supercell=False,
+        allow_subset=False,
+        primitive_cell=True,
+    )
+
+    struct_uuid = []
+
+    mpdb_results = query_structure(
+        {"composition": chemical_formula},
+        source="MPDB"
+    )
+    if mpdb_results:
+        for result in mpdb_results:
+            struct_uuid.append((result.structure, result.structure_uuid))
+
+    row = query_by_columns(DBComposition, {"composition": chemical_formula})[0]
+    uuid_list = row.stable_struct.get("ml_uuid_list", [])
+
+    for uuid_str in uuid_list:
+        result = query_structure({"uuid": uuid_str}, method=method)
+        if not result:
+            continue
+
+        structure = result[0].structure
+
+        is_duplicate = False
+        for kept_structure, _ in struct_uuid:
+            if matcher.fit(Structure.from_dict(kept_structure), Structure.from_dict(structure)):
+                is_duplicate = True
+                break
+
+        if not is_duplicate:
+            struct_uuid.append((structure, uuid_str))
+
+    return struct_uuid
+
+def get_struct_uuid_old(chemical_formula, method):
     """Query structures from the database by formula and methed.
     Return list of (structure_dict, uuid)
     """

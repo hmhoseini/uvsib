@@ -19,18 +19,17 @@ matcher = StructureMatcher(
 
 def ase_to_pmg(atoms):
     """
-    Convert an ASE Atoms object to a pymatgen Structure dictionary
+    Convert an ASE Atoms object to a pymatgen Structure
     """
     lattice = atoms.cell.array.tolist()
     symbols = atoms.get_chemical_symbols()
     frac_coords = atoms.get_scaled_positions().tolist()
     lattice_obj = Lattice(lattice)
-    structure = Structure(lattice_obj,
+    return Structure(lattice_obj,
                           symbols,
                           frac_coords,
                           coords_are_cartesian=False
     )
-    return structure
 
 def run_mh(calc, mh_steps):
 
