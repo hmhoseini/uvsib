@@ -34,9 +34,10 @@ class AdsorbatesWorkChain(WorkChain):
             cls.setup,
             cls.run_adsorbs,
             cls.inspect_adsorbs,
-            cls.run_scan,
-            cls.inspect_scan,
-            cls.store_results,
+            cls.store_results_ml,
+#            cls.run_scan,
+#            cls.inspect_scan,
+#            cls.store_results,
             cls.final_report
         )
 
@@ -92,6 +93,29 @@ class AdsorbatesWorkChain(WorkChain):
                 continue
             output_dict = ads_wch.called[-1].outputs.output_dict
             self.ctx.ml_results[f"{uuid_str}_{surface_id}"] = output_dict["structures"]
+
+    def store_results_ml(self):
+        for parent_key, adsorption_sets in self.ctx.ml_results.items():
+            uuid_str, surface_id = parent_key.split("_", 2)
+            energy_set = {}
+            for adsorb_set in adsorption_sets:
+                for ads_json in adsorb_set:
+                    adsorbed = jsonio.decode(ads_json)
+                    energy_set[adsorbed.info["adsorbate"]] = adsorbed.info["adsorption_energy"]
+                    site = adsorbed.info["site"]
+                    idx = adsorbed.info["adsorbate_collection"]
+
+                dG = self.calculate_oer_overpotential(energy_set)[0]
+
+                add_surface_adsorbate(
+                    uuid_str,
+                    surface_id,
+                    self.ctx.reaction,
+                    site,
+                    idx,
+                    dG,
+                    {"struct_ad_energy": adsorb_set},
+                )
 
     def run_scan(self):
         """Run r2SCAN geometry optimization"""
