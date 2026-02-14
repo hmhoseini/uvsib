@@ -91,6 +91,7 @@ class DBSurface(Base):
         ForeignKey("db_structure.uuid", ondelete="CASCADE"),
         nullable=False
     )
+    composition = Column(String, nullable=True)
     slab = Column(JSONB, nullable=False) # structure & energy
     attributes = Column(JSONB, nullable=True)
     ctime = Column(DateTime(timezone=True), server_default=func.now())
@@ -110,6 +111,7 @@ class DBSurfaceAdsorbate(Base):
         ForeignKey("db_surface.id", ondelete="CASCADE"),
         nullable=False
     )
+    composition = Column(String, nullable=True)
     reaction = Column(String, nullable=False)
     site_map = Column(String, nullable=False)
     unique_idx = Column(String, nullable=False)

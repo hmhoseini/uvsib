@@ -63,28 +63,6 @@ def get_struct_uuid(chemical_formula, method):
 
     return struct_uuid
 
-def get_struct_uuid_old(chemical_formula, method):
-    """Query structures from the database by formula and methed.
-    Return list of (structure_dict, uuid)
-    """
-    struct_uuid = []
-    mpdb_results = query_structure(
-            {"composition":chemical_formula},
-            source="MPDB"
-    )
-    if mpdb_results:
-        for result in mpdb_results:
-            struct_uuid.append((result.structure, result.structure_uuid))
-
-    row = query_by_columns(DBComposition, {"composition": chemical_formula})[0]
-    uuid_list = row.stable_struct.get("ml_uuid_list")
-
-    for uuid_str in uuid_list:
-        result = query_structure({"uuid": uuid_str}, method=method)
-        if result:
-            struct_uuid.append((result[0].structure, uuid_str))
-    return struct_uuid
-
 def get_vasp_output_as_entry(wch, uuid_str):
     """Extract structure and energy outputs from a VASP calculation"""
     outputs = wch.outputs

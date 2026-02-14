@@ -101,7 +101,7 @@ class AdsorbatesWorkChain(WorkChain):
             for adsorb_set in adsorption_sets:
                 for ads_json in adsorb_set:
                     adsorbed = jsonio.decode(ads_json)
-                    energy_set[adsorbed.info["adsorbate"]] = adsorbed.info["adsorption_energy"]
+                    energy_set[adsorbed.info["adsorbate"]] = adsorbed.info["energy"]
                     site = adsorbed.info["site"]
                     idx = adsorbed.info["adsorbate_collection"]
 
@@ -110,6 +110,7 @@ class AdsorbatesWorkChain(WorkChain):
                 add_surface_adsorbate(
                     uuid_str,
                     surface_id,
+                    self.ctx.chemical_formula,
                     self.ctx.reaction,
                     site,
                     idx,
@@ -185,6 +186,7 @@ class AdsorbatesWorkChain(WorkChain):
             add_surface_adsorbate(
                 uuid_str,
                 surface_id,
+                self.ctx.chemical_formula,
                 self.ctx.reaction,
                 site,
                 idx,
