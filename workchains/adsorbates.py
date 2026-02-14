@@ -105,7 +105,7 @@ class AdsorbatesWorkChain(WorkChain):
                     site = adsorbed.info["site"]
                     idx = adsorbed.info["adsorbate_collection"]
 
-                dG = self.calculate_oer_overpotential(energy_set)[0]
+                eta, dG = self.calculate_oer_overpotential(energy_set)
 
                 add_surface_adsorbate(
                     uuid_str,
@@ -114,8 +114,9 @@ class AdsorbatesWorkChain(WorkChain):
                     self.ctx.reaction,
                     site,
                     idx,
+                    eta,
                     dG,
-                    {"struct_ad_energy": adsorb_set},
+                    adsorb_set,
                 )
 
     def run_scan(self):
@@ -181,7 +182,7 @@ class AdsorbatesWorkChain(WorkChain):
             for ad_set in values:
                 for v in ad_set:
                     energy_set[v[1]] = v[2]
-            dG = self.calculate_oer_overpotential(energy_set)[0]
+            eta, dG = self.calculate_oer_overpotential(energy_set)
 
             add_surface_adsorbate(
                 uuid_str,
@@ -190,8 +191,9 @@ class AdsorbatesWorkChain(WorkChain):
                 self.ctx.reaction,
                 site,
                 idx,
+                eta,
                 dG,
-                {"struct_ad_energy": values},
+                values,
             )
 
     def final_report(self):
@@ -227,7 +229,7 @@ class AdsorbatesWorkChain(WorkChain):
         dg_rel_0_pot = dga[1:] - dga[:-1]
         overpotential = max(dg_rel_0_pot) - 1.23
         dga -= 1.23 * np.array(charges)  # assume equilibrium
-        return overpotential, dga
+        return overpotential, dga.tolist()
 
     @staticmethod
     def _construct_adsorbate_builder(slab, ML_model, reaction):

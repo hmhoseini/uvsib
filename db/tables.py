@@ -115,7 +115,8 @@ class DBSurfaceAdsorbate(Base):
     reaction = Column(String, nullable=False)
     site_map = Column(String, nullable=False)
     unique_idx = Column(String, nullable=False)
-    dG = Column(DOUBLE_PRECISION, nullable=True) 
+    eta = Column(DOUBLE_PRECISION, nullable=True)
+    dG = Column(JSONB, nullable=True)
     adsorb_set = Column(JSONB, nullable=False) # structures & energies
     attributes = Column(JSONB, nullable=True)
     ctime = Column(DateTime(timezone=True), server_default=func.now())
