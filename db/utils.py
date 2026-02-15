@@ -255,7 +255,7 @@ def query_by_columns(table_class, filters):
 ####################################
 
 def get_chemical_systems(chemical_formula, new=True):
-    """Given a chemical formula, return iether all or new chemical systems"""
+    """Given a chemical formula, return either all or new chemical systems"""
     comp = Composition(chemical_formula)
     elements = sorted(el.symbol for el in comp.elements)
 

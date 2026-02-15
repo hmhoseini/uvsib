@@ -9,7 +9,7 @@ from uvsib.codes.utils import get_element_entries, get_structures_from_mpdb_by_c
 from uvsib.db.utils import query_structure, add_structures
 from uvsib.workflows import settings
 
-_EHULL = 0.05
+EHULL = settings.EHULL
 
 matcher = StructureMatcher(
     ltol=0.3,
@@ -62,7 +62,7 @@ def unique_low_energy_chemsys(chemical_system, entries, method):
     for entry in pd.entries:
         if entry.composition.chemical_system != chemical_system:
             continue
-        if pd.get_e_above_hull(entry) > _EHULL:
+        if pd.get_e_above_hull(entry) > EHULL:
             continue
 
         prim_struct = get_primitive_cell(entry.structure.as_dict())
@@ -88,7 +88,7 @@ def unique_low_energy_comp(chemical_formula, entries, method):
     for entry in pd.entries:
         if entry.composition.reduced_formula != chemical_formula:
             continue
-        if pd.get_e_above_hull(entry) > _EHULL:
+        if pd.get_e_above_hull(entry) > EHULL:
             continue
 
         prim_struct = get_primitive_cell(entry.structure.as_dict())
@@ -105,7 +105,7 @@ def add_from_mpdb(chemical_formula):
     results = query_structure({"composition": chemical_formula}, source = "MPDB")
     if results:
         return
-    stable_structures = get_structures_from_mpdb_by_composition(chemical_formula, _EHULL)
+    stable_structures = get_structures_from_mpdb_by_composition(chemical_formula, EHULL)
     if stable_structures:
         for s in stable_structures:
 

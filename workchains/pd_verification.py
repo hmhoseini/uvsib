@@ -18,7 +18,8 @@ def read_yaml(file_path):
     return data
 
 def get_struct_uuid(chemical_formula, method):
-    """Query structures from the database by formula and method.
+    """
+    Query structures from the database by formula and method.
     Return list of (structure, uuid), keeping only unique structures.
     MPDB results (if exist) are always preserved.
     """
@@ -47,9 +48,6 @@ def get_struct_uuid(chemical_formula, method):
 
     for uuid_str in uuid_list:
         result = query_structure({"uuid": uuid_str}, method=method)
-        if not result:
-            continue
-
         structure = result[0].structure
 
         is_duplicate = False

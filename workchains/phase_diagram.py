@@ -16,8 +16,7 @@ from uvsib.workchains.utils import unique_low_energy_comp
 from uvsib.workchains.pythonjob_inputs import is_data_available
 from uvsib.workflows import settings
 
-_EHULL = 0.05
-_DFT_FUNC = "r2SCAN" 
+DFT_FUNC = settings.DFT_FUNC
 
 def cleanup_failed_systems(chemical_systems):
     """Remove database entries for failed calculations"""
@@ -178,7 +177,7 @@ class PhaseDiagramMLWorkChain(WorkChain):
             return self.exit_codes.ERROR_CALCULATION_FAILED
 
         uuid_list = []
-        for entry in unique_low_energy_comp(chemical_formula, entries, _DFT_FUNC):
+        for entry in unique_low_energy_comp(chemical_formula, entries, DFT_FUNC):
             uuid_list.append(str(entry.data["struct_uuid"]))
 
         if not uuid_list:

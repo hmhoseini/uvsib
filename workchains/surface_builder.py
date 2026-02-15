@@ -6,16 +6,13 @@ from uvsib.db.utils import query_structure, add_slab
 from uvsib.workchains.utils import get_code, get_model_device
 from uvsib.workflows import settings
 
-_EG_MIN = 0
-_EG_MAX = 6
-
 def get_struct_uuid(chemical_formula):
     """Query structures from the database and return list of (structure_dict, uuid)"""
     struct_uuid = []
     results = query_structure({"composition": chemical_formula}, method = "HSE")
     for hse_row in results:
         eg = hse_row.band_info.get("energy")
-        if eg is None or not _EG_MIN <= eg <= _EG_MAX:
+        if eg is None: # or not _EG_MIN <= eg <= _EG_MAX:
             continue
         struct_uuid.append([hse_row.structure, str(hse_row.structure_uuid)])
     return struct_uuid
