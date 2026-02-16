@@ -90,6 +90,11 @@ class PDVerificationWorkChain(WorkChain):
             "ERROR_CALCULATION_FAILED",
             message="The calculation did not finish successfully"
         )
+        spec.exit_code(
+            301,
+            "ERROR_NO_STRUCTURES_FOUND",
+            message="No structures were found"
+        )
 
     def setup(self):
         """Setup and report"""
@@ -97,7 +102,11 @@ class PDVerificationWorkChain(WorkChain):
         self.ctx.chemical_formula = self.inputs.chemical_formula.value
         self.ctx.ML_model = self.inputs.ML_model.value
         add_from_mpdb(self.ctx.chemical_formula)
+
         self.ctx.struct_uuid = get_struct_uuid(self.ctx.chemical_formula, self.ctx.ML_model)
+        if not self.ctx.struct_uuid:
+            self.report(f"No structures were found for {self.ctx.chemcal_formula}")
+            return self.exit_codes.ERROR_NO_STRUCTURES_FOUND
 
         self.ctx.protocol = read_yaml(
                 os.path.join(settings.vasp_files_path, "protocol.yaml")

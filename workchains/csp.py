@@ -100,7 +100,8 @@ class CSPWorkChain(WorkChain):
         self.ctx.low_energy_entries_csp = unique_low_energy_comp(
                 self.ctx.chemical_formula,
                 new_entries,
-                DFT_FUNC
+                DFT_FUNC,
+                min_n_return=self.ctx.n_mh
         )
 
     def minimahopping(self):

@@ -177,7 +177,7 @@ class PhaseDiagramMLWorkChain(WorkChain):
             return self.exit_codes.ERROR_CALCULATION_FAILED
 
         uuid_list = []
-        for entry in unique_low_energy_comp(chemical_formula, entries, DFT_FUNC):
+        for entry in unique_low_energy_comp(chemical_formula, entries, DFT_FUNC, min_n_return=1):
             uuid_list.append(str(entry.data["struct_uuid"]))
 
         if not uuid_list:

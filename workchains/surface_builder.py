@@ -47,7 +47,7 @@ class SurfaceBuilderWorkChain(WorkChain):
         spec.exit_code(
             301,
             "ERROR_NO_STRUCTURES_FOUND",
-            message="No structures were found for the given formula and the band gap criterion"
+            message="No structures were found for the given formula"
         )
 
     def setup(self):
@@ -57,7 +57,7 @@ class SurfaceBuilderWorkChain(WorkChain):
         self.ctx.ML_model = self.inputs.ML_model.value
         self.ctx.struct_uuid = get_struct_uuid(self.ctx.chemical_formula)
         if not self.ctx.struct_uuid:
-            self.report("No structures were found for the given formula and the band gap criterion")
+            self.report(f"No structures were found for {self.ctx.chemical_formula}")
             return self.exit_codes.ERROR_NO_STRUCTURES_FOUND
         self.ctx.slabs_uuid = []
 
