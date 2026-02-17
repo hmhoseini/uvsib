@@ -150,6 +150,11 @@ class PDVerificationWorkChain(WorkChain):
                 scan_entries,
                 "r2SCAN"
         )
+
+        if not low_energy_entries:
+            self.report(f"No low energy structures for {self.ctx.chemical_formula} were found")
+            return self.exit_codes.ERROR_NO_STRUCTURES_FOUND
+
         for entry in low_energy_entries:
             add_version_to_existing_structure(
                 entry.data["uuid"],
