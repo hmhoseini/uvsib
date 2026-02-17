@@ -18,7 +18,8 @@ def read_yaml(file_path):
     return data
 
 def get_struct_uuid(chemical_formula, method):
-    """Query structures from the database by formula and method.
+    """
+    Query structures from the database by formula and method.
     Return list of (structure, uuid), keeping only unique structures.
     MPDB results (if exist) are always preserved.
     """
@@ -47,9 +48,6 @@ def get_struct_uuid(chemical_formula, method):
 
     for uuid_str in uuid_list:
         result = query_structure({"uuid": uuid_str}, method=method)
-        if not result:
-            continue
-
         structure = result[0].structure
 
         is_duplicate = False
@@ -61,28 +59,6 @@ def get_struct_uuid(chemical_formula, method):
         if not is_duplicate:
             struct_uuid.append((structure, uuid_str))
 
-    return struct_uuid
-
-def get_struct_uuid_old(chemical_formula, method):
-    """Query structures from the database by formula and methed.
-    Return list of (structure_dict, uuid)
-    """
-    struct_uuid = []
-    mpdb_results = query_structure(
-            {"composition":chemical_formula},
-            source="MPDB"
-    )
-    if mpdb_results:
-        for result in mpdb_results:
-            struct_uuid.append((result.structure, result.structure_uuid))
-
-    row = query_by_columns(DBComposition, {"composition": chemical_formula})[0]
-    uuid_list = row.stable_struct.get("ml_uuid_list")
-
-    for uuid_str in uuid_list:
-        result = query_structure({"uuid": uuid_str}, method=method)
-        if result:
-            struct_uuid.append((result[0].structure, uuid_str))
     return struct_uuid
 
 def get_vasp_output_as_entry(wch, uuid_str):
@@ -114,6 +90,11 @@ class PDVerificationWorkChain(WorkChain):
             "ERROR_CALCULATION_FAILED",
             message="The calculation did not finish successfully"
         )
+        spec.exit_code(
+            301,
+            "ERROR_NO_STRUCTURES_FOUND",
+            message="No structures were found"
+        )
 
     def setup(self):
         """Setup and report"""
@@ -121,7 +102,11 @@ class PDVerificationWorkChain(WorkChain):
         self.ctx.chemical_formula = self.inputs.chemical_formula.value
         self.ctx.ML_model = self.inputs.ML_model.value
         add_from_mpdb(self.ctx.chemical_formula)
+
         self.ctx.struct_uuid = get_struct_uuid(self.ctx.chemical_formula, self.ctx.ML_model)
+        if not self.ctx.struct_uuid:
+            self.report(f"No structures were found for {self.ctx.chemcal_formula}")
+            return self.exit_codes.ERROR_NO_STRUCTURES_FOUND
 
         self.ctx.protocol = read_yaml(
                 os.path.join(settings.vasp_files_path, "protocol.yaml")
@@ -165,6 +150,11 @@ class PDVerificationWorkChain(WorkChain):
                 scan_entries,
                 "r2SCAN"
         )
+
+        if not low_energy_entries:
+            self.report(f"No low energy structures for {self.ctx.chemical_formula} were found")
+            return self.exit_codes.ERROR_NO_STRUCTURES_FOUND
+
         for entry in low_energy_entries:
             add_version_to_existing_structure(
                 entry.data["uuid"],

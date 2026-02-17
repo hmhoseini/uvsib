@@ -11,9 +11,6 @@ from pymatgen.core import Lattice, Structure
 from pymatgen.core.surface import Slab
 from scipy.spatial import distance_matrix, Delaunay
 
-from ase.data import covalent_radii
-import numpy as np
-
 CHECK_ELEMENTS = {1, 6, 7, 8}  # H, C, N, O (atomic numbers)
 
 def has_reasonable_distances(atoms, scale=0.5):
@@ -253,6 +250,7 @@ def run_relaxation(clean_slab_energy, calc, fmax, max_steps, reaction):
                 break
             adsorption_energy = float(adsorbed.get_potential_energy()) - clean_slab_energy - adsorbed.info['adsorbate_energy']
             adsorbed.info['clean_slab_energy'] = clean_slab_energy
+            adsorbed.info['energy'] = adsorbed.get_potential_energy()
             adsorbed.info['adsorption_energy'] = adsorption_energy
             relaxed_adsorb_set.append(jsonio.encode(adsorbed))
         if len(relaxed_adsorb_set) < len(adsorb_set):

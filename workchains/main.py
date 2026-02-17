@@ -2,7 +2,7 @@ from aiida.orm import Str, List
 from aiida.plugins import WorkflowFactory
 from aiida.engine import WorkChain, if_, while_
 from aiida_pythonjob import PythonJob, prepare_pythonjob_inputs
-from uvsib.db.tables import DBComposition
+from uvsib.db.tables import DBComposition, DBSurfaceAdsorbate
 from uvsib.db.utils import update_row, query_by_columns
 from uvsib.workchains.pythonjob_inputs import wait_sleep
 
@@ -109,7 +109,9 @@ class MainWorkChain(WorkChain):
         """Check whether should run Adsorbates"""
         adsorbates_step_status = self.ctx.dbcomposition_row.step_status.get("adsorbates")
         if adsorbates_step_status in ["Done"]:
-            return False
+            row = query_by_columns(DBSurfaceAdsorbate, {"composition": self.ctx.chemical_formula, "reaction": self.ctx.reaction.value})
+            if row:
+                return False
         return True
 
     def should_wait_pd_ml(self):

@@ -9,7 +9,7 @@ from uvsib.codes.utils import get_element_entries, get_structures_from_mpdb_by_c
 from uvsib.db.utils import query_structure, add_structures
 from uvsib.workflows import settings
 
-_EHULL = 0.05
+EHULL = settings.EHULL
 
 matcher = StructureMatcher(
     ltol=0.3,
@@ -62,7 +62,7 @@ def unique_low_energy_chemsys(chemical_system, entries, method):
     for entry in pd.entries:
         if entry.composition.chemical_system != chemical_system:
             continue
-        if pd.get_e_above_hull(entry) > _EHULL:
+        if pd.get_e_above_hull(entry) > EHULL:
             continue
 
         prim_struct = get_primitive_cell(entry.structure.as_dict())
@@ -74,7 +74,7 @@ def unique_low_energy_chemsys(chemical_system, entries, method):
         stable_entries.append(entry)
     return stable_entries
 
-def unique_low_energy_comp(chemical_formula, entries, method):
+def unique_low_energy_comp(chemical_formula, entries, method, min_n_return=None):
     """Select the lowest-energy unique structures for a given chemical formula"""
     chemical_system = Composition(chemical_formula).chemical_system
     if "-" in chemical_system:
@@ -82,22 +82,30 @@ def unique_low_energy_comp(chemical_formula, entries, method):
         entries.extend(get_element_entries(elements, method))
     pd = PhaseDiagram(entries)
 
-    stable_entries = []
+    candidates = []
     existing_structs = []
 
     for entry in pd.entries:
         if entry.composition.reduced_formula != chemical_formula:
             continue
-        if pd.get_e_above_hull(entry) > _EHULL:
-            continue
 
+        ehull = pd.get_e_above_hull(entry)
         prim_struct = get_primitive_cell(entry.structure.as_dict())
 
         if any(matcher.fit(prim_struct, s) for s in existing_structs):
             continue
 
         existing_structs.append(prim_struct)
-        stable_entries.append(entry)
+        candidates.append((entry, ehull))
+
+    candidates.sort(key=lambda x: x[1])
+
+    stable_entries = [entry for entry, ehull in candidates if ehull <= EHULL]
+
+    if min_n_return:
+        if len(stable_entries) < min_n_return:
+            for entry, _ in candidates[len(stable_entries):min_n_return]:
+                stable_entries.append(entry)
     return stable_entries
 
 def add_from_mpdb(chemical_formula):
@@ -105,7 +113,7 @@ def add_from_mpdb(chemical_formula):
     results = query_structure({"composition": chemical_formula}, source = "MPDB")
     if results:
         return
-    stable_structures = get_structures_from_mpdb_by_composition(chemical_formula, _EHULL)
+    stable_structures = get_structures_from_mpdb_by_composition(chemical_formula, EHULL)
     if stable_structures:
         for s in stable_structures:
 

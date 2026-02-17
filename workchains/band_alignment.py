@@ -62,6 +62,11 @@ class BandAlignmentWorkChain(WorkChain):
         self.report("Running BandAlignment WorkChain")
         self.ctx.chemical_formula = self.inputs.chemical_formula.value
 
+        self.ctx.struct_uuid = get_struct_uuid(self.ctx.chemical_formula)
+        if not self.ctx.struct_uuid:
+            self.report(f"No structures were found for {self.ctx.chemical_formula}")
+            return self.exit_codes.ERROR_NO_STRUCTURES_FOUND
+
         self.ctx.protocol = read_yaml(
                 os.path.join(settings.vasp_files_path, "protocol.yaml")
         )
@@ -71,10 +76,6 @@ class BandAlignmentWorkChain(WorkChain):
         self.ctx.vasp_code = load_code(
                 settings.configs["codes"]["VASP"]["code_string"]
         )
-
-        self.ctx.struct_uuid = get_struct_uuid(self.ctx.chemical_formula)
-        if not self.ctx.struct_uuid:
-            return self.exit_codes.ERROR_NO_STRUCTURES_FOUND
 
     def run_pbe(self):
         """Run PBE SP calculations """

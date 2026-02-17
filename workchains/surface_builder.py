@@ -1,16 +1,10 @@
-import os
 import yaml
-from pymatgen.core.structure import Structure
 from aiida.engine import WorkChain
 from aiida.plugins import WorkflowFactory
-from aiida.orm import Str, List, Dict, StructureData, load_code
-from uvsib.codes.vasp.workchains import construct_vasp_builder
+from aiida.orm import Str, List, Dict
 from uvsib.db.utils import query_structure, add_slab
 from uvsib.workchains.utils import get_code, get_model_device
 from uvsib.workflows import settings
-
-_EG_MIN = 0
-_EG_MAX = 6
 
 def get_struct_uuid(chemical_formula):
     """Query structures from the database and return list of (structure_dict, uuid)"""
@@ -18,7 +12,7 @@ def get_struct_uuid(chemical_formula):
     results = query_structure({"composition": chemical_formula}, method = "HSE")
     for hse_row in results:
         eg = hse_row.band_info.get("energy")
-        if eg is None or not _EG_MIN <= eg <= _EG_MAX:
+        if eg is None: # or not _EG_MIN <= eg <= _EG_MAX:
             continue
         struct_uuid.append([hse_row.structure, str(hse_row.structure_uuid)])
     return struct_uuid
@@ -53,26 +47,17 @@ class SurfaceBuilderWorkChain(WorkChain):
         spec.exit_code(
             301,
             "ERROR_NO_STRUCTURES_FOUND",
-            message="No structures were found for the given formula and the band gap criterion"
+            message="No structures were found for the given formula"
         )
 
     def setup(self):
         """Setup and report"""
         self.report("Running SurfaceBuilder WorkChain")
-        self.ctx.protocol = read_yaml(
-                os.path.join(settings.vasp_files_path, "protocol.yaml")
-        )
-        self.ctx.potential_family = settings.configs["codes"]["VASP"]["potential_family"]
-        potential_mapping = read_yaml(os.path.join(settings.vasp_files_path, "potential_mapping.yaml"))
-        self.ctx.potential_mapping = potential_mapping ["potential_mapping"]
-        self.ctx.vasp_code = load_code(
-                settings.configs["codes"]["VASP"]["code_string"]
-        )
         self.ctx.chemical_formula = self.inputs.chemical_formula.value
         self.ctx.ML_model = self.inputs.ML_model.value
         self.ctx.struct_uuid = get_struct_uuid(self.ctx.chemical_formula)
         if not self.ctx.struct_uuid:
-            self.report("No structures were found for the given formula and the band gap criterion")
+            self.report(f"No structures were found for {self.ctx.chemical_formula}")
             return self.exit_codes.ERROR_NO_STRUCTURES_FOUND
         self.ctx.slabs_uuid = []
 
@@ -106,7 +91,7 @@ class SurfaceBuilderWorkChain(WorkChain):
         """Store results"""
         for slabs, uuid_str in self.ctx.slabs_uuid:
             for slab in slabs:
-                add_slab(uuid_str, slab)
+                add_slab(uuid_str, self.ctx.chemical_formula, slab)
 
     def final_report(self):
         """Final report"""
