@@ -99,7 +99,7 @@ def run_surface_builder(bulk_energy,
                         fmax,
                         max_steps,
                         max_miller_idx,
-                        percentage_to_select):
+                        max_num_surf):
     """
     Build and relax surfaces with given parameters
     """
@@ -153,8 +153,7 @@ def run_surface_builder(bulk_energy,
         slab_data.append({"atoms": atoms, "surface_energy": surface_energy})
 
     slab_data.sort(key=lambda x: x["surface_energy"])
-    n_select = max(1, int(len(slab_data) * percentage_to_select/100))
-    selected = slab_data[:n_select]
+    selected = slab_data[:max_num_surf]
 
     built_faces = []
     for entry in selected:
@@ -184,7 +183,7 @@ if __name__ == "__main__":
     parser.add_argument("--fmax", type=float)
     parser.add_argument("--max_steps", type=int)
     parser.add_argument("--max_miller_idx", type=int)
-    parser.add_argument("--percentage_to_select", type=float)
+    parser.add_argument("--max_num_surf", type=int)
     args = parser.parse_args()
 
     if "MACE" in args.ML_model:
@@ -214,4 +213,4 @@ if __name__ == "__main__":
     run_surface_builder(args.bulk_energy, calc,
                         args.fmax, args.max_steps,
                         args.max_miller_idx,
-                        args.percentage_to_select)
+                        args.max_num_surf)

@@ -49,6 +49,11 @@ class SurfaceBuilderWorkChain(WorkChain):
             "ERROR_NO_STRUCTURES_FOUND",
             message="No structures were found for the given formula"
         )
+        spec.exit_code(
+            302,
+            "ERROR_NO_SURFACE",
+            message="No surface has been generated"
+        )
 
     def setup(self):
         """Setup and report"""
@@ -75,17 +80,19 @@ class SurfaceBuilderWorkChain(WorkChain):
 
     def inspect_facebuild(self):
         """Inspect SurfaceBuilder WorkChain"""
-        failed_jobs = 0
         for _, uuid_str in self.ctx.struct_uuid:
             sfb_wch = self.ctx[f"sfb_{uuid_str}"]
             if not sfb_wch.is_finished_ok:
-                failed_jobs += 1
-                continue
-            output_dict = sfb_wch.called[-1].outputs.output_dict
+                return self.exit_codes.ERROR_CALCULATION_FAILED
+            output_dict = sfb_wch.outputs.output_dict
             if output_dict:
                 self.ctx.slabs_uuid.append([output_dict["slabs"], uuid_str])
             else:
                 self.report(f"Warning: no (orthogonal) slab was found for the structure with uuid={uuid_str}")
+
+        if not self.ctx.slabs_uuid:
+            self.report("No surface has been generated")
+            return self.ERROR_NO_SURFACE
 
     def store_results(self):
         """Store results"""
@@ -123,7 +130,7 @@ class SurfaceBuilderWorkChain(WorkChain):
             "max_steps": settings.inputs[relax_key]["max_steps"],
             "max_miller_idx": settings.inputs[relax_key]["max_miller_idx"],
             "bulk_energy": ml_energy,
-            "percentage_to_select": settings.inputs[relax_key]["percentage_to_select"]
+            "max_num_surf": settings.MAX_NUM_SURF
         }
         if ML_model in ["uPET"]:
             job_info.update({"model_name": model})

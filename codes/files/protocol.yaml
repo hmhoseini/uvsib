@@ -78,7 +78,7 @@ r2SCAN_slab:
   kpoint_distance: 0.25
   incar:
     ADDGRID: True
-    ALGO: All
+    ALGO: Normal
     EDIFF: 1.0e-04
     EDIFFG: -0.1
     ENCUT: 600
@@ -107,7 +107,7 @@ r2SCAN:
   kpoint_distance: 0.25
   incar:
     ADDGRID: True
-    ALGO: All
+    ALGO: Normal
     EDIFF: 1.0e-05
     EDIFFG: -0.05
     ENCUT: 600

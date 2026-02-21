@@ -76,6 +76,7 @@ class DBStructureVersion(Base):
     source = Column(String, nullable=True)
     structure = Column(JSONB, nullable=False)
     energy = Column(DOUBLE_PRECISION, nullable=True)
+    ehull = Column(DOUBLE_PRECISION, nullable=True)
     vasprun_str = Column(Text, nullable=True)
     band_info = Column(JSONB, nullable=True)
     attributes = Column(JSONB, nullable=True)

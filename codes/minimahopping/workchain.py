@@ -65,6 +65,8 @@ class MinimaHoppingWorkChain(BaseRestartWorkChain):
             cls.results,
         )
 
+        spec.expose_outputs(MinimaHoppingCalculation)
+
         spec.exit_code(
             400,
             'ERROR_MAX_RESTARTS_EXCEEDED',

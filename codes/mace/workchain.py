@@ -57,6 +57,8 @@ class MACEWorkChain(BaseRestartWorkChain):
             cls.results,
         )
 
+        spec.expose_outputs(MACECalculation)
+
         spec.exit_code(
             400,
             'ERROR_MAX_RESTARTS_EXCEEDED',

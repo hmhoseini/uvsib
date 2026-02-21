@@ -70,6 +70,8 @@ class MatterGenBaseWorkChain(BaseRestartWorkChain):
         spec.input("code", valid_type=Code)
         spec.input('job_info', valid_type=Dict)
 
+        spec.expose_outputs(MatterGenCalculation)
+
         spec.outline(
             cls.setup,
             while_(cls.should_run_process)(
@@ -124,6 +126,8 @@ class MatterGenCSPWorkChain(BaseRestartWorkChain):
             ),
             cls.results,
         )
+
+        spec.expose_outputs(MatterGenCalculation)
 
         spec.exit_code(
             400,

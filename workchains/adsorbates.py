@@ -35,9 +35,9 @@ class AdsorbatesWorkChain(WorkChain):
             cls.run_adsorbs,
             cls.inspect_adsorbs,
             cls.store_results_ml,
-#            cls.run_scan,
-#            cls.inspect_scan,
-#            cls.store_results,
+            cls.run_scan,
+            cls.inspect_scan,
+            cls.store_results,
             cls.final_report
         )
 
@@ -90,11 +90,12 @@ class AdsorbatesWorkChain(WorkChain):
             key = f"ads_{uuid_str}_{surface_id}"
             ads_wch = self.ctx[key]
             if not ads_wch.is_finished_ok:
-                continue
-            output_dict = ads_wch.called[-1].outputs.output_dict
+                return self.exit_codes.ERROR_CALCULATION_FAILED
+            output_dict = ads_wch.outputs.output_dict
             self.ctx.ml_results[f"{uuid_str}_{surface_id}"] = output_dict["structures"]
 
     def store_results_ml(self):
+        self.ctx.verification = defaultdict(list)
         for parent_key, adsorption_sets in self.ctx.ml_results.items():
             uuid_str, surface_id = parent_key.split("_", 2)
             energy_set = {}
@@ -106,6 +107,10 @@ class AdsorbatesWorkChain(WorkChain):
                     idx = adsorbed.info["adsorbate_collection"]
 
                 eta, dG = self.calculate_oer_overpotential(energy_set)
+                if eta > 2:
+                    continue
+
+                self.ctx.verification[parent_key].append(adsorb_set)
 
                 add_surface_adsorbate(
                     uuid_str,
@@ -121,18 +126,14 @@ class AdsorbatesWorkChain(WorkChain):
 
     def run_scan(self):
         """Run r2SCAN geometry optimization"""
-        for parent_key, adsorption_sets in self.ctx.ml_results.items():
-            run_clean_surface = True
+        for parent_key, adsorption_sets in self.ctx.verification.items():
             for adsorb_set in adsorption_sets:
                 for ads_json in adsorb_set:
                     adsorbed = jsonio.decode(ads_json)
-                    if adsorbed.info["adsorbate"] == "*":
-                        if not run_clean_surface:
-                            continue
-                        run_clean_surface = False
-                    unique_idx = adsorbed.info["adsorbate_collection"]
                     site = adsorbed.info["site"]
+                    idx = adsorbed.info["adsorbate_collection"]
                     ad = adsorbed.info["adsorbate"]
+
                     pmg_structure = ase_to_pmg(adsorbed)
                     struct = StructureData(pymatgen=pmg_structure)
                     struct.base.attributes.set("site_properties",
@@ -146,43 +147,48 @@ class AdsorbatesWorkChain(WorkChain):
                         self.ctx.vasp_code
                     )
                     future = self.submit(builder)
-                    self.to_context(**{f"scan_{parent_key}_{site}_{unique_idx}_{ad}": future})
+                    self.to_context(**{f"scan_{parent_key}_{ad}_{site}_{idx}": future})
 
     def inspect_scan(self):
         """Inspect r2SCAN geometry optimization"""
         failed_jobs = 0
-        for parent_key, adsorption_sets in self.ctx.ml_results.items():
+        for parent_key, adsorption_sets in self.ctx.verification.items():
             for adsorb_set in adsorption_sets:
                 ad_set = []
                 for ads_json in adsorb_set:
                     adsorbed = jsonio.decode(ads_json)
-                    unique_idx = adsorbed.info["adsorbate_collection"]
                     site = adsorbed.info["site"]
+                    idx = adsorbed.info["adsorbate_collection"]
                     ad = adsorbed.info["adsorbate"]
-                    if adsorbed.info["adsorbate"] == "*":
-                        ad_set.append([{}, "*", adsorbed.info["clean_slab_energy"]]) #TODO bare surface energy is calculated only by ML
-                        continue
-                    scan_wch = self.ctx[f"scan_{parent_key}_{site}_{unique_idx}_{ad}"]
+
+                    scan_wch = self.ctx[f"scan_{parent_key}_{ad}_{site}_{idx}"]
+
                     if not scan_wch.is_finished_ok:
                         failed_jobs += 1
                         break
+
                     outputs = scan_wch.outputs
+
                     structure = outputs.structure.get_pymatgen()
                     energy = outputs.misc["total_energies"]["energy_extrapolated"]
                     ad_set.append([structure.as_dict(), ad, energy])
-                self.ctx.scan_results[f"{parent_key}_{site}_{unique_idx}"].append(ad_set)
+                if len(ad_set) < 4: #TODO this is valid only for OER verification
+                    continue
+                self.ctx.scan_results[f"{parent_key}_{site}_{idx}"].append(ad_set)
 
         if failed_jobs:
             self.report(f"{failed_jobs} r2SCAN jobs failed")
 
     def store_results(self):
         for key, values in self.ctx.scan_results.items():
-            energy_set = {}
+            scan_energy_set = {}
             uuid_str, surface_id, site, idx = key.split("_", 3)
+
             for ad_set in values:
                 for v in ad_set:
-                    energy_set[v[1]] = v[2]
-            eta, dG = self.calculate_oer_overpotential(energy_set)
+                    scan_energy_set[v[1]] = v[2]
+
+            eta, dG = self.calculate_oer_overpotential(scan_energy_set)
 
             add_surface_adsorbate(
                 uuid_str,
@@ -193,7 +199,7 @@ class AdsorbatesWorkChain(WorkChain):
                 idx,
                 eta,
                 dG,
-                values,
+                values
             )
 
     def final_report(self):

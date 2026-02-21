@@ -22,7 +22,7 @@ def get_struct_uuid(chemical_formula):
 
 def load_vasprun_from_content(wch):
     """Load a Vasprun object from the xml content of a workchain output"""
-    vasprun_str = wch.called[-1].outputs.retrieved.get_object_content("vasprun.xml")
+    vasprun_str = wch.outputs.retrieved.get_object_content("vasprun.xml")
     with tempfile.NamedTemporaryFile(mode="w", delete=True) as tmp:
         tmp.write(vasprun_str)
         tmp.flush()

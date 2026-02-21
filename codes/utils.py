@@ -38,7 +38,7 @@ def get_cmdline(job_info):
             f"--fmax={job_info['fmax']}",
             f"--max_steps={job_info['max_steps']}",
             f"--max_miller_idx={job_info['max_miller_idx']}",
-            f"--percentage_to_select={job_info['percentage_to_select']}"]
+            f"--max_num_surf={job_info['max_num_surf']}"]
         )
     elif job_type == 'adsorbates':
         cmdline.extend([

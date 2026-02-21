@@ -57,6 +57,8 @@ class MatterSimWorkChain(BaseRestartWorkChain):
             cls.results,
         )
 
+        spec.expose_outputs(MatterSimCalculation)
+
         spec.exit_code(
             400,
             'ERROR_MAX_RESTARTS_EXCEEDED',

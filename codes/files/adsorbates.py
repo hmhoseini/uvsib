@@ -14,9 +14,7 @@ from scipy.spatial import distance_matrix, Delaunay
 CHECK_ELEMENTS = {1, 6, 7, 8}  # H, C, N, O (atomic numbers)
 
 def has_reasonable_distances(atoms, scale=0.5):
-    """
-    Check interatomic distances only if at least one atom is H, C, N, or O.
-    """
+    """Check interatomic distances only if at least one atom is H, C, N, or O """
     positions = atoms.get_positions()
     numbers = atoms.get_atomic_numbers()
     n = len(atoms)
@@ -36,10 +34,50 @@ def has_reasonable_distances(atoms, scale=0.5):
                 return False
     return True
 
+def is_structure_valid(atoms, reaction):
+    """Check the validity of structures based on the adorbate type"""
+    ads = atoms.info.get('adsorbate')
+    positions = atoms.get_positions()
+    n = len(atoms)
+    if reaction == 'OER':
+        if ads == '*OOH':
+            ti = 3
+            H =  n - 1
+            O1 = n - 2
+            O2 = n - 3
+
+            max_OO = 1.6
+            max_OH = 1.1
+
+            d_OO = atoms.get_distance(O1, O2, mic=True)
+            d_HO1 = atoms.get_distance(O1, H, mic=True)
+
+            if d_OO > max_OO or d_HO1 > max_OH: #check the adsorbate molecule
+                return False
+
+            z_H = positions[H, 2]
+            if z_H < max(positions[O1, 2], positions[O2, 2]): #check if H is above O atoms
+                return False
+
+        elif ads == '*OH':
+            ti = 2
+        elif ads == '*O':
+            ti = 1
+        else:
+            return True
+
+        target_index = n - ti
+        other_indices = list(range(n - ti))
+        distances = atoms.get_distances(target_index, other_indices, mic=True)
+
+        if min(distances) > 2: # check the distance of adsorbate to the surface
+            return False
+
+    return True
+
 def simple_delaunator(xyz, rcut):
     """
-    Simplified surface detector for slabs or nanoclusters.
-
+    Simplified surface detector for slabs or nanoclusters
     Parameters
     ----------
     xyz : (N, 3) array
@@ -160,14 +198,14 @@ def generate_adsorbates(reaction):
     """Return a list of ASE Atoms objects for a given reaction"""
     if reaction == "OER":
         return [
-            Atoms(symbols='X', positions=[(0, 0, 0)],
-                  info={'adsorbate': '*', 'energy': 0}),
-            Atoms(symbols="XO", positions=[(0, 0, 0), (0, 0, 2.0)],
-                  info={"adsorbate": "*O", "energy": 0}),
-            Atoms(symbols="XOH", positions=[(0, 0, 0), (0, 0, 2.0), (0.1, 0.9, 2.9)],
-                  info={"adsorbate": "*OH", "energy": 0}),
             Atoms(symbols="XOOH", positions=[(0, 0, 0), (0, 0, 2.0), (1.2, -0.2, 2.8), (0.8, -0.2, 3.7)],
-                  info={"adsorbate": "*OOH", "energy": 0})
+                  info={"adsorbate": "*OOH"}),
+            Atoms(symbols="XOH", positions=[(0, 0, 0), (0, 0, 2.0), (0.1, 0.9, 2.9)],
+                  info={"adsorbate": "*OH"}),
+            Atoms(symbols="XO", positions=[(0, 0, 0), (0, 0, 2.0)],
+                  info={"adsorbate": "*O"}),
+            Atoms(symbols='X', positions=[(0, 0, 0)],
+                  info={'adsorbate': '*'})
         ]
 
     if reaction == "CO2RR":
@@ -213,7 +251,6 @@ def generate_adsorbed_structures(reaction):
                     clean.info['site'] = site_map[site_type]
                     clean.info['adsorbate_collection'] = unique_idx
                     clean.info['adsorbate'] = '*'
-                    clean.info['adsorbate_energy'] = 0.0
                     adsorb_set.append(clean)
                 else:
                     vec = ads_vectors[unique_idx]
@@ -225,7 +262,6 @@ def generate_adsorbed_structures(reaction):
                     adsorbed.info['site'] = site_map[site_type]
                     adsorbed.info['adsorbate_collection'] = unique_idx
                     adsorbed.info['adsorbate'] = ad.info['adsorbate']
-                    adsorbed.info['adsorbate_energy'] = ad.info['energy']
                     adsorb_set.append(adsorbed)
             if len(adsorb_set) < len(adsorbates):
                 continue #TODO report?
@@ -241,6 +277,11 @@ def run_relaxation(clean_slab_energy, calc, fmax, max_steps, reaction):
     for adsorb_set in adsorption_sets:
         relaxed_adsorb_set = []
         for adsorbed in adsorb_set:
+            if adsorbed.info['adsorbate'] == '*':
+                adsorbed.info['energy'] = clean_slab_energy
+                relaxed_adsorb_set.append(jsonio.encode(adsorbed))
+                continue
+
             adsorbed.calc = calc
             relax = BFGSLineSearch(adsorbed, maxstep=0.1, logfile='opt.log')
             try:
@@ -248,10 +289,10 @@ def run_relaxation(clean_slab_energy, calc, fmax, max_steps, reaction):
             except Exception:
                 num_failed += 1
                 break
-            adsorption_energy = float(adsorbed.get_potential_energy()) - clean_slab_energy - adsorbed.info['adsorbate_energy']
-            adsorbed.info['clean_slab_energy'] = clean_slab_energy
+            if not is_structure_valid(adsorbed, reaction):
+                num_failed += 1
+                break
             adsorbed.info['energy'] = adsorbed.get_potential_energy()
-            adsorbed.info['adsorption_energy'] = adsorption_energy
             relaxed_adsorb_set.append(jsonio.encode(adsorbed))
         if len(relaxed_adsorb_set) < len(adsorb_set):
             continue

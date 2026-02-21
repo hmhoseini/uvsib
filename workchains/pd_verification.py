@@ -11,6 +11,9 @@ from uvsib.db.utils import query_structure, add_version_to_existing_structure, q
 from uvsib.workchains.utils import get_primitive_cell, unique_low_energy_comp, add_from_mpdb
 from uvsib.workflows import settings
 
+EHULL_SCAN = settings.EHULL_SCAN
+MAX_NUM_BULK = settings.MAX_NUM_BULK
+
 def read_yaml(file_path):
     """Read yaml file"""
     with open(file_path, "r", encoding="utf8") as fhandle:
@@ -145,22 +148,24 @@ class PDVerificationWorkChain(WorkChain):
         if failed_scan:
             self.report(f"Warning: r2SCAN geometry optimization failed (structure uuids: {failed_scan})")
 
-        low_energy_entries = unique_low_energy_comp(
+        low_energy_entries, ehulls = unique_low_energy_comp(
                 self.ctx.chemical_formula,
                 scan_entries,
-                "r2SCAN"
+                "r2SCAN",
+                EHULL_SCAN
         )
 
         if not low_energy_entries:
             self.report(f"No low energy structures for {self.ctx.chemical_formula} were found")
             return self.exit_codes.ERROR_NO_STRUCTURES_FOUND
 
-        for entry in low_energy_entries:
+        for i, entry in enumerate(low_energy_entries[:MAX_NUM_BULK]):
             add_version_to_existing_structure(
                 entry.data["uuid"],
                 "r2SCAN",
                 {"structure": entry.structure.as_dict(),
-                 "energy": entry.energy}
+                 "energy": entry.energy,
+                 "ehull": ehulls[i]}
             )
 
     def final_report(self):
