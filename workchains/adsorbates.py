@@ -210,8 +210,11 @@ class AdsorbatesWorkChain(WorkChain):
     def calculate_oer_overpotential(adsorption_energies):
         """Calculate overpotential for given reaction energy set"""
         local_energy = adsorption_energies.copy()
-        local_energy['H2'] = -7.018265666883999     # includes zpe corrections for VASP data
-        local_energy['H2O'] = -14.226717097410363   # includes zpe corrections for VASP data
+#        local_energy['H2'] = -7.018265666883999     # includes zpe corrections for VASP data
+#        local_energy['H2O'] = -14.226717097410363   # includes zpe corrections for VASP data
+
+        local_energy['H2'] =  -7.02570471 # VASP r2SCAN
+        local_energy['H2O'] = -15.4180161 # VASP r2SCAN
 
         charges = list([0, 1, 2, 3, 4])
         oer_zpe = dict({'*': 0,

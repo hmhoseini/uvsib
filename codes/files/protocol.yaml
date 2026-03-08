@@ -77,7 +77,6 @@ r2SCAN_slab:
   name: r2SCAN_slab
   kpoint_distance: 0.25
   incar:
-    ADDGRID: True
     ALGO: Normal
     EDIFF: 1.0e-04
     EDIFFG: -0.1
@@ -101,12 +100,10 @@ r2SCAN_slab:
     POTIM: 0.2
     PREC: Normal
     SIGMA: 0.05
-    SYMPREC: 1.0E-5
 r2SCAN:
   name: r2SCAN
   kpoint_distance: 0.25
   incar:
-    ADDGRID: True
     ALGO: Normal
     EDIFF: 1.0e-05
     EDIFFG: -0.05

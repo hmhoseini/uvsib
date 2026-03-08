@@ -34,14 +34,14 @@ class MainWorkChain(WorkChain):
                 cls.pd_verification,
                 cls.inspect_pd_verification
             ),
-            if_(cls.should_run_band_alignment)(
-                while_(cls.should_wait_band_alignment)(
-                    cls.wait_sleep,
-                    cls.check_pythonjob_sleep
-                ),
-                cls.band_alignment,
-                cls.inspect_band_alignment
-            ),
+#            if_(cls.should_run_band_alignment)(
+#                while_(cls.should_wait_band_alignment)(
+#                    cls.wait_sleep,
+#                    cls.check_pythonjob_sleep
+#                ),
+#                cls.band_alignment,
+#                cls.inspect_band_alignment
+#            ),
             if_(cls.should_run_surface_builder)(
                 while_(cls.should_wait_surface_builder)(
                     cls.wait_sleep,

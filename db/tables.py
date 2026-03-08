@@ -3,7 +3,6 @@ from sqlalchemy import create_engine, Column, String, Text, Integer, DateTime, F
 from sqlalchemy.dialects.postgresql import UUID, JSONB, DOUBLE_PRECISION, ARRAY
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.sql import func
-from uvsib.db.db_url import DB_URL
 
 Base = declarative_base()
 
@@ -145,7 +144,3 @@ class DBFrontend(Base):
 
     def __repr__(self):
         return f"<db_test(uuid={self.uuid}, label={self.label})>"
-
-if __name__ == "__main__":
-    engine = create_engine(DB_URL, echo=False)
-    Base.metadata.create_all(engine)

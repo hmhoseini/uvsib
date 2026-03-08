@@ -7,15 +7,20 @@ from uvsib.workchains.utils import get_code, get_model_device
 from uvsib.workflows import settings
 
 def get_struct_uuid(chemical_formula):
-    """Query structures from the database and return list of (structure_dict, uuid)"""
-    struct_uuid = []
-    results = query_structure({"composition": chemical_formula}, method = "HSE")
-    for hse_row in results:
-        eg = hse_row.band_info.get("energy")
-        if eg is None: # or not _EG_MIN <= eg <= _EG_MAX:
-            continue
-        struct_uuid.append([hse_row.structure, str(hse_row.structure_uuid)])
-    return struct_uuid
+    """Query structures from the database by formula and return list of (structure_dict, uuid)"""
+    results = query_structure({"composition": chemical_formula}, method = "r2SCAN") or []
+    return [(row.structure, str(row.structure_uuid)) for row in results]
+
+#def get_struct_uuid(chemical_formula):
+#    """Query structures from the database and return list of (structure_dict, uuid)"""
+#    struct_uuid = []
+#    results = query_structure({"composition": chemical_formula}, method = "HSE")
+#    for hse_row in results:
+#        eg = hse_row.band_info.get("energy")
+#        if eg is None: # or not _EG_MIN <= eg <= _EG_MAX:
+#            continue
+#        struct_uuid.append([hse_row.structure, str(hse_row.structure_uuid)])
+ #   return struct_uuid
 
 def read_yaml(file_path):
     """Read a yaml file"""
