@@ -11,6 +11,7 @@ from pymatgen.core import Lattice, Structure
 from pymatgen.core.surface import Slab
 from scipy.spatial import distance_matrix, Delaunay
 
+
 CHECK_ELEMENTS = {1, 6, 7, 8}  # H, C, N, O (atomic numbers)
 
 def has_reasonable_distances(atoms, scale=0.5):
@@ -169,11 +170,9 @@ def generate_adsorbates(reaction):
             Atoms(symbols="XOOH", positions=[(0, 0, 0), (0, 0, 2.0), (1.2, -0.2, 2.8), (0.8, -0.2, 3.7)],
                   info={"adsorbate": "*OOH", "energy": 0})
         ]
-
     if reaction == "CO2RR":
         return []
 
-    # not implemented case
     raise NotImplementedError('Reaction {} not implemented'.format(reaction))
 
 def generate_adsorbed_structures(reaction):
@@ -185,57 +184,47 @@ def generate_adsorbed_structures(reaction):
     slab_data.sort()
     clean_slab = pmg_to_ase(slab_data)
     slab = MyCluster(clean_slab)
-    fixed_ids = slab.get_nonsurface_atoms()
-    clean_slab.set_constraint(FixAtoms(indices=fixed_ids))
-
+    clean_slab.set_constraint(FixAtoms(slab.get_nonsurface_atoms()))
     adsorbates = generate_adsorbates(reaction)
-
     adsorption_sets = []
     for site_type in [1, 2, 3]:
-        slab = MyCluster(clean_slab)
-
-        all_sites = slab.get_sites(sitetype=site_type)
-        zero_sites = slab.zero_site_positions[site_type]
-
-        if len(zero_sites) == 0:
-            continue
-
-        ads_vectors = slab.adsorption_vectors[site_type]
-        sites_descriptors = slab.get_sites_descriptor(sitetype=site_type)
+        slab.get_sites(sitetype=site_type)
+        slab.get_sites_descriptor(sitetype=site_type)
         unique_list = slab.get_unique_sites(sitetype=site_type, idx=[])
-
-        for unique_idx in unique_list:
+        zero_sites = slab.zero_site_positions[site_type]
+        ads_vectors = slab.adsorption_vectors[site_type]
+        for unique_site in unique_list:
             adsorb_set = []
             for ad in adsorbates:
                 clean = clean_slab.copy()
-
                 if ad.info['adsorbate'] == '*':
                     clean.info['site'] = site_map[site_type]
-                    clean.info['adsorbate_collection'] = unique_idx
+                    clean.info['adsorbate_collection'] = unique_site
                     clean.info['adsorbate'] = '*'
                     clean.info['adsorbate_energy'] = 0.0
                     adsorb_set.append(clean)
                 else:
-                    vec = ads_vectors[unique_idx]
-                    if np.linalg.norm(vec) < 1e-8: #TODO check why len(vec) is zero?
-                        break
-                    adsorbed = clean + utils.place_molecule_on_site(ad, zero_sites[unique_idx], ads_vectors[unique_idx])
+                    # if np.linalg.norm(ads_vectors[unique_site]) < 1e-8:
+                    #     # TODO check why len(vec) is zero?
+                    #     # TODO why do it at all? if it fails the has_reasonable_distance because of
+                    #     # TODO being in a hollow site it will be filtered out anyway
+                    #     break
+                    adsorbed = clean + utils.place_molecule_on_site(ad.copy(), zero_sites[unique_site], ads_vectors[unique_site])
                     if not has_reasonable_distances(adsorbed):
                         break
                     adsorbed.info['site'] = site_map[site_type]
-                    adsorbed.info['adsorbate_collection'] = unique_idx
+                    adsorbed.info['adsorbate_collection'] = unique_site
                     adsorbed.info['adsorbate'] = ad.info['adsorbate']
                     adsorbed.info['adsorbate_energy'] = ad.info['energy']
                     adsorb_set.append(adsorbed)
             if len(adsorb_set) < len(adsorbates):
-                continue #TODO report?
+                print('Adsorb set {} failed to build, discarding'.format(unique_site))
+                continue
             adsorption_sets.append(adsorb_set)
     return adsorption_sets
 
 def run_relaxation(clean_slab_energy, calc, fmax, max_steps, reaction):
-
     adsorption_sets = generate_adsorbed_structures(reaction)
-
     relaxed_adsorption_sets = []
     num_failed = 0
     for adsorb_set in adsorption_sets:
@@ -268,7 +257,6 @@ def run_relaxation(clean_slab_energy, calc, fmax, max_steps, reaction):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-
     parser.add_argument("--slab_energy", type=float)
     parser.add_argument("--ML_model", type=str)
     parser.add_argument("--model", type=str)

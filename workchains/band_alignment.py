@@ -40,8 +40,8 @@ class BandAlignmentWorkChain(WorkChain):
 
         spec.outline(
             cls.setup,
-            cls.run_pbe,
-            cls.pbe_result,
+            cls.run_scan,
+            cls.scan_result,
             cls.run_hse,
             cls.hse_result,
             cls.final_report
@@ -77,13 +77,13 @@ class BandAlignmentWorkChain(WorkChain):
                 settings.configs["codes"]["VASP"]["code_string"]
         )
 
-    def run_pbe(self):
-        """Run PBE SP calculations """
+    def run_scan(self):
+        """Run PBE SinglePoint calculations """
         for struct_dict, uuid_str in self.ctx.struct_uuid:
             pmg_structure = get_primitive_cell(struct_dict)
             builder = construct_vasp_builder(
                 StructureData(pymatgen=pmg_structure),
-                self.ctx.protocol["PBE_sp"],
+                self.ctx.protocol["r2SCAN_relax"],
                 self.ctx.potential_family,
                 self.ctx.potential_mapping,
                 self.ctx.vasp_code
@@ -91,7 +91,7 @@ class BandAlignmentWorkChain(WorkChain):
             future = self.submit(builder)
             self.to_context(**{f"pbe_{uuid_str}": future})
 
-    def pbe_result(self):
+    def scan_result(self):
         """Inspect PBE calculations"""
         self.ctx.pbe_results = []
         failed_pbe = []
@@ -122,7 +122,7 @@ class BandAlignmentWorkChain(WorkChain):
             pbe_wch = self.ctx[f"pbe_{uuid_str}"]
             builder = construct_vasp_builder(
                     pbe_wch.inputs.structure,
-                    self.ctx.protocol["HSE"],
+                    self.ctx.protocol["r2SCAN_sp"],  # janK debug, switch back -> HSE for production
                     self.ctx.potential_family,
                     self.ctx.potential_mapping,
                     self.ctx.vasp_code,

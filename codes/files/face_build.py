@@ -1,11 +1,13 @@
 import json
 import argparse
 import numpy as np
+from ase import Atoms
 from ase.optimize.bfgslinesearch import BFGSLineSearch
 from pymatgen.io.ase import AseAtomsAdaptor
 from pymatgen.core import Lattice, Structure
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
 from pymatgen.core.surface import Slab, generate_all_slabs
+
 
 def pmg_to_ase(slab):
     """
@@ -94,8 +96,7 @@ def process_slab(slab, target_vacuum=10.0, angle_tol=1.0):
         site_properties=slab.site_properties
     )
 
-def run_surface_builder(bulk_energy,
-                        calc,
+def run_surface_builder(calc,
                         fmax,
                         max_steps,
                         max_miller_idx,
@@ -108,14 +109,14 @@ def run_surface_builder(bulk_energy,
         structure_list = json.loads(f.read())
 
     structure = Structure.from_dict(structure_list[0])
-    nat = structure.num_sites
-    epa = bulk_energy/nat
     sga = SpacegroupAnalyzer(structure, symprec=0.01, angle_tolerance=5)
     conv_struct = sga.get_conventional_standard_structure()
 
-    num_failed = 0
-    tmp_atoms = []
-    built_faces = []
+    atomic_energy = dict()
+    for element in list(set(AseAtomsAdaptor().get_atoms(conv_struct).get_chemical_symbols())):
+        atoms = Atoms(symbols=element, positions=[(0, 0, 0)], cell=[[20, 0, 0], [0, 20, 0], [0, 0, 20]])
+        atoms.calc = calc
+        atomic_energy[element] = atoms.get_potential_energy()
 
     slabs = generate_all_slabs(conv_struct,
                                max_index=max_miller_idx,
@@ -123,41 +124,78 @@ def run_surface_builder(bulk_energy,
                                min_vacuum_size=4,
                                max_normal_search=max_miller_idx,
                                in_unit_planes=True)
-    orth_slabs = []
+
+    orth_slabs = list()
     for s in slabs:
         orth_slab = process_slab(s)
         if not orth_slab:
             continue
         orth_slabs.append(orth_slab)
 
+
+    special_miller_supercells = list(['(0, 0, 1)', '(1, 1, 1)'])
+
+    print(len(orth_slabs))
+
+    tmp = list()
+    for slab in orth_slabs:
+        if slab.as_dict()['miller_index'] in special_miller_supercells:
+            one_by_two = slab.copy()
+            one_by_two.make_supercell((1, 2, 1))
+            tmp.append(one_by_two)
+            two_by_one = slab.copy()
+            two_by_one.make_supercell((2, 1, 1))
+            tmp.append(two_by_one)
+    orth_slabs.extend(tmp)
+
+    print(len(orth_slabs))
+
+
+
+    num_failed = 0
+    tmp_atoms = list()
     for slab in orth_slabs:
         atoms = pmg_to_ase(slab)
+        atoms.info['miller_index'] = slab.as_dict()['miller_index']
         atoms.calc = calc
         relax = BFGSLineSearch(atoms, maxstep=0.1, logfile='opt.log')
-        try:
-            converged = relax.run(fmax=fmax, steps=max_steps)
-        except:
-            converged = False
-
-        if converged:
+        relax.run(fmax=fmax, steps=max_steps)
+        if relax.converged:
             tmp_atoms.append(atoms)
         else:
             num_failed += 1
 
-    slab_data = []
+    slab_data = list()
     for atoms in tmp_atoms:
-        n_slab = len(atoms)
-        n_bulk = n_slab / nat
+        chemical_potential = 0
+        for el in list(set(atoms.get_chemical_symbols())):
+            chemical_potential += atoms.get_chemical_symbols().count(el) * atomic_energy[el]
         area = atoms.cell.areas()[2] * 2.0
-        surface_energy = (float(atoms.get_potential_energy()) - n_bulk * epa) / area
-        slab_data.append({"atoms": atoms, "surface_energy": surface_energy})
+        atoms.info['surface_formation_energy'] = (atoms.get_potential_energy() - chemical_potential) / (float(atoms.get_number_of_atoms()) * area)
+        slab_data.append(atoms)
 
-    slab_data.sort(key=lambda x: x["surface_energy"])
-    n_select = max(1, int(len(slab_data) * percentage_to_select/100))
-    selected = slab_data[:n_select]
 
-    built_faces = []
-    for entry in selected:
+    selected_faces = list()
+    for miller in special_miller_supercells:
+        tmp = list()
+        for atoms in slab_data:
+            if atoms.info['miller_index'] == miller:
+                tmp.append(atoms)
+        for idx, (at, en) in enumerate(sorted(zip(tmp, [e.info['surface_formation_energy'] for e in tmp]), key=lambda x: x[1])):
+            selected_faces.append(at)
+            if idx >= len(tmp) / 10:
+                break
+
+    for atoms in slab_data:
+        if atoms.info['miller_index'] not in special_miller_supercells:
+            tmp.append(atoms)
+    for idx, (at, en) in enumerate(sorted(zip(tmp, [e.info['surface_formation_energy'] for e in tmp]), key=lambda x: x[1])):
+        selected_faces.append(at)
+        if idx >= len(tmp) / 10:
+            break
+
+    built_faces = list()
+    for entry in selected_faces:
         at = entry["atoms"]
         at.info["energy"] = float(at.get_potential_energy())
         built_faces.append(ase_to_pmg(at).as_dict())
@@ -175,8 +213,6 @@ def run_surface_builder(bulk_energy,
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-
-    parser.add_argument("--bulk_energy", type=float)
     parser.add_argument("--ML_model", type=str)
     parser.add_argument("--model", type=str)
     parser.add_argument("--model_path", type=str)
@@ -211,7 +247,7 @@ if __name__ == "__main__":
             "Expected one of: MACE, PET, MatterSim."
         )
 
-    run_surface_builder(args.bulk_energy, calc,
+    run_surface_builder(calc,
                         args.fmax, args.max_steps,
                         args.max_miller_idx,
                         args.percentage_to_select)

@@ -2,9 +2,11 @@ from aiida.orm import Str, List
 from aiida.plugins import WorkflowFactory
 from aiida.engine import WorkChain, if_, while_
 from aiida_pythonjob import PythonJob, prepare_pythonjob_inputs
-from uvsib.db.tables import DBComposition, DBSurfaceAdsorbate
+from uvsib.db.tables import DBComposition, DBSurfaceAdsorbate, DBNanoParticles
 from uvsib.db.utils import update_row, query_by_columns
 from uvsib.workchains.pythonjob_inputs import wait_sleep
+from pymatgen.core.composition import Composition
+
 
 class MainWorkChain(WorkChain):
     """ Main WorkChain"""
@@ -15,6 +17,7 @@ class MainWorkChain(WorkChain):
         spec.input("chemical_systems", valid_type=List)
         spec.input("ML_model", valid_type=Str)
         spec.input("reaction", valid_type=Str)
+        spec.input("nanoparticles", valid_type=Str)
 
         spec.outline(
             cls.setup,
@@ -57,6 +60,14 @@ class MainWorkChain(WorkChain):
                 ),
                 cls.adsorbates,
                 cls.inspect_adsorbates
+            ),
+            if_(cls.should_run_nano_generator)(
+                while_(cls.should_wait_nano_generator)(
+                    cls.wait_sleep,
+                    cls.check_pythonjob_sleep
+                ),
+                cls.nano_generator,
+                cls.inspect_nano_generator
             )
         )
 
@@ -72,13 +83,22 @@ class MainWorkChain(WorkChain):
         self.ctx.chemical_systems = self.inputs.chemical_systems
         self.ctx.ML_model = self.inputs.ML_model
         self.ctx.reaction = self.inputs.reaction
-        self.ctx.dbcomposition_row = query_by_columns(DBComposition,
-                               {"composition": self.ctx.chemical_formula}
-        )[0]
-        self.report(f"Running MainWorkChain for {self.ctx.chemical_formula}")
+        self.ctx.dbcomposition_row = query_by_columns(DBComposition,{"composition": self.ctx.chemical_formula})[0]
+        self.ctx.nano_generator = True if len(self.inputs.nanoparticles.value.split('-')) == 2 else False
+        if self.ctx.nano_generator:
+            self.ctx.nano_particles_range = self.inputs.nanoparticles.value
+            # self.ctx.nano_min_atoms = self.inputs.nanoparticles.value.split('-')[0]
+            # self.ctx.nano_max_atoms = self.inputs.nanoparticles.value.split('-')[1]
+            elements = '-'.join(sorted(list([str(el) for el in Composition(self.ctx.chemical_formula).elements])))
+            self.ctx.nano_row = query_by_columns(DBNanoParticles,{'elements': elements})[0]
+            self.report('Running NanoParticleGenerator for elements {}'.format(elements))
+        else:
+            self.report(f"Running MainWorkChain for {self.ctx.chemical_formula}")
 
     def should_run_pd_ml(self):
         """Check whether should run PhaseDiagramML"""
+        if self.ctx.nano_generator:
+            return False
         pd_ml_step_status = self.ctx.dbcomposition_row.step_status.get("pd_ml")
         if pd_ml_step_status in ["Done"]:
             return False
@@ -86,6 +106,8 @@ class MainWorkChain(WorkChain):
 
     def should_run_pd_verification(self):
         """Check whether should run PDVerification"""
+        if self.ctx.nano_generator:
+            return False
         pd_ver_step_status = self.ctx.dbcomposition_row.step_status.get("pd_verification")
         if pd_ver_step_status in ["Done"]:
             return False
@@ -93,6 +115,8 @@ class MainWorkChain(WorkChain):
 
     def should_run_band_alignment(self):
         """Check whether should run BandAlignment"""
+        if self.ctx.nano_generator:
+            return False
         band_alignment_step_status = self.ctx.dbcomposition_row.step_status.get("band_alignment")
         if band_alignment_step_status in ["Done"]:
             return False
@@ -100,6 +124,8 @@ class MainWorkChain(WorkChain):
 
     def should_run_surface_builder(self):
         """Check whether should run SurfaceBuilder"""
+        if self.ctx.nano_generator:
+            return False
         surface_builder_step_status = self.ctx.dbcomposition_row.step_status.get("surface_builder")
         if surface_builder_step_status in ["Done"]:
             return False
@@ -107,6 +133,8 @@ class MainWorkChain(WorkChain):
 
     def should_run_adsorbates(self):
         """Check whether should run Adsorbates"""
+        if self.ctx.nano_generator:
+            return False
         adsorbates_step_status = self.ctx.dbcomposition_row.step_status.get("adsorbates")
         if adsorbates_step_status in ["Done"]:
             row = query_by_columns(DBSurfaceAdsorbate, {"composition": self.ctx.chemical_formula, "reaction": self.ctx.reaction.value})
@@ -114,8 +142,38 @@ class MainWorkChain(WorkChain):
                 return False
         return True
 
+
+
+
+
+
+    def should_run_nano_generator(self):
+        """Check whether should run Nano Particles routines"""
+        if self.ctx.nano_generator:
+            nano_particles_step_status = self.ctx.nano_row.step_status.get("nano_generator")
+            if nano_particles_step_status in ["Done"]:
+                return False
+            return True
+
+    def should_wait_nano_generator(self):
+        """Should wait for another running WorkChain"""
+        if self.ctx.nano_generator:
+            nano_particles_step_status = self.ctx.nano_row.step_status.get("nano_generator")
+            if nano_particles_step_status in ["Running"]:
+                self.ctx.sts = "nano_generator"
+                return True
+            return False
+
+
+
+
+
+
+
     def should_wait_pd_ml(self):
-        """Should wait for another running WorckChain"""
+        """Should wait for another running WorkChain"""
+        if self.ctx.nano_generator:
+            return False
         pd_ml_step_status = self.ctx.dbcomposition_row.step_status.get("pd_ml")
         if pd_ml_step_status in ["Running"]:
             self.ctx.sts = "phase diagram"
@@ -123,7 +181,9 @@ class MainWorkChain(WorkChain):
         return False
 
     def should_wait_pd_ver(self):
-        """Should wait for another running WorckChain"""
+        """Should wait for another running WorkChain"""
+        if self.ctx.nano_generator:
+            return False
         pd_ver_step_status = self.ctx.dbcomposition_row.step_status.get("pd_verification")
         if pd_ver_step_status in ["Running"]:
             self.ctx.sts = "phase diagram verification"
@@ -131,7 +191,9 @@ class MainWorkChain(WorkChain):
         return False
 
     def should_wait_band_alignment(self):
-        """Should wait for another running WorckChain"""
+        """Should wait for another running WorkChain"""
+        if self.ctx.nano_generator:
+            return False
         band_alignment_step_status = self.ctx.dbcomposition_row.step_status.get("band_alignment")
         if band_alignment_step_status in ["Running"]:
             self.ctx.sts = "band alignment"
@@ -139,7 +201,9 @@ class MainWorkChain(WorkChain):
         return False
 
     def should_wait_surface_builder(self):
-        """Should wait for another running WorckChain"""
+        """Should wait for another running WorkChain"""
+        if self.ctx.nano_generator:
+            return False
         surface_builder_step_status = self.ctx.dbcomposition_row.step_status.get("surface_builder")
         if surface_builder_step_status in ["Running"]:
             self.ctx.sts = "surface builder"
@@ -147,7 +211,9 @@ class MainWorkChain(WorkChain):
         return False
 
     def should_wait_adsorbates(self):
-        """Should wait for another running WorckChain"""
+        """Should wait for another running WorkChain"""
+        if self.ctx.nano_generator:
+            return False
         adsorbates_step_status = self.ctx.dbcomposition_row.step_status.get("adsorbates")
         if adsorbates_step_status in ["Running"]:
             self.ctx.sts = "adsorbates"
@@ -155,8 +221,8 @@ class MainWorkChain(WorkChain):
         return False
 
     def wait_sleep(self):
-        """Wait until the other workchain for this compoistion ends"""
-        self.report(f"Waiting for a simiar WorchChain ({self.ctx.sts})")
+        """Wait until the other workchain for this composition ends"""
+        self.report(f"Waiting for a similar WorkChain ({self.ctx.sts})")
         inputs = prepare_pythonjob_inputs(
             wait_sleep,
             function_inputs= {},
@@ -379,7 +445,7 @@ class MainWorkChain(WorkChain):
                      "step_status": row.step_status
                     }
             )
-            self.report("Adsorbated WorkChain failed")
+            self.report("Adsorbates WorkChain failed")
             return self.exit_codes.ERROR_CALCULATION_FAILED
 
         # update row status in DBComposition table
@@ -391,6 +457,50 @@ class MainWorkChain(WorkChain):
                  "step_status": row.step_status
                 }
         )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    def nano_generator(self):
+        """Running NanoParticlesWorkChain"""
+        row = self.ctx.nano_row
+        row.step_status.update({"nano_generator": "Running"})
+        update_row(DBComposition, row.uuid,{"status": "Running", "step_status": row.step_status})
+        builder = self._construct_particle_builder()
+        future = self.submit(builder)
+        self.to_context(**{"nano_particles": future})
+
+    def inspect_nano_generator(self):
+        """Analyze results of the builder chain"""
+        chain = self.ctx.nano_particles
+        row = self.ctx.nano_row
+        if not chain.is_finished_ok:
+            row.step_status.update({"nano_generator": "Failed"})
+            update_row(DBComposition, row.uuid,{"status": "Failed", "step_status": row.step_status})
+            self.report("NanoGenerator WorkChain failed")
+            return self.exit_codes.ERROR_CALCULATION_FAILED
+
+        row.step_status.update({"nano_generator": "Done"})
+        update_row(DBNanoParticles, row.uuid,{"status": "Done", "step_status": row.step_status})
+
+
+
+
+
+
+
 
     ################################################################################
     def _construct_pd_ml_builder(self):
@@ -418,7 +528,7 @@ class MainWorkChain(WorkChain):
         return builder
 
     def _construct_surface_builder(self):
-        """Build SurfaceBuilder WorkChain builder"""
+        """SurfaceBuilder WorkChain builder"""
         SurfaceBuilderWorkChain = WorkflowFactory("surfacebuilder")
         builder = SurfaceBuilderWorkChain.get_builder()
         builder.chemical_formula = Str(self.ctx.chemical_formula)
@@ -426,10 +536,20 @@ class MainWorkChain(WorkChain):
         return builder
 
     def _construct_adsorbates_builder(self):
-        """Build Adsorbates WorkChain builder"""
+        """Adsorbates WorkChain builder"""
         AdsorbatesWorkChain = WorkflowFactory("adsorbates")
         builder = AdsorbatesWorkChain.get_builder()
         builder.chemical_formula = Str(self.ctx.chemical_formula)
         builder.ML_model = self.ctx.ML_model
         builder.reaction = self.ctx.reaction
+        return builder
+
+    def _construct_particle_builder(self):
+        """Nano Particles WorkChain builder"""
+        NanoParticleWorkChain = WorkflowFactory("nano_particles")
+        builder = NanoParticleWorkChain.get_builder()
+        builder.elements = '-'.join(list(str(el) for el in Composition(self.ctx.chemical_formula).elements))
+        builder.particles_range = self.ctx.nano_particles_range
+        builder.generator = 'systematic'
+        builder.ml_model = self.ctx.ML_model
         return builder

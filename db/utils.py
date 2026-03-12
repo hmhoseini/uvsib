@@ -3,7 +3,8 @@ from sqlalchemy import inspect, delete, select, text
 from sqlalchemy.orm import aliased
 from pymatgen.core import Composition, Structure
 from uvsib.db.session import get_session
-from uvsib.db.tables import DBChemsys, DBStructure, DBStructureVersion, DBSurface, DBSurfaceAdsorbate
+from uvsib.db.tables import DBChemsys, DBStructure, DBStructureVersion, DBSurface, DBSurfaceAdsorbate, DBNanoParticles
+
 
 def add_surface_adsorbate(existing_uuid, surf_id, comp, reac, s_m, u_idx, e, dg, ad_set):
     """Store a new DBSurfaceAdsorbate row corresponding to a given DBStructure UUID and surface ID"""
@@ -371,9 +372,27 @@ def delete_all_rows(session, table_class):
 
 def print_all_rows(session, table_class):
     """Reflect the table by name and print all rows"""
-    rows = []
     rows = get_table_data(session, table_class)
     if rows:
         print(f"\nRows from table '{table_class.__table__}':")
         for row in rows:
             print(row)
+
+def add_nano_particles(model, structure_energy_pairs, special_type=None):
+    """Add new particles and energies to the database"""
+    with get_session() as session:
+        for struct_dict, energy in structure_energy_pairs:
+            struct = Structure.from_dict(struct_dict)
+            composition = struct.composition.reduced_formula
+
+            nanoparticle = DBNanoParticles(
+                num_atoms=struct.num_sites,
+                composition=composition,
+                special_type=special_type,
+                structure=struct_dict,
+                energy=energy,
+                model=model
+            )
+            session.add(nanoparticle)
+            session.flush()
+        session.commit()

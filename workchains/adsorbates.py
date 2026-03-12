@@ -14,6 +14,7 @@ from uvsib.db.utils import get_structure_uuid_surface_id, query_by_columns
 from uvsib.workchains.utils import get_code, get_model_device
 from uvsib.workflows import settings
 
+
 def read_yaml(file_path):
     """Read yaml file"""
     with open(file_path, "r", encoding="utf8") as fhandle:
@@ -35,9 +36,9 @@ class AdsorbatesWorkChain(WorkChain):
             cls.run_adsorbs,
             cls.inspect_adsorbs,
             cls.store_results_ml,
-#            cls.run_scan,
-#            cls.inspect_scan,
-#            cls.store_results,
+            # cls.run_scan,
+            # cls.inspect_scan,
+            # cls.store_results,
             cls.final_report
         )
 
@@ -62,15 +63,11 @@ class AdsorbatesWorkChain(WorkChain):
             return self.exit_codes.ERROR_NO_STRUCTURES_FOUND
         self.ctx.ml_results = {}
         self.ctx.scan_results = defaultdict(list)
-        self.ctx.protocol = read_yaml(
-                os.path.join(settings.vasp_files_path, "protocol.yaml")
-        )
+        self.ctx.protocol = read_yaml(os.path.join(settings.vasp_files_path, "protocol.yaml"))
         self.ctx.potential_family = settings.configs["codes"]["VASP"]["potential_family"]
         potential_mapping = read_yaml(os.path.join(settings.vasp_files_path, "potential_mapping.yaml"))
         self.ctx.potential_mapping = potential_mapping["potential_mapping"]
-        self.ctx.vasp_code = load_code(
-                settings.configs["codes"]["VASP"]["code_string"]
-        )
+        self.ctx.vasp_code = load_code(settings.configs["codes"]["VASP"]["code_string"])
 
     def run_adsorbs(self):
         """Run Adsorbates WorkChain"""
@@ -87,8 +84,7 @@ class AdsorbatesWorkChain(WorkChain):
         """Inspect Adsorbates WorkChain"""
         for structure_uuid, surface_id in self.ctx.structure_surface_rows:
             uuid_str = str(structure_uuid)
-            key = f"ads_{uuid_str}_{surface_id}"
-            ads_wch = self.ctx[key]
+            ads_wch = self.ctx[f"ads_{uuid_str}_{surface_id}"]
             if not ads_wch.is_finished_ok:
                 continue
             output_dict = ads_wch.called[-1].outputs.output_dict
@@ -97,6 +93,8 @@ class AdsorbatesWorkChain(WorkChain):
     def store_results_ml(self):
         for parent_key, adsorption_sets in self.ctx.ml_results.items():
             uuid_str, surface_id = parent_key.split("_", 2)
+            idx = None
+            site = None
             energy_set = {}
             for adsorb_set in adsorption_sets:
                 for ads_json in adsorb_set:
@@ -140,7 +138,7 @@ class AdsorbatesWorkChain(WorkChain):
                     )
                     builder = construct_vasp_builder(
                         struct,
-                        self.ctx.protocol["r2SCAN_slab"],
+                        self.ctx.protocol["r2SCAN_adsorbates"],
                         self.ctx.potential_family,
                         self.ctx.potential_mapping,
                         self.ctx.vasp_code
@@ -204,8 +202,10 @@ class AdsorbatesWorkChain(WorkChain):
     def calculate_oer_overpotential(adsorption_energies):
         """Calculate overpotential for given reaction energy set"""
         local_energy = adsorption_energies.copy()
-        local_energy['H2'] = -7.018265666883999     # includes zpe corrections for VASP data
-        local_energy['H2O'] = -14.226717097410363   # includes zpe corrections for VASP data
+        # local_energy['H2'] = -7.018265666883999     # includes zpe corrections for VASP RPBE
+        # local_energy['H2O'] = -14.226717097410363   # includes zpe corrections for VASP RPBE
+        local_energy['H2'] = -7.02570471              # includes zpe corrections for VASP r2SCAN
+        local_energy['H2O'] = -15.41801614            # includes zpe corrections for VASP r2SCAN
 
         charges = list([0, 1, 2, 3, 4])
         oer_zpe = dict({'*': 0,
