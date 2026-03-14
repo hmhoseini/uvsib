@@ -18,9 +18,11 @@ class NanoParticleWorkChain(WorkChain):
         spec.outline(
             cls.setup,
             cls.generate,
+            cls.cook_and_relax,
+            cls.analyze,
+            cls.store_results,
             # cls.run_dft,
             # cls.validate,
-            cls.store_results,
             cls.final_report
         )
 

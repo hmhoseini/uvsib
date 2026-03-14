@@ -65,10 +65,7 @@ class SurfaceBuilderWorkChain(WorkChain):
         for struct_dict, uuid_str in self.ctx.struct_uuid:
             structure_row = query_structure({"uuid": uuid_str}, method = "r2SCAN")[0]
             bulk_energy = structure_row.energy
-            builder = self._construct_facebuild_builder(
-                    struct_dict,
-                    bulk_energy,
-                    self.ctx.ML_model)
+            builder = self._construct_facebuild_builder(struct_dict, self.ctx.ML_model)
             future = self.submit(builder)
             self.to_context(**{f"sfb_{uuid_str}": future})
 

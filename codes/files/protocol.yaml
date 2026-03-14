@@ -1,15 +1,16 @@
 r2SCAN_relax:
-  name: r2SCAN_relax
-  kpoint_distance: 0.3
+  name: r2SCAN_relax  # used in band alignment
+  kpoint_distance: 0.25
   incar:
     ADDGRID: True
     ALGO: Normal
     EDIFF: 1.0e-04
-    EDIFFG: -0.1
+    EDIFFG: -0.05
     ENCUT: 600
-    IBRION: 1
+    ICORELEVEL: 1
+    IBRION: 2
     ISMEAR: 0
-    ISIF: 0
+    ISIF: 3
     ISPIN: 2
     ISYM: 2
     KPAR: 1
@@ -21,21 +22,21 @@ r2SCAN_relax:
     METAGGA: R2SCAN
     NCORE: 16
     NELM: 100
-    NELMIN: 6
     NSW: 151
     POTIM: 0.2
-    PREC: Normal
+    PREC: Accurate
     SIGMA: 0.05
     SYMPREC: 1.0E-5
 r2SCAN_adsorbates:
-  name: r2SCAN_adsorbates
-  kpoint_distance: 0.3
+  name: r2SCAN_adsorbates  # for relaxation of ml generated adsorbates
+  kpoint_distance: 0.25
   incar:
     ADDGRID: True
     ALGO: Normal
     EDIFF: 1.0e-04
     EDIFFG: -0.01
     ENCUT: 600
+    ICORELEVEL: 1
     IBRION: 2
     ISMEAR: 0
     ISIF: 0
@@ -54,15 +55,15 @@ r2SCAN_adsorbates:
     PREC: Accurate
     SIGMA: 0.05
     SYMPREC: 1.0E-5
-r2SCAN_sp:
-  name: r2SCAN_sp
-  kpoint_distance: 0.3
+r2SCAN_energy:
+  name: r2SCAN_energy  # single point final adsorption energy
+  kpoint_distance: 0.1
   incar:
     ADDGRID: True
     ALGO: Normal
     EDIFF: 1.0e-05
-    EDIFFG: -0.05
     ENCUT: 600
+    ICORELEVEL: 1
     IBRION: 0
     ISMEAR: 0
     ISIF: 3
@@ -76,15 +77,14 @@ r2SCAN_sp:
     LWAVE: False
     METAGGA: R2SCAN
     NCORE: 16
-    NELM: 100
+    NELM: 150
     NSW: 0
-    POTIM: 0.2
     PREC: Accurate
     SIGMA: 0.05
     SYMPREC: 1.0E-5
 HSE:
-  name: HSE
-  kpoint_distance: 0.5
+  name: HSE  # for proper band alignment
+  kpoint_distance: 0.1
   incar:
     AEXX: 0.22
     ALGO: Normal

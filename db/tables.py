@@ -130,6 +130,32 @@ class DBSurfaceAdsorbate(Base):
     mtime = Column(DateTime(timezone=True), onupdate=func.now())
 
 
+class DBSurfaceMLAdsorbate(Base):
+    __tablename__ = "db_surface_ml_adsorbate"
+
+    id = Column(Integer, primary_key=True)
+    structure_uuid = Column(
+        UUID(as_uuid=True),
+        ForeignKey("db_structure.uuid", ondelete="CASCADE"),
+        nullable=False
+    )
+    surface_id = Column(
+        Integer,
+        ForeignKey("db_surface.id", ondelete="CASCADE"),
+        nullable=False
+    )
+    composition = Column(String, nullable=True)
+    reaction = Column(String, nullable=False)
+    site_map = Column(String, nullable=False)
+    unique_idx = Column(String, nullable=False)
+    eta = Column(DOUBLE_PRECISION, nullable=True)
+    dG = Column(JSONB, nullable=True)
+    adsorb_set = Column(JSONB, nullable=False) # structures & energies
+    attributes = Column(JSONB, nullable=True)
+    ctime = Column(DateTime(timezone=True), server_default=func.now())
+    mtime = Column(DateTime(timezone=True), onupdate=func.now())
+
+
 class DBFrontend(Base):
     """Frontend table"""
     __tablename__ = 'db_frontend'

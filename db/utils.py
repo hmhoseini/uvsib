@@ -3,7 +3,8 @@ from sqlalchemy import inspect, delete, select, text
 from sqlalchemy.orm import aliased
 from pymatgen.core import Composition, Structure
 from uvsib.db.session import get_session
-from uvsib.db.tables import DBChemsys, DBStructure, DBStructureVersion, DBSurface, DBSurfaceAdsorbate, DBNanoParticles
+from uvsib.db.tables import (DBChemsys, DBStructure, DBStructureVersion, DBSurface, DBSurfaceAdsorbate,
+                             DBSurfaceMLAdsorbate, DBNanoParticles)
 
 
 def add_surface_adsorbate(existing_uuid, surf_id, comp, reac, s_m, u_idx, e, dg, ad_set):
@@ -22,8 +23,27 @@ def add_surface_adsorbate(existing_uuid, surf_id, comp, reac, s_m, u_idx, e, dg,
         )
         session.add(adsorb)
         session.commit()
-
     return True
+
+
+def add_surface_ml_adsorbate(existing_uuid, surf_id, comp, reac, s_m, u_idx, e, dg, ad_set):
+    """Store a new DBSurfaceAdsorbate row corresponding to a given DBStructure UUID and surface ID"""
+    with get_session() as session:
+        adsorb = DBSurfaceMLAdsorbate(
+                structure_uuid=existing_uuid,
+                surface_id=surf_id,
+                composition=comp,
+                reaction=reac,
+                site_map=s_m,
+                unique_idx=u_idx,
+                eta=e,
+                dG=dg,
+                adsorb_set=ad_set
+        )
+        session.add(adsorb)
+        session.commit()
+    return True
+
 
 def get_structure_uuid_surface_id(composition):
     """

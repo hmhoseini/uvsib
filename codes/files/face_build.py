@@ -132,25 +132,20 @@ def run_surface_builder(calc,
             continue
         orth_slabs.append(orth_slab)
 
-
-    special_miller_supercells = list(['(0, 0, 1)', '(1, 1, 1)'])
-
-    print(len(orth_slabs))
+    special_miller_supercells = list([(0, 0, 1), (1, 1, 1)])
 
     tmp = list()
     for slab in orth_slabs:
         if slab.as_dict()['miller_index'] in special_miller_supercells:
             one_by_two = slab.copy()
             one_by_two.make_supercell((1, 2, 1))
+            print(one_by_two)
             tmp.append(one_by_two)
             two_by_one = slab.copy()
             two_by_one.make_supercell((2, 1, 1))
+            print(two_by_one)
             tmp.append(two_by_one)
     orth_slabs.extend(tmp)
-
-    print(len(orth_slabs))
-
-
 
     num_failed = 0
     tmp_atoms = list()
@@ -171,34 +166,31 @@ def run_surface_builder(calc,
         for el in list(set(atoms.get_chemical_symbols())):
             chemical_potential += atoms.get_chemical_symbols().count(el) * atomic_energy[el]
         area = atoms.cell.areas()[2] * 2.0
+        atoms.info['energy'] = atoms.get_potential_energy()
         atoms.info['surface_formation_energy'] = (atoms.get_potential_energy() - chemical_potential) / (float(atoms.get_number_of_atoms()) * area)
         slab_data.append(atoms)
 
-
     selected_faces = list()
     for miller in special_miller_supercells:
-        tmp = list()
+        tmp1 = list()
+        tmp2 = list()
         for atoms in slab_data:
             if atoms.info['miller_index'] == miller:
-                tmp.append(atoms)
-        for idx, (at, en) in enumerate(sorted(zip(tmp, [e.info['surface_formation_energy'] for e in tmp]), key=lambda x: x[1])):
+                tmp1.append(atoms)
+            else:
+                tmp2.append(atoms)
+        for at, en in sorted(zip(tmp1, [e.info['surface_formation_energy'] for e in tmp1]), key=lambda x: x[1]):
             selected_faces.append(at)
-            if idx >= len(tmp) / 10:
+            if len(selected_faces) > len(tmp1) * percentage_to_select :
+                break
+        for count, (at, en) in enumerate(sorted(zip(tmp2, [e.info['surface_formation_energy'] for e in tmp2]), key=lambda x: x[1])):
+            selected_faces.append(at)
+            if count > len(tmp2) * percentage_to_select :
                 break
 
-    for atoms in slab_data:
-        if atoms.info['miller_index'] not in special_miller_supercells:
-            tmp.append(atoms)
-    for idx, (at, en) in enumerate(sorted(zip(tmp, [e.info['surface_formation_energy'] for e in tmp]), key=lambda x: x[1])):
-        selected_faces.append(at)
-        if idx >= len(tmp) / 10:
-            break
-
     built_faces = list()
-    for entry in selected_faces:
-        at = entry["atoms"]
-        at.info["energy"] = float(at.get_potential_energy())
-        built_faces.append(ase_to_pmg(at).as_dict())
+    for atoms in selected_faces:
+        built_faces.append(ase_to_pmg(atoms).as_dict())
 
     to_dump = dict({'slabs': built_faces})
 

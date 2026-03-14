@@ -124,7 +124,7 @@ class PDVerificationWorkChain(WorkChain):
             pmg_structure = get_primitive_cell(struct_dict)
             builder = construct_vasp_builder(
                 StructureData(pymatgen=pmg_structure),
-                self.ctx.protocol["r2SCAN"],
+                self.ctx.protocol["r2SCAN_relax"],
                 self.ctx.potential_family,
                 self.ctx.potential_mapping,
                 self.ctx.vasp_code

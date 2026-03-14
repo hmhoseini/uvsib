@@ -98,7 +98,7 @@ class BandAlignmentWorkChain(WorkChain):
         for _, uuid_str in self.ctx.struct_uuid:
             pbe_wch = self.ctx[f"pbe_{uuid_str}"]
             if pbe_wch.is_finished_ok:
-                core_state_dict = get_core_state(pbe_wch) 
+                core_state_dict = get_core_state(pbe_wch)
 
                 add_version_to_existing_structure(
                         uuid_str,
@@ -122,7 +122,7 @@ class BandAlignmentWorkChain(WorkChain):
             pbe_wch = self.ctx[f"pbe_{uuid_str}"]
             builder = construct_vasp_builder(
                     pbe_wch.inputs.structure,
-                    self.ctx.protocol["r2SCAN_sp"],  # janK debug, switch back -> HSE for production
+                    self.ctx.protocol["r2SCAN_energy"],  # janK debug, switch back -> HSE for production
                     self.ctx.potential_family,
                     self.ctx.potential_mapping,
                     self.ctx.vasp_code,

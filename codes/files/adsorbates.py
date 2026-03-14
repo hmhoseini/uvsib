@@ -201,21 +201,14 @@ def generate_adsorbed_structures(reaction):
                     clean.info['site'] = site_map[site_type]
                     clean.info['adsorbate_collection'] = unique_site
                     clean.info['adsorbate'] = '*'
-                    clean.info['adsorbate_energy'] = 0.0
                     adsorb_set.append(clean)
                 else:
-                    # if np.linalg.norm(ads_vectors[unique_site]) < 1e-8:
-                    #     # TODO check why len(vec) is zero?
-                    #     # TODO why do it at all? if it fails the has_reasonable_distance because of
-                    #     # TODO being in a hollow site it will be filtered out anyway
-                    #     break
                     adsorbed = clean + utils.place_molecule_on_site(ad.copy(), zero_sites[unique_site], ads_vectors[unique_site])
                     if not has_reasonable_distances(adsorbed):
                         break
                     adsorbed.info['site'] = site_map[site_type]
                     adsorbed.info['adsorbate_collection'] = unique_site
                     adsorbed.info['adsorbate'] = ad.info['adsorbate']
-                    adsorbed.info['adsorbate_energy'] = ad.info['energy']
                     adsorb_set.append(adsorbed)
             if len(adsorb_set) < len(adsorbates):
                 print('Adsorb set {} failed to build, discarding'.format(unique_site))
@@ -223,7 +216,7 @@ def generate_adsorbed_structures(reaction):
             adsorption_sets.append(adsorb_set)
     return adsorption_sets
 
-def run_relaxation(clean_slab_energy, calc, fmax, max_steps, reaction):
+def run_relaxation(ML_model, calc, fmax, max_steps, reaction):
     adsorption_sets = generate_adsorbed_structures(reaction)
     relaxed_adsorption_sets = []
     num_failed = 0
@@ -237,10 +230,7 @@ def run_relaxation(clean_slab_energy, calc, fmax, max_steps, reaction):
             except Exception:
                 num_failed += 1
                 break
-            adsorption_energy = float(adsorbed.get_potential_energy()) - clean_slab_energy - adsorbed.info['adsorbate_energy']
-            adsorbed.info['clean_slab_energy'] = clean_slab_energy
-            adsorbed.info['energy'] = adsorbed.get_potential_energy()
-            adsorbed.info['adsorption_energy'] = adsorption_energy
+            adsorbed.info['{}_energy'.format(str(ML_model).lower())] = adsorbed.get_potential_energy()
             relaxed_adsorb_set.append(jsonio.encode(adsorbed))
         if len(relaxed_adsorb_set) < len(adsorb_set):
             continue
@@ -257,7 +247,6 @@ def run_relaxation(clean_slab_energy, calc, fmax, max_steps, reaction):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--slab_energy", type=float)
     parser.add_argument("--ML_model", type=str)
     parser.add_argument("--model", type=str)
     parser.add_argument("--model_path", type=str)
@@ -291,8 +280,4 @@ if __name__ == "__main__":
             "Expected one of: MACE, PET, MatterSim."
         )
 
-    run_relaxation(args.slab_energy,
-                       calc,
-                       args.fmax,
-                       args.max_steps,
-                       args.reaction)
+    run_relaxation(ML_model=args.ML_model, calc=calc, fmax=args.fmax, max_steps=args.max_steps, reaction=args.reaction)
