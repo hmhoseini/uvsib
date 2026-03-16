@@ -225,9 +225,8 @@ def run_relaxation(ML_model, calc, fmax, max_steps, reaction):
         for adsorbed in adsorb_set:
             adsorbed.calc = calc
             relax = BFGSLineSearch(adsorbed, maxstep=0.1, logfile='opt.log')
-            try:
-                relax.run(fmax=fmax, steps=max_steps)
-            except Exception:
+            relax.run(fmax=fmax, steps=max_steps)
+            if not relax.converged:
                 num_failed += 1
                 break
             adsorbed.info['{}_energy'.format(str(ML_model).lower())] = adsorbed.get_potential_energy()

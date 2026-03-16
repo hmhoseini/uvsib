@@ -43,9 +43,11 @@ def construct_vasp_builder(structure, protocol, potential_family, potential_mapp
     if "HSE" in protocol["name"]:
         n_iter = 1
         retrieve_temporary_list.append("vasprun.xml")
+    if "r2SCAN_adsorbates" in protocol["name"]:
+        n_iter = 5
+        retrieve_temporary_list.append("vasprun.xml")
     parser_settings = {"add_structure": True,
-                        "add_energies": True
-                      }
+                        "add_energies": True}
     upd.builder.settings = Dict(dict={"parser_settings": parser_settings,
                                   "retrieve_temporary_list": ['vasprun.xml']}
     )

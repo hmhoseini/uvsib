@@ -105,7 +105,7 @@ class AdsorbatesWorkChain(WorkChain):
                     site = adsorbed.info["site"]
                     idx = adsorbed.info["adsorbate_collection"]
                 eta, dG = self.calculate_oer_overpotential(energy_set)
-                if eta < 1.2:
+                if eta < 1:
                     self.ctx.candidates[parent_key] = adsorb_set
                 add_surface_ml_adsorbate(existing_uuid=uuid_str, surf_id=surface_id, comp=self.ctx.chemical_formula,
                                          reac=self.ctx.reaction, s_m=site, u_idx=idx, e=eta, dg=dG, ad_set=adsorb_set)
@@ -147,7 +147,7 @@ class AdsorbatesWorkChain(WorkChain):
                 structure = outputs.structure.get_pymatgen()
                 energy = outputs.misc["total_energies"]["energy_extrapolated"]
                 ad_set.append([structure.as_dict(), ad, energy])
-            self.ctx.relaxation_results[f"{parent_key}_{site}_{unique_idx}"].append(ad_set)
+            self.ctx.relaxation_results[f"{parent_key}_{site}_{unique_idx}"] = ad_set
         if failed_jobs:
             self.report(f"{failed_jobs} r2SCAN relaxations failed")
 
