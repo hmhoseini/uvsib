@@ -122,7 +122,7 @@ class BandAlignmentWorkChain(WorkChain):
             pbe_wch = self.ctx[f"pbe_{uuid_str}"]
             builder = construct_vasp_builder(
                     pbe_wch.inputs.structure,
-                    self.ctx.protocol["r2SCAN_energy"],  # janK debug, switch back -> HSE for production
+                    self.ctx.protocol["HSE"],
                     self.ctx.potential_family,
                     self.ctx.potential_mapping,
                     self.ctx.vasp_code,
