@@ -1,4 +1,4 @@
-from aiida.orm import Str, List, Bool
+from aiida.orm import Str, List, Dict
 from aiida_submission_controller import BaseSubmissionController
 from uvsib.workchains.main import MainWorkChain
 
@@ -51,6 +51,6 @@ class MainSubmissionController(BaseSubmissionController):
         inputs = {"chemical_formula": Str(self.chemical_formula),
                   "chemical_systems": List(list=self.chemical_systems),
                   "ML_model": Str(self.model),
-                  "reaction": Str(self.reaction),
+                  "reaction": Dict(self.reaction),
                   'nanoparticles': Str(self.nanoparticles)}
         return inputs, MainWorkChain

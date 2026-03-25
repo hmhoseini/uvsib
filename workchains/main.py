@@ -1,4 +1,4 @@
-from aiida.orm import Str, List
+from aiida.orm import Str, List, Dict
 from aiida.plugins import WorkflowFactory
 from aiida.engine import WorkChain, if_, while_
 from aiida_pythonjob import PythonJob, prepare_pythonjob_inputs
@@ -16,7 +16,7 @@ class MainWorkChain(WorkChain):
         spec.input("chemical_formula", valid_type=Str)
         spec.input("chemical_systems", valid_type=List)
         spec.input("ML_model", valid_type=Str)
-        spec.input("reaction", valid_type=Str)
+        spec.input("reaction", valid_type=Dict)
         spec.input("nanoparticles", valid_type=Str)
 
         spec.outline(
@@ -37,14 +37,10 @@ class MainWorkChain(WorkChain):
                 cls.pd_verification,
                 cls.inspect_pd_verification
             ),
-            if_(cls.should_run_band_alignment)(
-                while_(cls.should_wait_band_alignment)(
-                    cls.wait_sleep,
-                    cls.check_pythonjob_sleep
-                ),
-                cls.band_alignment,
-                cls.inspect_band_alignment
-            ),
+            # if_(cls.should_run_band_alignment)(
+            #     cls.band_alignment,
+            #     cls.inspect_band_alignment
+            # ),
             if_(cls.should_run_surface_builder)(
                 while_(cls.should_wait_surface_builder)(
                     cls.wait_sleep,
@@ -87,8 +83,6 @@ class MainWorkChain(WorkChain):
         self.ctx.nano_generator = True if len(self.inputs.nanoparticles.value.split('-')) == 2 else False
         if self.ctx.nano_generator:
             self.ctx.nano_particles_range = self.inputs.nanoparticles.value
-            # self.ctx.nano_min_atoms = self.inputs.nanoparticles.value.split('-')[0]
-            # self.ctx.nano_max_atoms = self.inputs.nanoparticles.value.split('-')[1]
             elements = '-'.join(sorted(list([str(el) for el in Composition(self.ctx.chemical_formula).elements])))
             self.ctx.nano_row = query_by_columns(DBNanoParticles,{'elements': elements})[0]
             self.report('Running NanoParticleGenerator for elements {}'.format(elements))
@@ -137,15 +131,11 @@ class MainWorkChain(WorkChain):
             return False
         adsorbates_step_status = self.ctx.dbcomposition_row.step_status.get("adsorbates")
         if adsorbates_step_status in ["Done"]:
-            row = query_by_columns(DBSurfaceAdsorbate, {"composition": self.ctx.chemical_formula, "reaction": self.ctx.reaction.value})
+            row = query_by_columns(DBSurfaceAdsorbate, {"composition": self.ctx.chemical_formula,
+                                                        "reaction": self.ctx.reaction.value})
             if row:
                 return False
         return True
-
-
-
-
-
 
     def should_run_nano_generator(self):
         """Check whether should run Nano Particles routines"""
@@ -164,12 +154,6 @@ class MainWorkChain(WorkChain):
                 return True
             return False
 
-
-
-
-
-
-
     def should_wait_pd_ml(self):
         """Should wait for another running WorkChain"""
         if self.ctx.nano_generator:
@@ -187,16 +171,6 @@ class MainWorkChain(WorkChain):
         pd_ver_step_status = self.ctx.dbcomposition_row.step_status.get("pd_verification")
         if pd_ver_step_status in ["Running"]:
             self.ctx.sts = "phase diagram verification"
-            return True
-        return False
-
-    def should_wait_band_alignment(self):
-        """Should wait for another running WorkChain"""
-        if self.ctx.nano_generator:
-            return False
-        band_alignment_step_status = self.ctx.dbcomposition_row.step_status.get("band_alignment")
-        if band_alignment_step_status in ["Running"]:
-            self.ctx.sts = "band alignment"
             return True
         return False
 
@@ -360,16 +334,6 @@ class MainWorkChain(WorkChain):
             self.report("BandAlignment WorkChain failed")
             return self.exit_codes.ERROR_CALCULATION_FAILED
 
-        # update row status in DBComposition table
-        row.step_status.update({"band_alignment": "Done"})
-        update_row(
-                DBComposition,
-                row.uuid,
-                {"status": "Running",
-                 "step_status": row.step_status
-                }
-        )
-
     def surface_builder(self):
         """Running SurfaceBuilderWorkChain"""
         row = self.ctx.dbcomposition_row
@@ -458,21 +422,6 @@ class MainWorkChain(WorkChain):
                 }
         )
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     def nano_generator(self):
         """Running NanoParticlesWorkChain"""
         row = self.ctx.nano_row
@@ -494,13 +443,6 @@ class MainWorkChain(WorkChain):
 
         row.step_status.update({"nano_generator": "Done"})
         update_row(DBNanoParticles, row.uuid,{"status": "Done", "step_status": row.step_status})
-
-
-
-
-
-
-
 
     ################################################################################
     def _construct_pd_ml_builder(self):

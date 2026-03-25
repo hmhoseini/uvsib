@@ -43,7 +43,8 @@ def get_cmdline(job_info):
         cmdline.extend([
             f"--fmax={job_info['fmax']}",
             f"--max_steps={job_info['max_steps']}",
-            f"--reaction={job_info['reaction']}"]
+            f"--reaction={job_info['reaction']}",
+            f"--pathway={job_info['pathway']}"]
         )
     elif job_type == 'nano_particles':
         cmdline.extend([

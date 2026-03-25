@@ -119,7 +119,7 @@ class DBSurfaceAdsorbate(Base):
         nullable=False
     )
     composition = Column(String, nullable=True)
-    reaction = Column(String, nullable=False)
+    reaction = Column(JSONB, nullable=False)
     site_map = Column(String, nullable=False)
     unique_idx = Column(String, nullable=False)
     eta = Column(DOUBLE_PRECISION, nullable=True)
@@ -145,7 +145,7 @@ class DBSurfaceMLAdsorbate(Base):
         nullable=False
     )
     composition = Column(String, nullable=True)
-    reaction = Column(String, nullable=False)
+    reaction = Column(JSONB, nullable=False)
     site_map = Column(String, nullable=False)
     unique_idx = Column(String, nullable=False)
     eta = Column(DOUBLE_PRECISION, nullable=True)
@@ -169,7 +169,7 @@ class DBFrontend(Base):
     username = Column(String, nullable=True)
     composition = Column(String, nullable=True)
     model = Column(String, nullable=True)
-    reaction = Column(String, nullable=True)
+    reaction = Column(JSONB, nullable=True)
     nano_particles = Column(String, nullable=True)
     status = Column(String, nullable=False, default="Created")
     step_status = Column(JSONB, nullable=True)

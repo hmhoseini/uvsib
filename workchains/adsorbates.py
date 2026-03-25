@@ -12,6 +12,8 @@ from uvsib.codes.utils import ase_to_pmg
 from uvsib.db.utils import get_structure_uuid_surface_id, query_by_columns
 from uvsib.workchains.utils import get_code, get_model_device
 from uvsib.workflows import settings
+from pymatgen.io.ase import AseAtomsAdaptor
+from pymatgen.core.structure import Structure
 
 
 def read_yaml(file_path):
@@ -28,18 +30,16 @@ class AdsorbatesWorkChain(WorkChain):
 
         spec.input("chemical_formula", valid_type=Str)
         spec.input("ML_model", valid_type=Str)
-        spec.input("reaction", valid_type=Str)
+        spec.input("reaction", valid_type=Dict)
 
         spec.outline(
             cls.setup,
             cls.run_adsorbs,
             cls.inspect_adsorbs,
             cls.store_results_ml,
-            cls.scan_relax,
-            cls.inspect_relax,
-            cls.scan_energy,
-            cls.inspect_energy,
-            cls.store_results,
+            # cls.scan_relax,
+            # cls.inspect_relax,
+            # cls.store_scan_results,
             cls.final_report
         )
 
@@ -64,7 +64,7 @@ class AdsorbatesWorkChain(WorkChain):
         self.ctx.ml_results = dict()
         self.ctx.candidates = dict()
         self.ctx.relaxation_results = dict()
-        self.ctx.scan_results = dict()
+        self.ctx.adsorption_sets = dict()
         self.ctx.protocol = read_yaml(os.path.join(settings.vasp_files_path, "protocol.yaml"))
         self.ctx.potential_family = settings.configs["codes"]["VASP"]["potential_family"]
         potential_mapping = read_yaml(os.path.join(settings.vasp_files_path, "potential_mapping.yaml"))
@@ -131,81 +131,59 @@ class AdsorbatesWorkChain(WorkChain):
         """Inspect r2SCAN geometry optimization"""
         failed_jobs = 0
         for parent_key, adsorption_set in self.ctx.candidates.items():
-            site = None
-            unique_idx = None
-            ad_set = list()
             for adsorb_json in adsorption_set:
                 adsorbed = jsonio.decode(adsorb_json)
                 unique_idx = adsorbed.info["adsorbate_collection"]
                 site = adsorbed.info["site"]
                 ad = adsorbed.info["adsorbate"]
-                scan_wch = self.ctx[f"scan_relax_{parent_key}_{site}_{unique_idx}_{ad}"]
-                if not scan_wch.is_finished_ok:
+                wch = self.ctx[f"scan_relax_{parent_key}_{site}_{unique_idx}_{ad}"]
+                if not wch.is_finished_ok:
                     failed_jobs += 1
                     break
-                outputs = scan_wch.outputs
+                outputs = wch.called[-1].outputs
                 structure = outputs.structure.get_pymatgen()
                 energy = outputs.misc["total_energies"]["energy_extrapolated"]
-                ad_set.append([structure.as_dict(), ad, energy])
-            self.ctx.relaxation_results[f"{parent_key}_{site}_{unique_idx}"] = ad_set
+                self.ctx.relaxation_results[f"{parent_key}_{site}_{unique_idx}_{ad}"] = [structure, energy]
         if failed_jobs:
             self.report(f"{failed_jobs} r2SCAN relaxations failed")
 
-    def scan_energy(self):
-        """Run r2SCAN geometry optimization"""
-        for parent_key, adsorption_set in self.ctx.relaxation_results.items():
-            for adsorb_json in adsorption_set:
-                adsorbed = jsonio.decode(adsorb_json)
-                unique_idx = adsorbed.info["adsorbate_collection"]
-                site = adsorbed.info["site"]
-                ad = adsorbed.info["adsorbate"]
-                pmg_structure = ase_to_pmg(adsorbed)
-                struct = StructureData(pymatgen=pmg_structure)
-                struct.base.attributes.set("site_properties", pmg_structure.site_properties)
-                builder = construct_vasp_builder(struct, self.ctx.protocol["r2SCAN_energy"], self.ctx.potential_family,
-                                                 self.ctx.potential_mapping, self.ctx.vasp_code)
-                future = self.submit(builder)
-                self.to_context(**{f"scan_energy_{parent_key}_{site}_{unique_idx}_{ad}": future})
+    def store_scan_results(self):
+        energy_sets = dict()
+        for parent_key, entry in self.ctx.relaxation_results.items():
+            uuid_str = parent_key.split("_")[0]
+            surface_id = parent_key.split("_")[1]
+            site = parent_key.split("_")[2]
+            idx = parent_key.split("_")[3]
+            adsorb = parent_key.split("_")[4]
+            if f"{uuid_str}_{surface_id}_{site}_{idx}" not in self.ctx.adsorption_sets:
+                energy_sets[f"{uuid_str}_{surface_id}_{site}_{idx}"] = dict()
+                self.ctx.adsorption_sets[f"{uuid_str}_{surface_id}_{site}_{idx}"] = dict()
 
-    def inspect_energy(self):
-        """Inspect r2SCAN geometry optimization"""
-        failed_jobs = 0
-        for parent_key, adsorption_set in self.ctx.ml_results.items():
-            ad_set = []
-            site = None
-            unique_idx = None
-            for adsorb_json in adsorption_set:
-                adsorbed = jsonio.decode(adsorb_json)
-                unique_idx = adsorbed.info["adsorbate_collection"]
-                site = adsorbed.info["site"]
-                ad = adsorbed.info["adsorbate"]
-                scan_wch = self.ctx[f"scan_energy_{parent_key}_{site}_{unique_idx}_{ad}"]
-                if not scan_wch.is_finished_ok:
-                    failed_jobs += 1
-                    break
-                outputs = scan_wch.outputs
-                structure = outputs.structure.get_pymatgen()
-                energy = outputs.misc["total_energies"]["energy_extrapolated"]
-                ad_set.append([structure.as_dict(), ad, energy])
-            self.ctx.scan_results[f"{parent_key}_{site}_{unique_idx}"].append(ad_set)
-        if failed_jobs:
-            self.report(f"{failed_jobs} r2SCAN jobs failed")
+            energy_sets[f"{uuid_str}_{surface_id}_{site}_{idx}"].update({adsorb: entry[1]})
+            self.ctx.adsorption_sets[f"{uuid_str}_{surface_id}_{site}_{idx}"].update(
+                {adsorb: dict({'structure_dict': entry[0].as_dict(), 'dft_energy': entry[1]})})
 
-    def store_results(self):
-        for key, values in self.ctx.scan_results.items():
-            energy_set = dict()
-            uuid_str, surface_id, site, idx = key.split("_", 3)
-            for ad_set in values:
-                for v in ad_set:
-                    energy_set[v[1]] = v[2]
-            eta, dG = self.calculate_oer_overpotential(energy_set)
+        for key in energy_sets:
+            if len(energy_sets[key]) != 4:
+                print('set with key {} has missing computations, skipped'.format(key))
+                continue
+
+            uuid_str = key.split("_")[0]
+            surface_id = key.split("_")[1]
+            site = key.split("_")[2]
+            idx = key.split("_")[3]
+
+            eta, dG = self.calculate_oer_overpotential(energy_sets[key])
             add_surface_adsorbate(existing_uuid=uuid_str, surf_id=surface_id, comp=self.ctx.chemical_formula,
-                                  reac=self.ctx.reaction, s_m=site, u_idx=idx, e=eta, dg=dG, ad_set=values)
+                                  reac=self.ctx.reaction, s_m=site, u_idx=idx, e=eta, dg=dG, ad_set=self.ctx.adsorption_sets[key])
 
     def final_report(self):
         """Final report"""
-        self.report('AdsorbatesWorkChain for {} finished successfully, {} reaction sets computed.'
-                    .format(self.ctx.chemical_formula, len(self.ctx.scan_results) * len(self.ctx.scan_results[0])))
+        if len(self.ctx.adsorption_sets) == 0:
+            return
+        else:
+            self.report('AdsorbatesWorkChain for {} finished successfully, {} reaction sets computed (4 each for OER).'
+                        .format(self.ctx.chemical_formula, len(self.ctx.adsorption_sets)))
 
     @staticmethod
     def calculate_oer_overpotential(adsorption_energies):
@@ -250,6 +228,12 @@ class AdsorbatesWorkChain(WorkChain):
         builder.input_structures = List(structure)
         builder.code = get_code(ML_model)
         model, model_path, device = get_model_device(ML_model)
+        my_reaction = None
+        my_path = None
+        for entry in reaction:
+            my_reaction = entry
+            my_path = reaction[entry]
+            break  # TODO implement multi pathways here?
         relax_key = "adsorbates"
         job_info = {
             "job_type": "adsorbates",
@@ -258,7 +242,8 @@ class AdsorbatesWorkChain(WorkChain):
             "slab_energy": slab_energy,
             "fmax": settings.inputs[relax_key]["fmax"],
             "max_steps": settings.inputs[relax_key]["max_steps"],
-            "reaction": reaction,
+            "reaction": my_reaction,
+            "pathway": my_path
         }
         if ML_model in ["uPET"]:
             job_info.update({"model_name": model})

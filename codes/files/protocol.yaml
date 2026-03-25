@@ -1,6 +1,6 @@
 r2SCAN_relax:
-  name: r2SCAN_relax  # used in band alignment
-  kpoint_distance: 0.25
+  name: r2SCAN_relax  # used in pd verify & band alignment
+  kpoint_distance: 0.3
   incar:
     ADDGRID: True
     ALGO: Normal
@@ -29,7 +29,7 @@ r2SCAN_relax:
     SYMPREC: 1.0E-5
 r2SCAN_adsorbates:
   name: r2SCAN_adsorbates  # for relaxation of ml generated adsorbates
-  kpoint_distance: 0.25
+  kpoint_distance: 0.3
   incar:
     ADDGRID: True
     ALGO: Normal
@@ -51,40 +51,13 @@ r2SCAN_adsorbates:
     METAGGA: R2SCAN
     NCORE: 16
     NELM: 150
-    NSW: 151
-    PREC: Accurate
-    SIGMA: 0.05
-    SYMPREC: 1.0E-5
-r2SCAN_energy:
-  name: r2SCAN_energy  # single point final adsorption energy
-  kpoint_distance: 0.1
-  incar:
-    ADDGRID: True
-    ALGO: Normal
-    EDIFF: 1.0e-05
-    ENCUT: 600
-    ICORELEVEL: 1
-    IBRION: 0
-    ISMEAR: 0
-    ISIF: 3
-    ISPIN: 2
-    ISYM: 2
-    KPAR: 1
-    LCHARG: False
-    LMAXMIX: 2
-    LREAL: Auto
-    LASPH: True
-    LWAVE: False
-    METAGGA: R2SCAN
-    NCORE: 16
-    NELM: 150
-    NSW: 0
+    NSW: 251
     PREC: Accurate
     SIGMA: 0.05
     SYMPREC: 1.0E-5
 HSE:
   name: HSE  # for proper band alignment
-  kpoint_distance: 0.1
+  kpoint_distance: 0.25
   incar:
     AEXX: 0.22
     ALGO: Normal
