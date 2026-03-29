@@ -1,4 +1,4 @@
-from aiida.orm import Str, List, Dict
+from aiida.orm import Str, List
 from aiida_submission_controller import BaseSubmissionController
 from uvsib.workchains.main import MainWorkChain
 
@@ -12,6 +12,7 @@ class MainSubmissionController(BaseSubmissionController):
             chemical_systems,
             model,
             reaction,
+            reaction_path,
             nanoparticles,
             *args,
             **kwargs):
@@ -21,6 +22,7 @@ class MainSubmissionController(BaseSubmissionController):
         self.chemical_systems = chemical_systems
         self.model = model
         self.reaction = reaction
+        self.reaction_path = reaction_path
         self.nanoparticles = nanoparticles
 
     def get_extra_unique_keys(self):
@@ -51,6 +53,7 @@ class MainSubmissionController(BaseSubmissionController):
         inputs = {"chemical_formula": Str(self.chemical_formula),
                   "chemical_systems": List(list=self.chemical_systems),
                   "ML_model": Str(self.model),
-                  "reaction": Dict(self.reaction),
+                  "reaction": Str(self.reaction),
+                  "reaction_path": Str(self.reaction),
                   'nanoparticles': Str(self.nanoparticles)}
         return inputs, MainWorkChain

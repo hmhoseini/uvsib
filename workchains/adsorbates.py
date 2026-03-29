@@ -12,8 +12,6 @@ from uvsib.codes.utils import ase_to_pmg
 from uvsib.db.utils import get_structure_uuid_surface_id, query_by_columns
 from uvsib.workchains.utils import get_code, get_model_device
 from uvsib.workflows import settings
-from pymatgen.io.ase import AseAtomsAdaptor
-from pymatgen.core.structure import Structure
 
 
 def read_yaml(file_path):
@@ -21,6 +19,7 @@ def read_yaml(file_path):
     with open(file_path, "r", encoding="utf8") as fhandle:
         data = yaml.safe_load(fhandle)
     return data
+
 
 class AdsorbatesWorkChain(WorkChain):
     """Adsorbates WorkChain"""
@@ -30,7 +29,8 @@ class AdsorbatesWorkChain(WorkChain):
 
         spec.input("chemical_formula", valid_type=Str)
         spec.input("ML_model", valid_type=Str)
-        spec.input("reaction", valid_type=Dict)
+        spec.input("reaction", valid_type=Str)
+        spec.input("reaction_path", valid_type=Str)
 
         spec.outline(
             cls.setup,
@@ -58,6 +58,7 @@ class AdsorbatesWorkChain(WorkChain):
         self.ctx.chemical_formula = self.inputs.chemical_formula.value
         self.ctx.ML_model = self.inputs.ML_model.value
         self.ctx.reaction = self.inputs.reaction.value
+        self.ctx.reaction_path = self.inputs.reaction_path.value
         self.ctx.structure_surface_rows = get_structure_uuid_surface_id(self.ctx.chemical_formula)
         if not self.ctx.structure_surface_rows:
             return self.exit_codes.ERROR_NO_STRUCTURES_FOUND
@@ -78,7 +79,7 @@ class AdsorbatesWorkChain(WorkChain):
         for structure_uuid, surface_id in self.ctx.structure_surface_rows:
             slab_row = query_by_columns(DBSurface, {"id":surface_id})[0]
             uuid_str = str(structure_uuid)
-            builder = self._construct_adsorbate_builder(slab_row.slab, self.ctx.ML_model, self.ctx.reaction)
+            builder = self._construct_adsorbate_builder(slab_row.slab, self.ctx.ML_model, self.ctx.reaction, self.ctx.reaction_path)
             future = self.submit(builder)
             self.to_context(**{f"ads_{uuid_str}_{surface_id}": future})
 
@@ -217,7 +218,7 @@ class AdsorbatesWorkChain(WorkChain):
         return overpotential, dga.tolist()
 
     @staticmethod
-    def _construct_adsorbate_builder(slab, ML_model, reaction):
+    def _construct_adsorbate_builder(slab, ML_model, reaction, pathway):
         """
         Builder for generating surface and surface optimiziation with MatterSim or MACE
         """
@@ -230,10 +231,6 @@ class AdsorbatesWorkChain(WorkChain):
         model, model_path, device = get_model_device(ML_model)
         my_reaction = None
         my_path = None
-        for entry in reaction:
-            my_reaction = entry
-            my_path = reaction[entry]
-            break  # TODO implement multi pathways here?
         relax_key = "adsorbates"
         job_info = {
             "job_type": "adsorbates",
@@ -242,8 +239,8 @@ class AdsorbatesWorkChain(WorkChain):
             "slab_energy": slab_energy,
             "fmax": settings.inputs[relax_key]["fmax"],
             "max_steps": settings.inputs[relax_key]["max_steps"],
-            "reaction": my_reaction,
-            "pathway": my_path
+            "reaction": reaction,
+            "pathway": pathway
         }
         if ML_model in ["uPET"]:
             job_info.update({"model_name": model})

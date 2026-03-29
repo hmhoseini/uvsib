@@ -11,6 +11,7 @@ def add_from_frontend(dict_from_frontend_list):
         user = entry["user"]
         model = entry["model"]
         reaction = entry["reaction"]
+        reaction_path = entry["reaction_path"]
         retry = entry["retry"]
         nano = entry['nano_particles']
 
@@ -25,6 +26,7 @@ def add_from_frontend(dict_from_frontend_list):
                 "username": user,
                 "composition": chemical_formula,
                 "reaction": reaction,
+                "reaction_path": reaction_path,
                 "model": model,
                 'nano_particles': nano}
             )
@@ -53,6 +55,7 @@ def add_from_frontend(dict_from_frontend_list):
                 new_chemsys,
                 model,
                 reaction,
+                reaction_path,
                 nano
         )
         # update DBFrontend

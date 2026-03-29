@@ -1,4 +1,4 @@
-from aiida.orm import Str, List, Dict
+from aiida.orm import Str, List
 from aiida.plugins import WorkflowFactory
 from aiida.engine import WorkChain, if_, while_
 from aiida_pythonjob import PythonJob, prepare_pythonjob_inputs
@@ -16,7 +16,8 @@ class MainWorkChain(WorkChain):
         spec.input("chemical_formula", valid_type=Str)
         spec.input("chemical_systems", valid_type=List)
         spec.input("ML_model", valid_type=Str)
-        spec.input("reaction", valid_type=Dict)
+        spec.input("reaction", valid_type=Str)
+        spec.input("reaction_path", valid_type=Str)
         spec.input("nanoparticles", valid_type=Str)
 
         spec.outline(
@@ -79,6 +80,7 @@ class MainWorkChain(WorkChain):
         self.ctx.chemical_systems = self.inputs.chemical_systems
         self.ctx.ML_model = self.inputs.ML_model
         self.ctx.reaction = self.inputs.reaction
+        self.ctx.reaction_path = self.inputs.reaction_path
         self.ctx.dbcomposition_row = query_by_columns(DBComposition,{"composition": self.ctx.chemical_formula})[0]
         self.ctx.nano_generator = True if len(self.inputs.nanoparticles.value.split('-')) == 2 else False
         if self.ctx.nano_generator:
@@ -132,7 +134,8 @@ class MainWorkChain(WorkChain):
         adsorbates_step_status = self.ctx.dbcomposition_row.step_status.get("adsorbates")
         if adsorbates_step_status in ["Done"]:
             row = query_by_columns(DBSurfaceAdsorbate, {"composition": self.ctx.chemical_formula,
-                                                        "reaction": self.ctx.reaction.value})
+                                                        "reaction": self.ctx.reaction.value,
+                                                        "reaction_path": self.ctx.reaction_path.value})
             if row:
                 return False
         return True
@@ -484,6 +487,7 @@ class MainWorkChain(WorkChain):
         builder.chemical_formula = Str(self.ctx.chemical_formula)
         builder.ML_model = self.ctx.ML_model
         builder.reaction = self.ctx.reaction
+        builder.reaction_path = self.ctx.reaction_path
         return builder
 
     def _construct_particle_builder(self):

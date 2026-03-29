@@ -10,11 +10,11 @@ from uvsib.workflows import settings
 def get_struct_uuid(chemical_formula):
     """Query structures from the database and return list of (structure_dict, uuid)"""
     struct_uuid = []
-    results = query_structure({"composition": chemical_formula}, method="HSE")
+    results = query_structure({"composition": chemical_formula}, method="r2SCAN")
     for row in results:
-        eg = row.band_info.get("energy")
-        if eg is None: # or not _EG_MIN <= eg <= _EG_MAX:
-            continue
+        #eg = row.band_info.get("energy")
+        #if eg is None: # or not _EG_MIN <= eg <= _EG_MAX:
+        #    continue
         struct_uuid.append([row.structure, str(row.structure_uuid)])
     return struct_uuid
 
