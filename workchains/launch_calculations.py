@@ -54,6 +54,6 @@ class MainSubmissionController(BaseSubmissionController):
                   "chemical_systems": List(list=self.chemical_systems),
                   "ML_model": Str(self.model),
                   "reaction": Str(self.reaction),
-                  "reaction_path": Str(self.reaction),
+                  "reaction_path": Str(self.reaction_path),
                   'nanoparticles': Str(self.nanoparticles)}
         return inputs, MainWorkChain

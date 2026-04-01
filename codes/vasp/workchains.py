@@ -28,6 +28,8 @@ def construct_vasp_builder(structure, protocol, potential_family, potential_mapp
     selective_dynamics = get_selective_dynamics(structure)
     if selective_dynamics is not None:
         upd.builder.dynamics.positions_dof = selective_dynamics
+    dynamic_ediff = structure.num_sites * protocol['incar']['EDIFF']
+    protocol["incar"].update({"EDIFF": dynamic_ediff})
     upd.builder.parameters = Dict(dict={"incar":protocol["incar"]})
     upd.builder.potential_family = Str(potential_family)
     upd.builder.potential_mapping = Dict(dict=potential_mapping)
