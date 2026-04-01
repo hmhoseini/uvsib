@@ -1,11 +1,9 @@
-import os
-import json
-import tempfile
+from aiida.orm import Str, Dict, Code
 from aiida.engine import BaseRestartWorkChain, while_
-from aiida.orm import List, Dict, SinglefileData, Code
 from aiida.plugins import CalculationFactory
 from uvsib.workflows import settings
 from uvsib.codes.utils import get_cmdline
+
 
 def get_options():
     """Return scheduler options"""
@@ -24,29 +22,20 @@ def get_options():
         options.update({'custom_scheduler_commands' : '#SBATCH --exclusive'})
     return options
 
-def get_structures_file(structures):
-    """ temp structure file """
-    filename = "input_structures.json"
-    temp_dir = tempfile.gettempdir()
-    file_path = os.path.join(temp_dir, filename)
-    with open(file_path, 'w') as f:
-        json.dump(structures, f)
-    return SinglefileData(file=file_path)
 
-uPETCalculation = CalculationFactory('upet')
+uPETCalculation = CalculationFactory('nano_particles')
 
-class uPETWorkChain(BaseRestartWorkChain):
-    """BaseRestartWorkChain to run uPETCalculation with automatic restarts."""
 
+class NanoParticleWorkChain(BaseRestartWorkChain):
+    """run NanoParticle generator"""
     _process_class = uPETCalculation
-
     @classmethod
     def define(cls, spec):
         super().define(spec)
-
-        # Declare the inputs needed for this workchain:
-        spec.input('input_structures', valid_type=List)
-        spec.input("code", valid_type=Code)
+        spec.input('elements', valid_type=Str)
+        spec.input('particles_range', valid_tpye=Str)
+        spec.input('generator', valid_tpye=Str)
+        spec.input('code', valid_type=Code)
         spec.input('job_info', valid_type=Dict)
         spec.outline(
             cls.setup,
@@ -60,27 +49,20 @@ class uPETWorkChain(BaseRestartWorkChain):
         spec.exit_code(
             400,
             'ERROR_MAX_RESTARTS_EXCEEDED',
-            message='Maximum number of restarts exceeded for uPETWorkChain.'
+            message='Maximum number of restarts exceeded for NanoParticle generator.'
         )
 
     def setup(self):
         """Initialize context before first calculation."""
         super().setup()
-
-        input_structures = self.inputs.input_structures.get_list()
+        elements = self.inputs.elements
+        particles_range = self.inputs.particles_range
         job_info = self.inputs.job_info
-
-        input_structures_file = get_structures_file(input_structures)
-
         self.ctx.inputs = {
+            elements: self.inputs.elements,
             'code': self.inputs.code,
-            'file': {'input_structures_file': input_structures_file},
-            'parameters': Dict(dict={
-                'job_type': job_info['job_type'],
-                'cmdline_params': get_cmdline(job_info)
-            }),
-            'metadata': {
-                'options': get_options(),
-                'label': 'uPET calculation'
-            }
+            'particles_range': particles_range,
+            'generator': self.inputs.generator,
+            'parameters': Dict(dict={'job_type': job_info['job_type'], 'cmdline_params': get_cmdline(job_info)}),
+            'metadata': {'options': get_options(), 'label': 'NanoParticle Generator'}
         }

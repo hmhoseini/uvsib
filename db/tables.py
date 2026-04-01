@@ -1,11 +1,13 @@
 import uuid
-from sqlalchemy import create_engine, Column, String, Text, Integer, DateTime, ForeignKey, UniqueConstraint
-from sqlalchemy.dialects.postgresql import UUID, JSONB, DOUBLE_PRECISION, ARRAY
+from sqlalchemy import create_engine, Column, String, Text, Integer, DateTime, ForeignKey, UniqueConstraint, Boolean
+from sqlalchemy.dialects.postgresql import UUID, JSONB, DOUBLE_PRECISION
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.sql import func
 from uvsib.db.db_url import DB_URL
 
+
 Base = declarative_base()
+
 
 class DBChemsys(Base):
     """Chemical system table"""
@@ -25,6 +27,7 @@ class DBChemsys(Base):
     __table_args__ = (
         UniqueConstraint("chemsys", name="_list_formula_uc"),
     )
+
 
 class DBComposition(Base):
     """Composition table """
@@ -48,6 +51,7 @@ class DBComposition(Base):
     def __repr__(self):
         return f"<db_test(uuid={self.uuid}, label={self.label})>"
 
+
 class DBStructure(Base):
     __tablename__ = "db_structure"
     uuid = Column(
@@ -62,6 +66,7 @@ class DBStructure(Base):
     attributes = Column(JSONB, nullable=True)
     ctime = Column(DateTime(timezone=True), server_default=func.now())
     mtime = Column(DateTime(timezone=True), onupdate=func.now())
+
 
 class DBStructureVersion(Base):
     __tablename__ = 'db_structure_version'
@@ -82,6 +87,7 @@ class DBStructureVersion(Base):
     ctime = Column(DateTime(timezone=True), server_default=func.now())
     mtime = Column(DateTime(timezone=True), onupdate=func.now())
 
+
 class DBSurface(Base):
     __tablename__ = "db_surface"
 
@@ -96,6 +102,7 @@ class DBSurface(Base):
     attributes = Column(JSONB, nullable=True)
     ctime = Column(DateTime(timezone=True), server_default=func.now())
     mtime = Column(DateTime(timezone=True), onupdate=func.now())
+
 
 class DBSurfaceAdsorbate(Base):
     __tablename__ = "db_surface_adsorbate"
@@ -113,6 +120,7 @@ class DBSurfaceAdsorbate(Base):
     )
     composition = Column(String, nullable=True)
     reaction = Column(String, nullable=False)
+    reaction_path = Column(String, nullable=False)
     site_map = Column(String, nullable=False)
     unique_idx = Column(String, nullable=False)
     eta = Column(DOUBLE_PRECISION, nullable=True)
@@ -121,6 +129,33 @@ class DBSurfaceAdsorbate(Base):
     attributes = Column(JSONB, nullable=True)
     ctime = Column(DateTime(timezone=True), server_default=func.now())
     mtime = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class DBSurfaceMLAdsorbate(Base):
+    __tablename__ = "db_surface_ml_adsorbate"
+
+    id = Column(Integer, primary_key=True)
+    structure_uuid = Column(
+        UUID(as_uuid=True),
+        ForeignKey("db_structure.uuid", ondelete="CASCADE"),
+        nullable=False
+    )
+    surface_id = Column(
+        Integer,
+        ForeignKey("db_surface.id", ondelete="CASCADE"),
+        nullable=False
+    )
+    composition = Column(String, nullable=True)
+    reaction = Column(JSONB, nullable=False)
+    site_map = Column(String, nullable=False)
+    unique_idx = Column(String, nullable=False)
+    eta = Column(DOUBLE_PRECISION, nullable=True)
+    dG = Column(JSONB, nullable=True)
+    adsorb_set = Column(JSONB, nullable=False) # structures & energies
+    attributes = Column(JSONB, nullable=True)
+    ctime = Column(DateTime(timezone=True), server_default=func.now())
+    mtime = Column(DateTime(timezone=True), onupdate=func.now())
+
 
 class DBFrontend(Base):
     """Frontend table"""
@@ -135,7 +170,9 @@ class DBFrontend(Base):
     username = Column(String, nullable=True)
     composition = Column(String, nullable=True)
     model = Column(String, nullable=True)
-    reaction = Column(String, nullable=True)
+    reaction = Column(JSONB, nullable=True)
+    reaction_path = Column(String, nullable=False)
+    nano_particles = Column(String, nullable=True)
     status = Column(String, nullable=False, default="Created")
     step_status = Column(JSONB, nullable=True)
     attributes = Column(JSONB, nullable=True)
@@ -144,6 +181,31 @@ class DBFrontend(Base):
 
     def __repr__(self):
         return f"<db_test(uuid={self.uuid}, label={self.label})>"
+
+
+class DBNanoParticles(Base):
+    """Frontend table"""
+    __tablename__ = 'db_nano_particles'
+    uuid = Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        unique=True,
+        nullable=False
+    )
+    num_atoms = Column(Integer, nullable=True)
+    elements = Column(String, nullable=True)
+    energy = Column(DOUBLE_PRECISION, nullable=True)
+    special_type = Column(String, nullable=True)
+    structure = Column(JSONB, nullable=True)
+    model = Column(String, nullable=True)
+    status = Column(String, nullable=False, default="Created")
+    step_status = Column(JSONB, nullable=False, default=dict({}))
+    attributes = Column(JSONB, nullable=True)
+    ctime = Column(DateTime(timezone=True), server_default=func.now())
+    mtime = Column(DateTime(timezone=True), onupdate=func.now())
+
+
 
 if __name__ == "__main__":
     engine = create_engine(DB_URL, echo=False)

@@ -10,7 +10,8 @@
     "reentry_register": true,
     "python_requires": ">=3.10",
     "install_requires": [
-        "aiida-submission-controller==0.1.2", "mp-api","aiida-pythonjob==0.4.8", "aiida-vasp==4.1.0", "ase==3.23.0", "cluskit==4.2.0", "dscribe==2.1.2"
+        "aiida-submission-controller==0.1.2", "mp-api","aiida-pythonjob==0.4.8", "aiida-vasp==4.1.0",
+		"ase==3.23.0", "cluskit==4.2.0", "dscribe==2.1.2"
 
     ],
     "entry_points": {
@@ -41,7 +42,8 @@
 		"csp = uvsib.workchains.csp:CSPWorkChain",
 		"gen = uvsib.workchains.gen:GeneratorWorkChain",
 		"surfacebuilder = uvsib.workchains.surface_builder:SurfaceBuilderWorkChain",
-		"adsorbates = uvsib.workchains.adsorbates:AdsorbatesWorkChain"
+		"adsorbates = uvsib.workchains.adsorbates:AdsorbatesWorkChain",
+		"nano_particles = uvsib.workchains.nano_particles:NanoParticleWorkChain"
 	]
     }
 }

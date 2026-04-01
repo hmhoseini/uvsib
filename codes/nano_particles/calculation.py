@@ -1,23 +1,17 @@
 import os
 from aiida.engine import CalcJob
-from aiida.orm import Dict, SinglefileData
+from aiida.orm import Dict
 from aiida.common.datastructures import CalcInfo, CodeInfo
 from uvsib.workflows import settings
 
-class uPETCalculation(CalcJob):
-    """AiiDA plugin for uPET"""
 
+class NanoParticleGenerator(CalcJob):
+    """AiiDA plugin for Nano Particles calculation"""
     @classmethod
     def define(cls, spec):
         super().define(spec)
         spec.input("parameters", valid_type=Dict)
-        spec.input_namespace("file",
-                             valid_type=(SinglefileData),
-                             dynamic=True
-        )
-        spec.output("output_dict",
-                    valid_type=Dict,
-                    required=True)
+        spec.output("output_dict", valid_type=Dict, required=True)
 
         spec.exit_code(
                 100,
@@ -56,11 +50,10 @@ class uPETCalculation(CalcJob):
         with folder.open('aiida.py', 'w', encoding='utf-8') as f:
             f.write(content)
 
-        # Code info
         codeinfo = CodeInfo()
         codeinfo.code_uuid = self.inputs.code.uuid
         codeinfo.cmdline_params = cmdline
-        # Calc info.
+
         calcinfo = CalcInfo()
         calcinfo.uuid = self.uuid
         calcinfo.retrieve_list = ['output.json', 'total.txt', 'failed.txt']

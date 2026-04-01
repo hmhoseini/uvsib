@@ -47,19 +47,11 @@ def relax_structures(calc, fmax, max_steps):
     num_failed = 0
     for structure in structure_list:
         atoms = pmg_to_ase(Structure.from_dict(structure))
-
         atoms.calc = calc
-
         cell_filter = FrechetCellFilter(atoms)
-
         opt = BFGSLineSearch(cell_filter, logfile="opt.log")
-
-        try:
-            converged = opt.run(fmax=fmax, steps=max_steps)
-        except:
-            converged = False
-
-        if converged:
+        opt.run(fmax=fmax, steps=max_steps)
+        if opt.converged:
             energy = float(atoms.get_potential_energy())
             energies.append(energy)
             pmg_structure = ase_to_pmg(atoms)

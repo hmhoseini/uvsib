@@ -34,7 +34,6 @@ def get_cmdline(job_info):
         )
     elif job_type == 'facebuild':
         cmdline.extend([
-            f"--bulk_energy={job_info['bulk_energy']}",
             f"--fmax={job_info['fmax']}",
             f"--max_steps={job_info['max_steps']}",
             f"--max_miller_idx={job_info['max_miller_idx']}",
@@ -42,10 +41,19 @@ def get_cmdline(job_info):
         )
     elif job_type == 'adsorbates':
         cmdline.extend([
-            f"--slab_energy={job_info['slab_energy']}",
             f"--fmax={job_info['fmax']}",
             f"--max_steps={job_info['max_steps']}",
-            f"--reaction={job_info['reaction']}"]
+            f"--reaction={job_info['reaction']}",
+            f"--pathway={job_info['pathway']}"]
+        )
+    elif job_type == 'nano_particles':
+        cmdline.extend([
+            '--fmax={}'.format(job_info['fmax']),
+            '--max_steps={}'.format(job_info['max_steps']),
+            '--elements={}'.format(job_info['elements']),
+            '--min_natoms={}'.format(job_info['particles_range'].split('-')[0]),
+            '--max_natoms={}'.format(job_info['particles_range'].split('-')[1]),
+            '--generator={}'.format(job_info['generator'])]
         )
     return cmdline
 

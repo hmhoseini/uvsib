@@ -43,6 +43,8 @@ def get_output_as_entry(wch):
     entries = []
     output_dict = wch.called[-1].outputs.output_dict
     for indx, struct in enumerate(output_dict["structures"]):
+        if Structure.from_dict(struct).num_sites > 10:
+            continue
         entries.append(ComputedStructureEntry(
             structure = Structure.from_dict(struct),
             energy = output_dict["energies"][indx])

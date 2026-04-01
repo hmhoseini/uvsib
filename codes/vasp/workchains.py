@@ -28,6 +28,8 @@ def construct_vasp_builder(structure, protocol, potential_family, potential_mapp
     selective_dynamics = get_selective_dynamics(structure)
     if selective_dynamics is not None:
         upd.builder.dynamics.positions_dof = selective_dynamics
+    dynamic_ediff = structure.num_sites * protocol['incar']['EDIFF']
+    protocol["incar"].update({"EDIFF": dynamic_ediff})
     upd.builder.parameters = Dict(dict={"incar":protocol["incar"]})
     upd.builder.potential_family = Str(potential_family)
     upd.builder.potential_mapping = Dict(dict=potential_mapping)
@@ -43,9 +45,11 @@ def construct_vasp_builder(structure, protocol, potential_family, potential_mapp
     if "HSE" in protocol["name"]:
         n_iter = 1
         retrieve_temporary_list.append("vasprun.xml")
+    if "r2SCAN_adsorbates" in protocol["name"]:
+        n_iter = 5
+        retrieve_temporary_list.append("vasprun.xml")
     parser_settings = {"add_structure": True,
-                        "add_energies": True
-                      }
+                        "add_energies": True}
     upd.builder.settings = Dict(dict={"parser_settings": parser_settings,
                                   "retrieve_temporary_list": ['vasprun.xml']}
     )

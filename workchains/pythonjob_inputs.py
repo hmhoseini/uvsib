@@ -1,4 +1,4 @@
-def is_data_available(chemical_systems, timeout = 36000):
+def is_data_available(chemical_systems, timeout=36000):
     """Check if data for a phase diagram is available.
     If data is available, return True, otherwise sleep. Timeout 10 h.
     """
@@ -27,13 +27,13 @@ def is_data_available(chemical_systems, timeout = 36000):
             return {"moveon": True}
         if time.time() - tstart > timeout:
             return {"moveon": False}
-        time.sleep(600)
+        time.sleep(60)
 
-def wait_sleep(timeout = 3600):
+def wait_sleep(timeout=3600):
     """Sleep"""
     import time
     tstart = time.time()
     while True:
         if time.time() - tstart > timeout:
             return
-        time.sleep(600)
+        time.sleep(60)

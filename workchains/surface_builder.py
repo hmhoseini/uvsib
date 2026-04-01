@@ -6,15 +6,16 @@ from uvsib.db.utils import query_structure, add_slab
 from uvsib.workchains.utils import get_code, get_model_device
 from uvsib.workflows import settings
 
+
 def get_struct_uuid(chemical_formula):
     """Query structures from the database and return list of (structure_dict, uuid)"""
     struct_uuid = []
-    results = query_structure({"composition": chemical_formula}, method = "HSE")
-    for hse_row in results:
-        eg = hse_row.band_info.get("energy")
-        if eg is None: # or not _EG_MIN <= eg <= _EG_MAX:
-            continue
-        struct_uuid.append([hse_row.structure, str(hse_row.structure_uuid)])
+    results = query_structure({"composition": chemical_formula}, method="r2SCAN")
+    for row in results:
+        #eg = row.band_info.get("energy")
+        #if eg is None: # or not _EG_MIN <= eg <= _EG_MAX:
+        #    continue
+        struct_uuid.append([row.structure, str(row.structure_uuid)])
     return struct_uuid
 
 def read_yaml(file_path):
@@ -22,16 +23,14 @@ def read_yaml(file_path):
     with open(file_path, "r", encoding="utf8") as fhandle:
         return yaml.safe_load(fhandle)
 
+
 class SurfaceBuilderWorkChain(WorkChain):
     """SurfaceBuilder WorkChain"""
-
     @classmethod
     def define(cls, spec):
         super().define(spec)
-
         spec.input("ML_model", valid_type=Str)
         spec.input("chemical_formula", valid_type=Str)
-
         spec.outline(
             cls.setup,
             cls.run_facebuild,
@@ -66,10 +65,7 @@ class SurfaceBuilderWorkChain(WorkChain):
         for struct_dict, uuid_str in self.ctx.struct_uuid:
             structure_row = query_structure({"uuid": uuid_str}, method = "r2SCAN")[0]
             bulk_energy = structure_row.energy
-            builder = self._construct_facebuild_builder(
-                    struct_dict,
-                    bulk_energy,
-                    self.ctx.ML_model)
+            builder = self._construct_facebuild_builder(struct_dict, self.ctx.ML_model)
             future = self.submit(builder)
             self.to_context(**{f"sfb_{uuid_str}": future})
 
@@ -98,23 +94,15 @@ class SurfaceBuilderWorkChain(WorkChain):
         self.report(f"SurfaceBuilderWorkChain for {self.ctx.chemical_formula} finished successfully")
 
     @staticmethod
-    def _construct_facebuild_builder(ml_structure, ml_energy, ML_model):
-        """
-        Builder for generating surface and surface optimiziation with MatterSim or MACE
-        """
+    def _construct_facebuild_builder(ml_structure, ML_model):
+        """Builder for generating surface and surface optimization"""
         structure = [ml_structure]
-
         Workflow = WorkflowFactory(ML_model.lower())
-
         builder = Workflow.get_builder()
-
         builder.input_structures = List(structure)
         builder.code = get_code(ML_model)
-
         model, model_path, device = get_model_device(ML_model)
-
         relax_key = "face_build"
-
         job_info = {
             "job_type": "facebuild",
             "ML_model": ML_model,
@@ -122,7 +110,6 @@ class SurfaceBuilderWorkChain(WorkChain):
             "fmax": settings.inputs[relax_key]["fmax"],
             "max_steps": settings.inputs[relax_key]["max_steps"],
             "max_miller_idx": settings.inputs[relax_key]["max_miller_idx"],
-            "bulk_energy": ml_energy,
             "percentage_to_select": settings.inputs[relax_key]["percentage_to_select"]
         }
         if ML_model in ["uPET"]:
@@ -131,5 +118,4 @@ class SurfaceBuilderWorkChain(WorkChain):
             job_info.update({"model_path": model_path})
 
         builder.job_info = Dict(job_info)
-
         return builder

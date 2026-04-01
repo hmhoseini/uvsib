@@ -105,7 +105,7 @@ class PDVerificationWorkChain(WorkChain):
 
         self.ctx.struct_uuid = get_struct_uuid(self.ctx.chemical_formula, self.ctx.ML_model)
         if not self.ctx.struct_uuid:
-            self.report(f"No structures were found for {self.ctx.chemcal_formula}")
+            self.report(f"No structures were found for {self.ctx.chemical_formula}")
             return self.exit_codes.ERROR_NO_STRUCTURES_FOUND
 
         self.ctx.protocol = read_yaml(
@@ -124,7 +124,7 @@ class PDVerificationWorkChain(WorkChain):
             pmg_structure = get_primitive_cell(struct_dict)
             builder = construct_vasp_builder(
                 StructureData(pymatgen=pmg_structure),
-                self.ctx.protocol["r2SCAN"],
+                self.ctx.protocol["r2SCAN_relax"],
                 self.ctx.potential_family,
                 self.ctx.potential_mapping,
                 self.ctx.vasp_code
@@ -145,23 +145,16 @@ class PDVerificationWorkChain(WorkChain):
         if failed_scan:
             self.report(f"Warning: r2SCAN geometry optimization failed (structure uuids: {failed_scan})")
 
-        low_energy_entries = unique_low_energy_comp(
-                self.ctx.chemical_formula,
-                scan_entries,
-                "r2SCAN"
-        )
+        low_energy_entries = unique_low_energy_comp(self.ctx.chemical_formula, scan_entries,"r2SCAN")
 
         if not low_energy_entries:
             self.report(f"No low energy structures for {self.ctx.chemical_formula} were found")
             return self.exit_codes.ERROR_NO_STRUCTURES_FOUND
 
         for entry in low_energy_entries:
-            add_version_to_existing_structure(
-                entry.data["uuid"],
-                "r2SCAN",
-                {"structure": entry.structure.as_dict(),
-                 "energy": entry.energy}
-            )
+            add_version_to_existing_structure(entry.data["uuid"],"r2SCAN",{
+                "structure": entry.structure.as_dict(),
+                "energy": entry.energy})
 
     def final_report(self):
         """Final report"""

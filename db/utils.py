@@ -3,7 +3,9 @@ from sqlalchemy import inspect, delete, select, text
 from sqlalchemy.orm import aliased
 from pymatgen.core import Composition, Structure
 from uvsib.db.session import get_session
-from uvsib.db.tables import DBChemsys, DBStructure, DBStructureVersion, DBSurface, DBSurfaceAdsorbate
+from uvsib.db.tables import (DBChemsys, DBStructure, DBStructureVersion, DBSurface, DBSurfaceAdsorbate,
+                             DBSurfaceMLAdsorbate, DBNanoParticles)
+
 
 def add_surface_adsorbate(existing_uuid, surf_id, comp, reac, s_m, u_idx, e, dg, ad_set):
     """Store a new DBSurfaceAdsorbate row corresponding to a given DBStructure UUID and surface ID"""
@@ -21,8 +23,27 @@ def add_surface_adsorbate(existing_uuid, surf_id, comp, reac, s_m, u_idx, e, dg,
         )
         session.add(adsorb)
         session.commit()
-
     return True
+
+
+def add_surface_ml_adsorbate(existing_uuid, surf_id, comp, reac, s_m, u_idx, e, dg, ad_set):
+    """Store a new DBSurfaceAdsorbate row corresponding to a given DBStructure UUID and surface ID"""
+    with get_session() as session:
+        adsorb = DBSurfaceMLAdsorbate(
+                structure_uuid=existing_uuid,
+                surface_id=surf_id,
+                composition=comp,
+                reaction=reac,
+                site_map=s_m,
+                unique_idx=u_idx,
+                eta=e,
+                dG=dg,
+                adsorb_set=ad_set
+        )
+        session.add(adsorb)
+        session.commit()
+    return True
+
 
 def get_structure_uuid_surface_id(composition):
     """
@@ -371,9 +392,27 @@ def delete_all_rows(session, table_class):
 
 def print_all_rows(session, table_class):
     """Reflect the table by name and print all rows"""
-    rows = []
     rows = get_table_data(session, table_class)
     if rows:
         print(f"\nRows from table '{table_class.__table__}':")
         for row in rows:
             print(row)
+
+def add_nano_particles(model, structure_energy_pairs, special_type=None):
+    """Add new particles and energies to the database"""
+    with get_session() as session:
+        for struct_dict, energy in structure_energy_pairs:
+            struct = Structure.from_dict(struct_dict)
+            composition = struct.composition.reduced_formula
+
+            nanoparticle = DBNanoParticles(
+                num_atoms=struct.num_sites,
+                composition=composition,
+                special_type=special_type,
+                structure=struct_dict,
+                energy=energy,
+                model=model
+            )
+            session.add(nanoparticle)
+            session.flush()
+        session.commit()
