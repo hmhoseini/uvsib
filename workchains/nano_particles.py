@@ -1,6 +1,7 @@
 from aiida.engine import WorkChain
 from aiida.plugins import WorkflowFactory
 from aiida.orm import Str, Dict, List
+from uvsib.db.utils import add_nano_particles
 from uvsib.workchains.utils import get_code, get_model_device
 from uvsib.workflows import settings
 
@@ -21,8 +22,6 @@ class NanoParticleWorkChain(WorkChain):
             cls.cook_and_relax,
             cls.analyze,
             cls.store_results,
-            # cls.run_dft,
-            # cls.validate,
             cls.final_report
         )
 
@@ -106,69 +105,12 @@ class NanoParticleWorkChain(WorkChain):
             print('{}'.format(len(self.ctx.generated_particles)))
         print('total: {}'.format(len(self.ctx.generated_particles)))
 
-    def run_dft(self):
-        """Run dft validation"""
-        pass
-        # for parent_key, adsorption_sets in self.ctx.ml_results.items():
-        #     run_clean_surface = True
-        #     for adsorb_set in adsorption_sets:
-        #         for ads_json in adsorb_set:
-        #             adsorbed = jsonio.decode(ads_json)
-        #             if adsorbed.info["adsorbate"] == "*":
-        #                 if not run_clean_surface:
-        #                     continue
-        #                 run_clean_surface = False
-        #             unique_idx = adsorbed.info["adsorbate_collection"]
-        #             site = adsorbed.info["site"]
-        #             ad = adsorbed.info["adsorbate"]
-        #             pmg_structure = ase_to_pmg(adsorbed)
-        #             struct = StructureData(pymatgen=pmg_structure)
-        #             struct.base.attributes.set("site_properties",
-        #                                        pmg_structure.site_properties
-        #                                        )
-        #             builder = construct_vasp_builder(
-        #                 struct,
-        #                 self.ctx.protocol["r2SCAN_adsorbates"],
-        #                 self.ctx.potential_family,
-        #                 self.ctx.potential_mapping,
-        #                 self.ctx.vasp_code
-        #             )
-        #             future = self.submit(builder)
-        #             self.to_context(**{f"scan_{parent_key}_{site}_{unique_idx}_{ad}": future})
-
-    def validate(self):
-        """Validate ML vs r2SCAN VASP"""
-        pass
-        # failed_jobs = 0
-        # for parent_key, adsorption_sets in self.ctx.ml_results.items():
-        #     for adsorb_set in adsorption_sets:
-        #         ad_set = []
-        #         for ads_json in adsorb_set:
-        #             adsorbed = jsonio.decode(ads_json)
-        #             unique_idx = adsorbed.info["adsorbate_collection"]
-        #             site = adsorbed.info["site"]
-        #             ad = adsorbed.info["adsorbate"]
-        #             if adsorbed.info["adsorbate"] == "*":
-        #                 ad_set.append([{}, "*", adsorbed.info[
-        #                     "clean_slab_energy"]])  # TODO bare surface energy is calculated only by ML
-        #                 continue
-        #             scan_wch = self.ctx[f"scan_{parent_key}_{site}_{unique_idx}_{ad}"]
-        #             if not scan_wch.is_finished_ok:
-        #                 failed_jobs += 1
-        #                 break
-        #             outputs = scan_wch.outputs
-        #             structure = outputs.structure.get_pymatgen()
-        #             energy = outputs.misc["total_energies"]["energy_extrapolated"]
-        #             ad_set.append([structure.as_dict(), ad, energy])
-        #         self.ctx.scan_results[f"{parent_key}_{site}_{unique_idx}"].append(ad_set)
-        #
-        # if failed_jobs:
-        #     self.report(f"{failed_jobs} r2SCAN jobs failed")
-
     def store_results(self):
         """Store results"""
         self.report('Storing results')
-        pass
+
+        assert 1 == 2
+
         # for parent_key, adsorption_sets in self.ctx.ml_results.items():
         #     uuid_str, surface_id = parent_key.split("_", 2)
                 # add_surface_adsorbate(

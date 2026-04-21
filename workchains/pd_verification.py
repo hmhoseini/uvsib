@@ -101,6 +101,13 @@ class PDVerificationWorkChain(WorkChain):
         self.report("Running PDVerification WorkChain")
         self.ctx.chemical_formula = self.inputs.chemical_formula.value
         self.ctx.ML_model = self.inputs.ML_model.value
+        self.ctx.vasp_protocol = read_yaml(os.path.join(settings.vasp_files_path, "protocol.yaml"))
+        # print(type(self.ctx.vasp_protocol))
+        # print(self.ctx.vasp_protocol)
+        # print(self.ctx.vasp_protocol['r2SCAN_relax'])
+        # print(self.ctx.vasp_protocol['r2SCAN_relax']['incar'])
+        # print(self.ctx.vasp_protocol['r2SCAN_relax']['incar']['EDIFF'])
+        self.ctx.ediff_value = float(self.ctx.vasp_protocol["r2SCAN_relax"]['incar']['EDIFF'])
         add_from_mpdb(self.ctx.chemical_formula)
 
         self.ctx.struct_uuid = get_struct_uuid(self.ctx.chemical_formula, self.ctx.ML_model)
@@ -121,6 +128,9 @@ class PDVerificationWorkChain(WorkChain):
     def run_scan(self):
         """Run r2SCAN geometry optimization"""
         for struct_dict, uuid_str in self.ctx.struct_uuid:
+            structure = Structure.from_dict(struct_dict)
+            ediff_per_atom = structure.num_sites * self.ctx.ediff_value
+            self.ctx.vasp_protocol["r2SCAN_relax"]['incar'].update({"EDIFF": ediff_per_atom})
             pmg_structure = get_primitive_cell(struct_dict)
             builder = construct_vasp_builder(
                 StructureData(pymatgen=pmg_structure),
