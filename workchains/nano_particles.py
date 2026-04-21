@@ -68,6 +68,18 @@ class NanoParticleWorkChain(WorkChain):
         self.report('Batching produced particles for cooking and relaxation')
         chain = self.ctx['generated_{}'.format(self.ctx.particles_range)]
         print(chain)
+
+
+
+
+        print('for each of them or for all the following code?')
+
+        # go into the adsorbates chain from here directly
+
+        assert 1 == 2
+
+
+
         if not chain.is_finished_ok:
             self.report('Generator for nano-particles failed')
             return
@@ -90,8 +102,13 @@ class NanoParticleWorkChain(WorkChain):
             self.to_context(**{'cooked_{}_{}'.format(self.ctx.particles_range, count): future})
         self.ctx.relax_batches = count
 
+
+        assert 1 == 2
+
+
     def analyze(self):
         self.report('Analyze produced nano-particles')
+        assert 1 == 2
         for batch_index in range(len(self.ctx.relax_batches)):
             chain = self.ctx['cooked_{}_{}'.format(self.ctx.particles_range, batch_index)]
             print(batch_index, chain)

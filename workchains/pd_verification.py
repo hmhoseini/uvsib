@@ -102,11 +102,6 @@ class PDVerificationWorkChain(WorkChain):
         self.ctx.chemical_formula = self.inputs.chemical_formula.value
         self.ctx.ML_model = self.inputs.ML_model.value
         self.ctx.vasp_protocol = read_yaml(os.path.join(settings.vasp_files_path, "protocol.yaml"))
-        # print(type(self.ctx.vasp_protocol))
-        # print(self.ctx.vasp_protocol)
-        # print(self.ctx.vasp_protocol['r2SCAN_relax'])
-        # print(self.ctx.vasp_protocol['r2SCAN_relax']['incar'])
-        # print(self.ctx.vasp_protocol['r2SCAN_relax']['incar']['EDIFF'])
         self.ctx.ediff_value = float(self.ctx.vasp_protocol["r2SCAN_relax"]['incar']['EDIFF'])
         add_from_mpdb(self.ctx.chemical_formula)
 
@@ -115,15 +110,11 @@ class PDVerificationWorkChain(WorkChain):
             self.report(f"No structures were found for {self.ctx.chemical_formula}")
             return self.exit_codes.ERROR_NO_STRUCTURES_FOUND
 
-        self.ctx.protocol = read_yaml(
-                os.path.join(settings.vasp_files_path, "protocol.yaml")
-        )
+        self.ctx.protocol = read_yaml(os.path.join(settings.vasp_files_path, "protocol.yaml"))
         self.ctx.potential_family = settings.configs["codes"]["VASP"]["potential_family"]
         potential_mapping = read_yaml(os.path.join(settings.vasp_files_path, "potential_mapping.yaml"))
         self.ctx.potential_mapping = potential_mapping["potential_mapping"]
-        self.ctx.vasp_code = load_code(
-                settings.configs["codes"]["VASP"]["code_string"]
-        )
+        self.ctx.vasp_code = load_code(settings.configs["codes"]["VASP"]["code_string"])
 
     def run_scan(self):
         """Run r2SCAN geometry optimization"""
