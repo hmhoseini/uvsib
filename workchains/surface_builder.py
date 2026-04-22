@@ -10,7 +10,7 @@ from uvsib.workflows import settings
 def get_struct_uuid(chemical_formula):
     """Query structures from the database and return list of (structure_dict, uuid)"""
     struct_uuid = []
-    results = query_structure({"composition": chemical_formula}, method="r2SCAN")
+    results = query_structure({"composition": chemical_formula})
     for row in results:
         #eg = row.band_info.get("energy")
         #if eg is None: # or not _EG_MIN <= eg <= _EG_MAX:
@@ -63,8 +63,8 @@ class SurfaceBuilderWorkChain(WorkChain):
     def run_facebuild(self):
         """Run SurfaceBuilder Workchain"""
         for struct_dict, uuid_str in self.ctx.struct_uuid:
-            structure_row = query_structure({"uuid": uuid_str}, method = "r2SCAN")[0]
-            bulk_energy = structure_row.energy
+            # structure_row = query_structure({"uuid": uuid_str})[0]
+            # bulk_energy = structure_row.energy
             builder = self._construct_facebuild_builder(struct_dict, self.ctx.ML_model)
             future = self.submit(builder)
             self.to_context(**{f"sfb_{uuid_str}": future})

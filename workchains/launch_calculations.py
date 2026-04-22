@@ -50,10 +50,16 @@ class MainSubmissionController(BaseSubmissionController):
             Param: extras_values: a tuple of values of the extras,
             in same order as the keys returned by get_extra_unique_keys().
         """
+        if self.nanoparticles:
+            meta_data = {'label': f'uvsib-NP-{self.chemical_formula}-{self.reaction}'}
+        else:
+            meta_data = {'label': f'uvsib-{self.chemical_formula}-{self.reaction}'}
+
         inputs = {"chemical_formula": Str(self.chemical_formula),
                   "chemical_systems": List(list=self.chemical_systems),
                   "ML_model": Str(self.model),
                   "reaction": Str(self.reaction),
                   "reaction_path": Str(self.reaction_path),
-                  'nanoparticles': Str(self.nanoparticles)}
+                  'nanoparticles': Str(self.nanoparticles),
+                  'metadata': meta_data}
         return inputs, MainWorkChain

@@ -30,14 +30,14 @@ class MainWorkChain(WorkChain):
                 cls.pd_ml,
                 cls.inspect_pd_ml
             ),
-            if_(cls.should_run_pd_verification)(
-                while_(cls.should_wait_pd_ver)(
-                    cls.wait_sleep,
-                    cls.check_pythonjob_sleep
-                ),
-                cls.pd_verification,
-                cls.inspect_pd_verification
-            ),
+            # if_(cls.should_run_pd_verification)(
+            #     while_(cls.should_wait_pd_ver)(
+            #         cls.wait_sleep,
+            #         cls.check_pythonjob_sleep
+            #     ),
+            #     cls.pd_verification,
+            #     cls.inspect_pd_verification
+            # ),
             # if_(cls.should_run_band_alignment)(
             #     cls.band_alignment,
             #     cls.inspect_band_alignment

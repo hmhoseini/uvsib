@@ -201,7 +201,7 @@ class DBNanoParticles(Base):
     model = Column(String, nullable=True)
     status = Column(String, nullable=False, default="Created")
     step_status = Column(JSONB, nullable=False, default=dict({}))
-    attributes = Column(JSONB, nullable=True)
+    attributes = Column(JSONB, nullable=True, default=dict({}))
     ctime = Column(DateTime(timezone=True), server_default=func.now())
     mtime = Column(DateTime(timezone=True), onupdate=func.now())
 
