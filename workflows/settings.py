@@ -19,7 +19,7 @@ with open(os.path.join(run_dir, 'config.yaml'), 'r', encoding='utf8') as fhandle
 
 api_key = configs['MP_API_KEY']['api_key']
 
-EHULL = 0.15
+EHULL = 0.05
 DFT_FUNC = "r2SCAN"
 
 code_folder_path =  os.path.join(uvsib_directory, 'codes')

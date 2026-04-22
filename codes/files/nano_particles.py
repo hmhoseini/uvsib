@@ -1,4 +1,3 @@
-import sys
 import json
 import argparse
 import numpy as np
@@ -30,7 +29,6 @@ def generate_nano_particles(element_list, calculator, max_force, max_relax_steps
 
     generated_clusters = list()
     for num_atoms in range(min_natoms, max_natoms):
-        print(num_atoms)
         dr = 1
         coords = None
         species = None
@@ -43,7 +41,7 @@ def generate_nano_particles(element_list, calculator, max_force, max_relax_steps
                 species.append(site.specie)
             if len(coords) >= num_atoms:
                 right_number = True
-                print('Particle diameter: {} nm'.format(np.round(2 * dr / 10, 1)))
+                # print('Particle diameter: {} nm'.format(np.round(2 * dr / 10, 1)))
             dr += 0.1
 
         spherical_cut = AseAtomsAdaptor().get_atoms(Structure(lattice=np.array([[100, 0, 0], [0, 100, 0], [0, 0, 100]]),
@@ -58,7 +56,7 @@ def generate_nano_particles(element_list, calculator, max_force, max_relax_steps
         relax = BFGSLineSearch(spherical_cut, maxstep=0.1)
         relax.run(fmax=max_force, steps=max_relax_steps)
         if not relax.converged:
-            # print('relax failed during generation step 1')
+            print('relax failed during generation step 1')
             num_failed += 1
             return
 
@@ -79,7 +77,7 @@ def generate_nano_particles(element_list, calculator, max_force, max_relax_steps
                 relax = BFGSLineSearch(spherical_cut, maxstep=0.1)
                 relax.run(fmax=max_force, steps=max_relax_steps)
                 if not relax.converged:
-                    # print('relax failed during generation replacement step')
+                    print('relax failed during generation replacement step')
                     num_failed += 1
                     continue
 
@@ -121,12 +119,7 @@ def generate_nano_particles(element_list, calculator, max_force, max_relax_steps
                     atoms = AseAtomsAdaptor().get_atoms(structure=heat_cell)
                     atoms.center(vacuum=10)
                     generated_clusters.append(atoms.copy())
-        else:
-            raise NotImplementedError('Generator {} not implemented yet'.format(generator))
 
-
-    print('GENERATED: {}'.format(len(generated_clusters)))
-    sys.stdout.flush()
 
     for atoms in generated_clusters:
         atoms.calc = calculator
@@ -136,19 +129,16 @@ def generate_nano_particles(element_list, calculator, max_force, max_relax_steps
 
         timestep = 1*fs if np.any(np.array(list(set(atoms.get_chemical_symbols())) == 'H')) else 5*fs
 
-        print('starting bussi on {}'.format(atoms))
-        sys.stdout.flush()
-
         for multi in range(0, 15):
             md = Bussi(atoms, timestep=timestep, temperature_K=100+(100*multi), taut=100*fs)
-            md.run(steps=250)
+            md.run(steps=2500)
 
         md = Bussi(atoms, timestep=timestep, temperature_K=1500, taut=100*fs)
-        md.run(steps=1000)
+        md.run(steps=10000)
 
         for multi in range(14, -1, -1):
             md = Bussi(atoms, timestep=timestep, temperature_K=100+(100*multi), taut=100*fs)
-            md.run(steps=250)
+            md.run(steps=2500)
 
         relax = BFGSLineSearch(atoms, maxstep=0.1)
         relax.run(fmax=max_force, steps=max_relax_steps)
@@ -164,7 +154,6 @@ def generate_nano_particles(element_list, calculator, max_force, max_relax_steps
         atoms.info['formation_energy'] = formation_energy
 
         relaxed_particles.append(AseAtomsAdaptor().get_structure(atoms).as_dict())
-
 
     output = dict({'structures': relaxed_particles})
 
