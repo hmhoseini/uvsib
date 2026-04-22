@@ -184,16 +184,9 @@ class PhaseDiagramMLWorkChain(WorkChain):
             self.report(f"WARNING: no stable structure for {self.ctx.chemical_formula} has been found")
 
         # add uuids of stable structures to the DBComposition table
-        row = query_by_columns(DBComposition,
-                               {"composition": self.ctx.chemical_formula}
-        )[0]
+        row = query_by_columns(DBComposition,{"composition": self.ctx.chemical_formula})[0]
 
-        update_row(
-                DBComposition,
-                row.uuid,
-                {"stable_struct": {"ml_uuid_list": uuid_list},
-                }
-        )
+        update_row(DBComposition, row.uuid,{"stable_struct": {"ml_uuid_list": uuid_list}})
 
     def final_report(self):
         """Final report"""
