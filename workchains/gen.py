@@ -11,6 +11,7 @@ from uvsib.workchains.utils import (get_output_as_entry,
 from uvsib.workflows import settings
 
 DFT_FUNC = settings.DFT_FUNC
+EHULL_ML = settings.EHULL_ML
 
 class GeneratorWorkChain(WorkChain):
     """Work chain for generating structures"""
@@ -61,10 +62,7 @@ class GeneratorWorkChain(WorkChain):
         for chemical_system in chemical_systems:
 
             wch = self.ctx[f"{chemical_system}_mattergen"]
-            output_structures = (
-                    wch.called[-1]
-                    .outputs.output_dict["structures"]
-            )
+            output_structures = wch.outputs.output_dict["structures"]
             builder = self._construct_ML_relax_builder(output_structures, self.ctx.ML_model)
             future = self.submit(builder)
             self.to_context(**{f"{chemical_system}_ml_e": future})
@@ -94,7 +92,8 @@ class GeneratorWorkChain(WorkChain):
             low_energy_entries = unique_low_energy_chemsys(
                     chemical_system,
                     new_entries,
-                    DFT_FUNC
+                    DFT_FUNC,
+                    EHULL_ML
             )
             structure_energy_pairs = []
 

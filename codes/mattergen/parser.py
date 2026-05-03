@@ -23,7 +23,7 @@ class MatterGenParser(Parser):
 
         pmg_structures = []
         with retrieved_folder.open(filename) as f:
-            pmg_structures = json.loads(f.read())
+            pmg_structures = json.load(f)
 
         if not pmg_structures:
             return self.exit_codes.ERROR_OUTPUT_INCOMPLETE

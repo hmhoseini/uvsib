@@ -7,16 +7,17 @@ from uvsib.db.tables import (DBChemsys, DBStructure, DBStructureVersion, DBSurfa
                              DBSurfaceMLAdsorbate, DBNanoParticles)
 
 
-def add_surface_adsorbate(existing_uuid, surf_id, comp, reac, s_m, u_idx, e, dg, ad_set):
+def add_surface_adsorbate(existing_uuid, surf_id, comp, react, react_path, site_type, ads_coord, e, dg, ad_set):
     """Store a new DBSurfaceAdsorbate row corresponding to a given DBStructure UUID and surface ID"""
     with get_session() as session:
         adsorb = DBSurfaceAdsorbate(
                 structure_uuid=existing_uuid,
                 surface_id=surf_id,
                 composition=comp,
-                reaction=reac,
-                site_map=s_m,
-                unique_idx=u_idx,
+                reaction=react,
+                reaction_path=react_path,
+                site_type=site_type,
+                ads_coord=ads_coord,
                 eta=e,
                 dG=dg,
                 adsorb_set=ad_set
@@ -26,16 +27,18 @@ def add_surface_adsorbate(existing_uuid, surf_id, comp, reac, s_m, u_idx, e, dg,
     return True
 
 
-def add_surface_ml_adsorbate(existing_uuid, surf_id, comp, reac, s_m, u_idx, e, dg, ad_set):
+def add_surface_ml_adsorbate(existing_uuid, surf_id, comp, react, react_path, site_type, ads_coord, repeat, e, dg, ad_set):
     """Store a new DBSurfaceAdsorbate row corresponding to a given DBStructure UUID and surface ID"""
     with get_session() as session:
         adsorb = DBSurfaceMLAdsorbate(
                 structure_uuid=existing_uuid,
                 surface_id=surf_id,
                 composition=comp,
-                reaction=reac,
-                site_map=s_m,
-                unique_idx=u_idx,
+                reaction=react,
+                reaction_path=react_path,
+                site_type=site_type,
+                ads_coord=ads_coord,
+                repeat=repeat,
                 eta=e,
                 dG=dg,
                 adsorb_set=ad_set

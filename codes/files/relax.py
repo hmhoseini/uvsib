@@ -39,7 +39,7 @@ def relax_structures(calc, fmax, max_steps):
     """
 
     with open("input_structures.json", "r") as f:
-        structure_list = json.loads(f.read())
+        structure_list = json.load(f)
 
     relaxed_structures = []
     energies = []
@@ -47,11 +47,19 @@ def relax_structures(calc, fmax, max_steps):
     num_failed = 0
     for structure in structure_list:
         atoms = pmg_to_ase(Structure.from_dict(structure))
+
         atoms.calc = calc
+
         cell_filter = FrechetCellFilter(atoms)
+
         opt = BFGSLineSearch(cell_filter, logfile="opt.log")
-        opt.run(fmax=fmax, steps=max_steps)
-        if opt.converged:
+
+        try:
+            converged = opt.run(fmax=fmax, steps=max_steps)
+        except:
+            converged = False
+
+        if converged:
             energy = float(atoms.get_potential_energy())
             energies.append(energy)
             pmg_structure = ase_to_pmg(atoms)

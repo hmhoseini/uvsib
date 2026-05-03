@@ -17,6 +17,7 @@ from uvsib.workchains.pythonjob_inputs import is_data_available
 from uvsib.workflows import settings
 
 DFT_FUNC = settings.DFT_FUNC
+EHULL_ML = settings.EHULL_ML
 
 def cleanup_failed_systems(chemical_systems):
     """Remove database entries for failed calculations"""
@@ -177,16 +178,24 @@ class PhaseDiagramMLWorkChain(WorkChain):
             return self.exit_codes.ERROR_CALCULATION_FAILED
 
         uuid_list = []
-        for entry in unique_low_energy_comp(chemical_formula, entries, DFT_FUNC, min_n_return=1):
+        unique_entries, _ = unique_low_energy_comp(chemical_formula, entries, DFT_FUNC, EHULL_ML, min_n_return=1)
+        for entry in unique_entries:
             uuid_list.append(str(entry.data["struct_uuid"]))
 
         if not uuid_list:
             self.report(f"WARNING: no stable structure for {self.ctx.chemical_formula} has been found")
 
         # add uuids of stable structures to the DBComposition table
-        row = query_by_columns(DBComposition,{"composition": self.ctx.chemical_formula})[0]
+        row = query_by_columns(DBComposition,
+                               {"composition": self.ctx.chemical_formula}
+        )[0]
 
-        update_row(DBComposition, row.uuid,{"stable_struct": {"ml_uuid_list": uuid_list}})
+        update_row(
+                DBComposition,
+                row.uuid,
+                {"stable_struct": {"ml_uuid_list": uuid_list},
+                }
+        )
 
     def final_report(self):
         """Final report"""

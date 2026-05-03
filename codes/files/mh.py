@@ -34,7 +34,7 @@ def ase_to_pmg(atoms):
 def run_mh(calc, mh_steps):
 
     with open("initial_structure.json", "r") as f:
-        struct = json.loads(f.read())
+        struct = json.load(f)
     pmg_structure = Structure.from_dict(struct)
     init_conf = AseAtomsAdaptor.get_atoms(pmg_structure)
     init_conf.calc = calc

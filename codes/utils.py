@@ -34,13 +34,15 @@ def get_cmdline(job_info):
         )
     elif job_type == 'facebuild':
         cmdline.extend([
+            f"--bulk_energy={job_info['bulk_energy']}",
             f"--fmax={job_info['fmax']}",
             f"--max_steps={job_info['max_steps']}",
             f"--max_miller_idx={job_info['max_miller_idx']}",
-            f"--percentage_to_select={job_info['percentage_to_select']}"]
+            f"--max_num_surf={job_info['max_num_surf']}"]
         )
     elif job_type == 'adsorbates':
         cmdline.extend([
+            f"--slab_energy={job_info['slab_energy']}",
             f"--fmax={job_info['fmax']}",
             f"--max_steps={job_info['max_steps']}",
             f"--reaction={job_info['reaction']}",
@@ -63,7 +65,7 @@ def get_element_entries(chemsys_list, functional):
     else:
         file = os.path.join(settings.uvsib_directory, 'codes', 'files', 'r2scan_entries.json')
     with open(file, "r") as f:
-        entries = json.loads(f.read())
+        entries = json.load(f)
     output_entries = []
     for entry in entries:
         cse = ComputedStructureEntry.from_dict(entry["entries"][functional])

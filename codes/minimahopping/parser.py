@@ -16,6 +16,6 @@ class MinimaHoppingParser(Parser):
         if output_filename not in retrieved_folder.list_object_names():
             return self.exit_codes.ERROR_MISSING_OUTPUT
         with retrieved_folder.open(output_filename, 'r') as f:
-            data = json.loads(f.read())
+            data = json.load(f)
 
         self.out("output_dict", Dict(dict=data))
