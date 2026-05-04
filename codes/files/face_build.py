@@ -109,13 +109,6 @@ def run_surface_builder(bulk_energy, calc, fmax, max_steps, max_miller_idx, max_
     sga = SpacegroupAnalyzer(structure, symprec=0.01, angle_tolerance=5)
     conv_struct = sga.get_conventional_standard_structure()
 
-#TODO no need, the energy of bulk (bulk_energy) is passed
-#    atomic_energy = dict()
-#    for element in list(set(AseAtomsAdaptor().get_atoms(conv_struct).get_chemical_symbols())):
-#        atoms = Atoms(symbols=element, positions=[(0, 0, 0)], cell=[[20, 0, 0], [0, 20, 0], [0, 0, 20]])
-#        atoms.calc = calc
-#        atomic_energy[element] = atoms.get_potential_energy()
-
     slabs = generate_all_slabs(conv_struct,
                                max_index=max_miller_idx,
                                min_slab_size=4,
@@ -129,19 +122,6 @@ def run_surface_builder(bulk_energy, calc, fmax, max_steps, max_miller_idx, max_
         if not orth_slab:
             continue
         orth_slabs.append(orth_slab)
-#TODO why not for all miller indices?
-#    special_miller_supercells = list([(0, 0, 1), (1, 1, 1)])
-#
-#    tmp = list()
-#    for slab in orth_slabs:
-#        if slab.as_dict()['miller_index'] in special_miller_supercells:
-#            one_by_two = slab.copy()
-#            one_by_two.make_supercell((1, 2, 1))
-#            tmp.append(one_by_two)
-#            two_by_one = slab.copy()
-#            two_by_one.make_supercell((2, 1, 1))
-#            tmp.append(two_by_one)
-#    orth_slabs.extend(tmp)
 
     num_failed = 0
     tmp_atoms = list()
@@ -158,12 +138,6 @@ def run_surface_builder(bulk_energy, calc, fmax, max_steps, max_miller_idx, max_
 
     slab_data = list()
     for atoms in tmp_atoms:
-#        chemical_potential = 0
-#        for el in list(set(atoms.get_chemical_symbols())):
-#            chemical_potential += atoms.get_chemical_symbols().count(el) * atomic_energy[el]
-#        area = atoms.cell.areas()[2] * 2.0
-#        atoms.info['energy'] = atoms.get_potential_energy()
-#        atoms.info['surface_formation_energy'] = (atoms.get_potential_energy() - chemical_potential) / (float(atoms.get_number_of_atoms()) * area)
         n_slab = len(atoms)
         area = atoms.cell.areas()[2] * 2.0
         surface_energy = (atoms.get_potential_energy() - (n_slab * epa)) / area
@@ -173,29 +147,6 @@ def run_surface_builder(bulk_energy, calc, fmax, max_steps, max_miller_idx, max_
 
     slab_data.sort(key=lambda x: x["surface_formation_energy"])
     selected_faces = slab_data[:max_num_surf]
-
-#TODO why loop over special miller indices?
-#    selected_faces = list()
-#    for miller in special_miller_supercells:
-#        tmp1 = list()
-#        tmp2 = list()
-#        for atoms in slab_data:
-#            if atoms.info['miller_index'] == miller:
-#                tmp1.append(atoms)
-#            else:
-#                tmp2.append(atoms)
-#        for at, en in sorted(zip(tmp1, [e.info['surface_formation_energy'] for e in tmp1]), key=lambda x: x[1]):
-#            selected_faces.append(at)
-#            if len(selected_faces) > len(tmp1) * percentage_to_select :
-#                break
-#        for count, (at, en) in enumerate(sorted(zip(tmp2, [e.info['surface_formation_energy'] for e in tmp2]), key=lambda x: x[1])):
-#            selected_faces.append(at)
-#            if count > len(tmp2) * percentage_to_select :
-#                break
-
-#    built_faces = []
-#    for atoms in selected_faces:
-#        built_faces.append(ase_to_pmg(atoms).as_dict())
 
     built_faces = []
     for entry in selected_faces:

@@ -1348,13 +1348,15 @@ def generate_adsorbed_structures(reaction: str, pathway_name: str = "") -> list:
     sites_dict, asf = get_adsorption_sites(slab_pmg)
 
     # Build slab + adsorbate
-    adsorption_sets = []
+    adsorption_sets = {}
     site_types = ['ontop', 'bridge', 'hollow']
     multipliers = get_multipliers(slab_pmg)
 
-    for repeat in multipliers:
-        clean_slab = pmg_to_ase(asf.slab * (repeat))
+    for idx, repeat in enumerate(multipliers):
+        c_slab = pmg_to_ase(asf.slab).copy()
+        clean_slab = c_slab * repeat
         clean_slab.info['adsorbate'] = "*"
+        adsorption_sets[idx] = {"clean_slab": clean_slab, "adsorb_set": []}
         for site_type in site_types:
             sites = sites_dict.get(site_type, [])
             for ads_coord in sites:
@@ -1376,9 +1378,9 @@ def generate_adsorbed_structures(reaction: str, pathway_name: str = "") -> list:
 
                 # Only add complete sets where all adsorbates passed validation
                 if len(adsorb_set["structures"]) == len(adsorbates):
-                    adsorption_sets.append(adsorb_set)
+                    adsorption_sets[idx]["adsorb_set"].append(adsorb_set)
 
-    return clean_slab, adsorption_sets
+    return adsorption_sets
 
 def run_relaxation(ml_model: str, calc, fmax: float, max_steps: int,
                    reaction: str, pathway: str) -> dict:
@@ -1403,43 +1405,45 @@ def run_relaxation(ml_model: str, calc, fmax: float, max_steps: int,
     num_failed = 0
     model_key = f'{ml_model.lower()}_energy'
 
-    clean_slab, adsorption_sets = generate_adsorbed_structures(reaction, pathway)
-    clean_slab.calc = calc
-    relax = BFGSLineSearch(clean_slab, maxstep=0.1, logfile='opt.log')
-    try:
-        relax.run(fmax=fmax, steps=max_steps)
-    except Exception as e:
-        print(f"Erroe: Relaxation failed for the clean surface: {e}")
-        exit()
-    clean_slab.info[model_key] = clean_slab.get_potential_energy()
+    adsorption_sets = generate_adsorbed_structures(reaction, pathway)
+    for v in adsorption_sets.values():
+        clean_slab = v['clean_slab']
+        clean_slab.calc = calc
+        relax = BFGSLineSearch(clean_slab, maxstep=0.1, logfile='opt.log')
+        try:
+            relax.run(fmax=fmax, steps=max_steps)
+        except Exception as e:
+            print(f"Erroe: Relaxation failed for the clean surface: {e}")
+            exit()
+        clean_slab.info[model_key] = clean_slab.get_potential_energy()
 
-    for adsorb_set in adsorption_sets:
-        relaxed_set = {}
-        relaxed_set["site_type"] = adsorb_set["site_type"]
-        relaxed_set["ads_coord"] = adsorb_set["ads_coord"].tolist()
-        relaxed_set["repeat"] = adsorb_set["repeat"]
-        relaxed_set["structures"] = []
-        for adsorbed in adsorb_set["structures"]:
-            adsorbed.calc = calc
-            relax = BFGSLineSearch(adsorbed, maxstep=0.1, logfile='opt.log')
-            try:
-                relax.run(fmax=fmax, steps=max_steps)
-            except Exception as e:
-                print(f"Warning: Relaxation failed for {adsorbed.info.get('adsorbate', 'unknown')}: {e}")
-                num_failed += 1
-                break
+        for adsorb_set in v["adsorb_set"]:
+            relaxed_set = {}
+            relaxed_set["site_type"] = adsorb_set["site_type"]
+            relaxed_set["ads_coord"] = adsorb_set["ads_coord"].tolist()
+            relaxed_set["repeat"] = adsorb_set["repeat"]
+            relaxed_set["structures"] = []
+            for adsorbed in adsorb_set["structures"]:
+                adsorbed.calc = calc
+                relax = BFGSLineSearch(adsorbed, maxstep=0.1, logfile='opt.log')
+                try:
+                    relax.run(fmax=fmax, steps=max_steps)
+                except Exception as e:
+                    print(f"Warning: Relaxation failed for {adsorbed.info.get('adsorbate', 'unknown')}: {e}")
+                    num_failed += 1
+                    break
 
-            if not relax.converged:
-                num_failed += 1
-                break
+                if not relax.converged:
+                    num_failed += 1
+                    break
 
-            adsorbed.info[model_key] = adsorbed.get_potential_energy()
-            relaxed_set["structures"].append(jsonio.encode(adsorbed))
+                adsorbed.info[model_key] = adsorbed.get_potential_energy()
+                relaxed_set["structures"].append(jsonio.encode(adsorbed))
 
-        # Only add complete relaxed sets
-        if len(relaxed_set["structures"]) == len(adsorb_set["structures"]):
-            relaxed_set["structures"].append(jsonio.encode(clean_slab))
-            relaxed_sets.append(relaxed_set)
+            # Only add complete relaxed sets
+            if len(relaxed_set["structures"]) == len(adsorb_set["structures"]):
+                relaxed_set["structures"].append(jsonio.encode(clean_slab))
+                relaxed_sets.append(relaxed_set)
 
     # Write output files
     output = {'structures': relaxed_sets}
