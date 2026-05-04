@@ -13,6 +13,7 @@ from uvsib.workflows import settings
 StructureData = DataFactory('core.structure')
 
 DFT_FUNC = settings.DFT_FUNC
+EHULL_ML = settings.EHULL_ML
 
 class CSPWorkChain(WorkChain):
     """WorkChain for Crystal Structure Prediction (CSP)"""
@@ -69,15 +70,17 @@ class CSPWorkChain(WorkChain):
 
             try:
                 self.ctx.csp_structures.extend(
-                    csp_wch.called[-1].outputs.output_dict["structures"]
+                    csp_wch.outputs.output_dict["structures"]
                 )
             except:
                 failed_jobs += 1
 
         if not self.ctx.csp_structures:
+            self.report("No structure was found")
             return self.exit_codes.ERROR_CSP_FAILED
 
         if failed_jobs / self.ctx.n_csp > 0.5:
+            self.report("Many CSP jobs failed")
             return self.exit_codes.ERROR_CSP_FAILED
 
     def predict_ml_energies(self):
@@ -97,10 +100,11 @@ class CSPWorkChain(WorkChain):
         except:
             return self.exit_codes.ERROR_ML_RELAX_FAILED
 
-        self.ctx.low_energy_entries_csp = unique_low_energy_comp(
+        self.ctx.low_energy_entries_csp, _ = unique_low_energy_comp(
                 self.ctx.chemical_formula,
                 new_entries,
                 DFT_FUNC,
+                EHULL_ML,
                 min_n_return=self.ctx.n_mh
         )
 
@@ -135,20 +139,22 @@ class CSPWorkChain(WorkChain):
         if not all_entries or failed_jobs / n_mh > 0.5:
             return self.exit_codes.ERROR_MINIMAHOPPING_FAILED
 
-        self.ctx.low_energy_entries_mh = unique_low_energy_comp(
+        self.ctx.low_energy_entries_mh, _ = unique_low_energy_comp(
                 self.ctx.chemical_formula,
                 new_entries,
-                DFT_FUNC
+                DFT_FUNC,
+                EHULL_ML
         )
 
     def final_step(self):
         """Store structures"""
         all_entries = self.ctx.low_energy_entries_csp + self.ctx.low_energy_entries_mh
 
-        low_energy_entries = unique_low_energy_comp(
+        low_energy_entries, _ = unique_low_energy_comp(
                 self.ctx.chemical_formula,
                 all_entries,
-                DFT_FUNC
+                DFT_FUNC,
+                EHULL_ML
         )
         structure_energy_pairs = []
 

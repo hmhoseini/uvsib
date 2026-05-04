@@ -1,5 +1,5 @@
 from pymatgen.core.structure import Composition
-from uvsib.db.tables import DBFrontend, DBChemsys, DBComposition, DBNanoParticles
+from uvsib.db.tables import DBFrontend, DBChemsys, DBComposition, DBSurfaceMLAdsorbate, DBNanoParticles
 from uvsib.db.utils import update_row, add_row, get_chemical_systems, query_by_columns
 from uvsib.workchains.submit import submit_mainworkchain
 
@@ -31,24 +31,34 @@ def add_from_frontend(dict_from_frontend_list):
                 'nano_particles': nano}
             )
 
-        # check if composition is already processed
+        # check if a composition is already processed
         existing_composition = query_by_columns(DBComposition,{"composition": chemical_formula})
         if not existing_composition:
             add_row(DBComposition,{"composition": chemical_formula})
 
+        # check if elements are processes for nano particles
         elements = '-'.join(sorted(list([str(el) for el in Composition(chemical_formula).elements])))
         existing_particles = query_by_columns(DBNanoParticles, {"elements": elements})
         if not existing_particles:
             add_row(DBNanoParticles,{"elements": elements})
 
         if user_already_exists:
-            if not retry or existing_composition[0].status == "Running":
+            if existing_composition[0].status == "Running":
                 continue
-
+            if existing_composition[0].status == "Failed" and not retry:
+                continue
         # only new chemical systems
         new_chemsys = get_chemical_systems(chemical_formula, new=True)
         for chemsys in new_chemsys:
             add_row(DBChemsys, {"chemsys": chemsys})
+
+        # only for a new reaction and reaction path
+        row = query_by_columns(DBSurfaceMLAdsorbate, {"composition": chemical_formula,
+                                                      "reaction": reaction,
+                                                      "reaction_path": reaction_path})
+        if row:
+            continue
+
         # submit the main workflow
         submit_mainworkchain(
                 chemical_formula,
@@ -68,6 +78,7 @@ def update_dbfrontend():
         for fe_row in db_fe_rows:
             db_c_row = query_by_columns(DBComposition,{"composition": fe_row.composition})[0]
             update_row(DBFrontend, fe_row.uuid,{"status": db_c_row.status, "step_status": db_c_row.step_status})
+        #
         db_np_rows = query_by_columns(DBNanoParticles, {"status": status})
         for np_row in db_np_rows:
             db_row = query_by_columns(DBNanoParticles,{"elements": np_row.elements})[0]

@@ -11,6 +11,9 @@ from uvsib.db.utils import query_structure, add_version_to_existing_structure, q
 from uvsib.workchains.utils import get_primitive_cell, unique_low_energy_comp, add_from_mpdb
 from uvsib.workflows import settings
 
+EHULL_SCAN = settings.EHULL_SCAN
+MAX_NUM_BULK = settings.MAX_NUM_BULK
+
 def read_yaml(file_path):
     """Read yaml file"""
     with open(file_path, "r", encoding="utf8") as fhandle:
@@ -101,8 +104,6 @@ class PDVerificationWorkChain(WorkChain):
         self.report("Running PDVerification WorkChain")
         self.ctx.chemical_formula = self.inputs.chemical_formula.value
         self.ctx.ML_model = self.inputs.ML_model.value
-        self.ctx.vasp_protocol = read_yaml(os.path.join(settings.vasp_files_path, "protocol.yaml"))
-        self.ctx.ediff_value = float(self.ctx.vasp_protocol["r2SCAN_relax"]['incar']['EDIFF'])
         add_from_mpdb(self.ctx.chemical_formula)
 
         self.ctx.struct_uuid = get_struct_uuid(self.ctx.chemical_formula, self.ctx.ML_model)
@@ -110,18 +111,19 @@ class PDVerificationWorkChain(WorkChain):
             self.report(f"No structures were found for {self.ctx.chemical_formula}")
             return self.exit_codes.ERROR_NO_STRUCTURES_FOUND
 
-        self.ctx.protocol = read_yaml(os.path.join(settings.vasp_files_path, "protocol.yaml"))
+        self.ctx.protocol = read_yaml(
+                os.path.join(settings.vasp_files_path, "protocol.yaml")
+        )
         self.ctx.potential_family = settings.configs["codes"]["VASP"]["potential_family"]
         potential_mapping = read_yaml(os.path.join(settings.vasp_files_path, "potential_mapping.yaml"))
         self.ctx.potential_mapping = potential_mapping["potential_mapping"]
-        self.ctx.vasp_code = load_code(settings.configs["codes"]["VASP"]["code_string"])
+        self.ctx.vasp_code = load_code(
+                settings.configs["codes"]["VASP"]["code_string"]
+        )
 
     def run_scan(self):
         """Run r2SCAN geometry optimization"""
         for struct_dict, uuid_str in self.ctx.struct_uuid:
-            structure = Structure.from_dict(struct_dict)
-            ediff_per_atom = structure.num_sites * self.ctx.ediff_value
-            self.ctx.vasp_protocol["r2SCAN_relax"]['incar'].update({"EDIFF": ediff_per_atom})
             pmg_structure = get_primitive_cell(struct_dict)
             builder = construct_vasp_builder(
                 StructureData(pymatgen=pmg_structure),
@@ -146,16 +148,25 @@ class PDVerificationWorkChain(WorkChain):
         if failed_scan:
             self.report(f"Warning: r2SCAN geometry optimization failed (structure uuids: {failed_scan})")
 
-        low_energy_entries = unique_low_energy_comp(self.ctx.chemical_formula, scan_entries,"r2SCAN")
+        low_energy_entries, ehulls = unique_low_energy_comp(
+                self.ctx.chemical_formula,
+                scan_entries,
+                "r2SCAN",
+                EHULL_SCAN
+        )
 
         if not low_energy_entries:
             self.report(f"No low energy structures for {self.ctx.chemical_formula} were found")
             return self.exit_codes.ERROR_NO_STRUCTURES_FOUND
 
-        for entry in low_energy_entries:
-            add_version_to_existing_structure(entry.data["uuid"],"r2SCAN",{
-                "structure": entry.structure.as_dict(),
-                "energy": entry.energy})
+        for i, entry in enumerate(low_energy_entries[:MAX_NUM_BULK]):
+            add_version_to_existing_structure(
+                entry.data["uuid"],
+                "r2SCAN",
+                {"structure": entry.structure.as_dict(),
+                 "energy": entry.energy,
+                 "ehull": ehulls[i]}
+            )
 
     def final_report(self):
         """Final report"""

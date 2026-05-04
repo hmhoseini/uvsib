@@ -2,7 +2,7 @@ from aiida.orm import Str, List
 from aiida.plugins import WorkflowFactory
 from aiida.engine import WorkChain, if_, while_
 from aiida_pythonjob import PythonJob, prepare_pythonjob_inputs
-from uvsib.db.tables import DBComposition, DBSurfaceAdsorbate, DBNanoParticles
+from uvsib.db.tables import DBComposition, DBSurfaceMLAdsorbate, DBNanoParticles
 from uvsib.db.utils import update_row, query_by_columns
 from uvsib.workchains.pythonjob_inputs import wait_sleep
 from pymatgen.core.composition import Composition
@@ -30,18 +30,14 @@ class MainWorkChain(WorkChain):
                 cls.pd_ml,
                 cls.inspect_pd_ml
             ),
-            # if_(cls.should_run_pd_verification)(
-            #     while_(cls.should_wait_pd_ver)(
-            #         cls.wait_sleep,
-            #         cls.check_pythonjob_sleep
-            #     ),
-            #     cls.pd_verification,
-            #     cls.inspect_pd_verification
-            # ),
-            # if_(cls.should_run_band_alignment)(
-            #     cls.band_alignment,
-            #     cls.inspect_band_alignment
-            # ),
+            if_(cls.should_run_pd_verification)(
+                while_(cls.should_wait_pd_ver)(
+                    cls.wait_sleep,
+                    cls.check_pythonjob_sleep
+                ),
+                cls.pd_verification,
+                cls.inspect_pd_verification
+            ),
             if_(cls.should_run_surface_builder)(
                 while_(cls.should_wait_surface_builder)(
                     cls.wait_sleep,
@@ -109,15 +105,6 @@ class MainWorkChain(WorkChain):
             return False
         return True
 
-    def should_run_band_alignment(self):
-        """Check whether should run BandAlignment"""
-        if self.ctx.nano_generator:
-            return False
-        band_alignment_step_status = self.ctx.dbcomposition_row.step_status.get("band_alignment")
-        if band_alignment_step_status in ["Done"]:
-            return False
-        return True
-
     def should_run_surface_builder(self):
         """Check whether should run SurfaceBuilder"""
         if self.ctx.nano_generator:
@@ -133,12 +120,21 @@ class MainWorkChain(WorkChain):
             return False
         adsorbates_step_status = self.ctx.dbcomposition_row.step_status.get("adsorbates")
         if adsorbates_step_status in ["Done"]:
-            row = query_by_columns(DBSurfaceAdsorbate, {"composition": self.ctx.chemical_formula,
-                                                        "reaction": self.ctx.reaction.value,
-                                                        "reaction_path": self.ctx.reaction_path.value})
+            row = query_by_columns(DBSurfaceMLAdsorbate, {"composition": self.ctx.chemical_formula,
+                                                          "reaction": self.ctx.reaction.value,
+                                                          "reaction_path": self.ctx.reaction_path.value})
             if row:
                 return False
         return True
+
+#    def should_run_band_alignment(self):
+#        """Check whether should run BandAlignment"""
+#        if self.ctx.nano_generator:
+#            return False
+#        band_alignment_step_status = self.ctx.dbcomposition_row.step_status.get("band_alignment")
+#        if band_alignment_step_status in ["Done"]:
+#            return False
+#        return True
 
     def should_run_nano_generator(self):
         """Check whether should run Nano Particles routines"""
@@ -303,39 +299,39 @@ class MainWorkChain(WorkChain):
                 }
         )
 
-    def band_alignment(self):
-        """Running BandAlignmentWorkChain"""
-        row = self.ctx.dbcomposition_row
-        # update row status in DBComposition table
-        row.step_status.update({"band_alignment": "Running"})
-        update_row(
-                DBComposition,
-                row.uuid,
-                {"status": "Running",
-                 "step_status": row.step_status
-                }
-            )
-        builder = self._construct_band_alignment_builder()
-        future = self.submit(builder)
-        self.to_context(**{"bandalignment": future})
+#    def band_alignment(self):
+#        """Running BandAlignmentWorkChain"""
+#        row = self.ctx.dbcomposition_row
+#        # update row status in DBComposition table
+#        row.step_status.update({"band_alignment": "Running"})
+#        update_row(
+#                DBComposition,
+#                row.uuid,
+#                {"status": "Running",
+#                 "step_status": row.step_status
+#                }
+#            )
+#        builder = self._construct_band_alignment_builder()
+#        future = self.submit(builder)
+#        self.to_context(**{"bandalignment": future})
 
-    def inspect_band_alignment(self):
-        """Inspecting BandAlignemntWorkChain"""
-        b_a_wch = self.ctx.bandalignment
-        row = self.ctx.dbcomposition_row
-
-        if not b_a_wch.is_finished_ok:
-            # update row status in DBComposition table
-            row.step_status.update({"band_alignment": "Failed"})
-            update_row(
-                    DBComposition,
-                    row.uuid,
-                    {"status": "Failed",
-                     "step_status": row.step_status
-                    }
-            )
-            self.report("BandAlignment WorkChain failed")
-            return self.exit_codes.ERROR_CALCULATION_FAILED
+#    def inspect_band_alignment(self):
+#        """Inspecting BandAlignemntWorkChain"""
+#        b_a_wch = self.ctx.bandalignment
+#        row = self.ctx.dbcomposition_row
+#
+#        if not b_a_wch.is_finished_ok:
+#            # update row status in DBComposition table
+#            row.step_status.update({"band_alignment": "Failed"})
+#            update_row(
+#                    DBComposition,
+#                    row.uuid,
+#                    {"status": "Failed",
+#                     "step_status": row.step_status
+#                    }
+#            )
+#            self.report("BandAlignment WorkChain failed")
+#            return self.exit_codes.ERROR_CALCULATION_FAILED
 
     def surface_builder(self):
         """Running SurfaceBuilderWorkChain"""
@@ -465,12 +461,12 @@ class MainWorkChain(WorkChain):
         builder.ML_model = self.ctx.ML_model
         return builder
 
-    def _construct_band_alignment_builder(self):
-        """Build PDVerification WorkChain builder"""
-        BandAlignmentWorkChain = WorkflowFactory("bandalignment")
-        builder = BandAlignmentWorkChain.get_builder()
-        builder.chemical_formula = Str(self.ctx.chemical_formula)
-        return builder
+#    def _construct_band_alignment_builder(self):
+#        """Build PDVerification WorkChain builder"""
+#        BandAlignmentWorkChain = WorkflowFactory("bandalignment")
+#        builder = BandAlignmentWorkChain.get_builder()
+#        builder.chemical_formula = Str(self.ctx.chemical_formula)
+#        return builder
 
     def _construct_surface_builder(self):
         """SurfaceBuilder WorkChain builder"""

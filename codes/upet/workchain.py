@@ -48,6 +48,9 @@ class uPETWorkChain(BaseRestartWorkChain):
         spec.input('input_structures', valid_type=List)
         spec.input("code", valid_type=Code)
         spec.input('job_info', valid_type=Dict)
+
+        spec.expose_outputs(uPETCalculation)
+
         spec.outline(
             cls.setup,
             while_(cls.should_run_process)(

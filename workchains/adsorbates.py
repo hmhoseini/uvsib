@@ -96,20 +96,23 @@ class AdsorbatesWorkChain(WorkChain):
     def store_results_ml(self):
         for parent_key, adsorption_sets in self.ctx.ml_results.items():
             uuid_str, surface_id = parent_key.split("_", 2)
-            idx = None
-            site = None
             energy_set = dict()
             for adsorb_set in adsorption_sets:
-                for ads_json in adsorb_set:
+                site_type = adsorb_set["site_type"]
+                ads_coord = adsorb_set["ads_coord"]
+                repeat = adsorb_set["repeat"]
+                for ads_json in adsorb_set["structures"]:
                     adsorbed = jsonio.decode(ads_json)
-                    energy_set[adsorbed.info['adsorbate']] = adsorbed.info['{}_energy'.format(str(self.ctx.ML_model).lower())]
-                    site = adsorbed.info["site"]
-                    idx = adsorbed.info["adsorbate_collection"]
-                eta, dG = self.calculate_oer_overpotential(energy_set)
-                if eta < 1:
-                    self.ctx.candidates[parent_key] = adsorb_set
+                    energy_set[adsorbed.info["adsorbate"]] = adsorbed.info['{}_energy'.format(str(self.ctx.ML_model).lower())]
+                if self.ctx.reaction == "OER":
+                    eta, dG = self.calculate_oer_overpotential(energy_set) #TODO move dG calculations to coded/file/adsorbates.py
+                    if eta < 1:
+                        self.ctx.candidates[parent_key] = adsorb_set
+                else: #TODO 
+                    eta = 0
+                    dG = []
                 add_surface_ml_adsorbate(existing_uuid=uuid_str, surf_id=surface_id, comp=self.ctx.chemical_formula,
-                                         reac=self.ctx.reaction, s_m=site, u_idx=idx, e=eta, dg=dG, ad_set=adsorb_set)
+                                         react=self.ctx.reaction, react_path=self.ctx.reaction_path, site_type=site_type, ads_coord=ads_coord, repeat=repeat, e=eta, dg=dG, ad_set=adsorb_set)
 
     def scan_relax(self):
         """Run r2SCAN geometry optimization"""
@@ -176,15 +179,14 @@ class AdsorbatesWorkChain(WorkChain):
 
             eta, dG = self.calculate_oer_overpotential(energy_sets[key])
             add_surface_adsorbate(existing_uuid=uuid_str, surf_id=surface_id, comp=self.ctx.chemical_formula,
-                                  reac=self.ctx.reaction, s_m=site, u_idx=idx, e=eta, dg=dG, ad_set=self.ctx.adsorption_sets[key])
+                                  react=self.ctx.reaction, react_path=self.ctx.reaction_path, site_type=site_type, ads_coord=ads_coord, e=eta, dg=dG, ad_set=self.ctx.adsorption_sets[key])
 
     def final_report(self):
         """Final report"""
         if len(self.ctx.adsorption_sets) == 0:
             return
-        else:
-            self.report('AdsorbatesWorkChain for {} finished successfully, {} reaction sets computed (4 each for OER).'
-                        .format(self.ctx.chemical_formula, len(self.ctx.adsorption_sets)))
+        self.report('AdsorbatesWorkChain for {} finished successfully, {} reaction sets computed (4 each for OER).'
+                    .format(self.ctx.chemical_formula, len(self.ctx.adsorption_sets)))
 
     @staticmethod
     def calculate_oer_overpotential(adsorption_energies):
@@ -229,8 +231,6 @@ class AdsorbatesWorkChain(WorkChain):
         builder.input_structures = List(structure)
         builder.code = get_code(ML_model)
         model, model_path, device = get_model_device(ML_model)
-        my_reaction = None
-        my_path = None
         relax_key = "adsorbates"
         job_info = {
             "job_type": "adsorbates",

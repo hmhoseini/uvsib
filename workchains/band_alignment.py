@@ -22,7 +22,7 @@ def get_struct_uuid(chemical_formula):
 
 def load_vasprun_from_content(wch):
     """Load a Vasprun object from the xml content of a workchain output"""
-    vasprun_str = wch.called[-1].outputs.retrieved.get_object_content("vasprun.xml")
+    vasprun_str = wch.outputs.retrieved.get_object_content("vasprun.xml")
     with tempfile.NamedTemporaryFile(mode="w", delete=True) as tmp:
         tmp.write(vasprun_str)
         tmp.flush()
@@ -40,8 +40,10 @@ class BandAlignmentWorkChain(WorkChain):
 
         spec.outline(
             cls.setup,
-            cls.run_scan,
-            cls.scan_result,
+            cls.run_pbe,
+            cls.pbe_result,
+            cls.run_hse,
+            cls.hse_result,
             cls.final_report
         )
 
@@ -59,42 +61,100 @@ class BandAlignmentWorkChain(WorkChain):
         """Setup and report"""
         self.report("Running BandAlignment WorkChain")
         self.ctx.chemical_formula = self.inputs.chemical_formula.value
+
         self.ctx.struct_uuid = get_struct_uuid(self.ctx.chemical_formula)
         if not self.ctx.struct_uuid:
             self.report(f"No structures were found for {self.ctx.chemical_formula}")
             return self.exit_codes.ERROR_NO_STRUCTURES_FOUND
-        self.ctx.protocol = read_yaml(os.path.join(settings.vasp_files_path, "protocol.yaml"))
+
+        self.ctx.protocol = read_yaml(
+                os.path.join(settings.vasp_files_path, "protocol.yaml")
+        )
         self.ctx.potential_family = settings.configs["codes"]["VASP"]["potential_family"]
         potential_mapping = read_yaml(os.path.join(settings.vasp_files_path, "potential_mapping.yaml"))
         self.ctx.potential_mapping = potential_mapping["potential_mapping"]
-        self.ctx.vasp_code = load_code(settings.configs["codes"]["VASP"]["code_string"])
-        self.ctx.dft_results = list()
+        self.ctx.vasp_code = load_code(
+                settings.configs["codes"]["VASP"]["code_string"]
+        )
 
-    def run_scan(self):
-        """Run PBE SinglePoint calculations """
+    def run_pbe(self):
+        """Run PBE SP calculations """
         for struct_dict, uuid_str in self.ctx.struct_uuid:
             pmg_structure = get_primitive_cell(struct_dict)
-            builder = construct_vasp_builder(StructureData(pymatgen=pmg_structure), self.ctx.protocol["HSE"],
-                                             self.ctx.potential_family, self.ctx.potential_mapping, self.ctx.vasp_code)
+            builder = construct_vasp_builder(
+                StructureData(pymatgen=pmg_structure),
+                self.ctx.protocol["PBE_sp"],
+                self.ctx.potential_family,
+                self.ctx.potential_mapping,
+                self.ctx.vasp_code
+            )
             future = self.submit(builder)
-            self.to_context(**{f"r2scan_{uuid_str}": future})
+            self.to_context(**{f"pbe_{uuid_str}": future})
 
-    def scan_result(self):
+    def pbe_result(self):
         """Inspect PBE calculations"""
-        failed = []
+        self.ctx.pbe_results = []
+        failed_pbe = []
         for _, uuid_str in self.ctx.struct_uuid:
-            wch = self.ctx[f"r2scan_{uuid_str}"]
-            if wch.is_finished_ok:
-                core_state_dict = get_core_state(wch)
-                add_version_to_existing_structure(uuid_str,"HSE",
-                                                  {"structure": wch.inputs.structure.get_pymatgen().as_dict(),
-                                                   "energy": wch.outputs.misc["total_energies"]["energy_extrapolated"],
-                                                   "band_info": core_state_dict},"override")
-                self.ctx.dft_results.append(uuid_str)
+            pbe_wch = self.ctx[f"pbe_{uuid_str}"]
+            if pbe_wch.is_finished_ok:
+                core_state_dict = get_core_state(pbe_wch) 
+
+                add_version_to_existing_structure(
+                        uuid_str,
+                        "PBE",
+                        {"structure": pbe_wch.inputs.structure.get_pymatgen().as_dict(),
+                         "energy": pbe_wch.outputs.misc["total_energies"]["energy_extrapolated"],
+                         "band_info": core_state_dict,
+                        },
+                        "override"
+                )
+
+                self.ctx.pbe_results.append(uuid_str)
             else:
-                failed.append(uuid_str)
-        if failed:
-            self.report(f"Warning: HSE band alignment failed for structure uuids: {failed}")
+                failed_pbe.append(uuid_str)
+        if failed_pbe:
+            self.report(f"Warning: PBE geometry optimization failed (structure uuids: {failed_pbe})")
+
+    def run_hse(self):
+        """Run HSE calculations"""
+        for uuid_str in self.ctx.pbe_results:
+            pbe_wch = self.ctx[f"pbe_{uuid_str}"]
+            builder = construct_vasp_builder(
+                    pbe_wch.inputs.structure,
+                    self.ctx.protocol["HSE"],
+                    self.ctx.potential_family,
+                    self.ctx.potential_mapping,
+                    self.ctx.vasp_code,
+                    pbe_wch.outputs.remote_folder
+            )
+            future = self.submit(builder)
+            self.to_context(**{f"hse_{uuid_str}": future})
+
+    def hse_result(self):
+        """Inspect HSE calculations"""
+        failed_hse = []
+        for uuid_str in self.ctx.pbe_results:
+            hse_wch = self.ctx[f"hse_{uuid_str}"]
+            if not hse_wch.is_finished_ok:
+                failed_hse.append(uuid_str)
+                continue
+            core_state_dict = get_core_state(hse_wch)
+            band_info_dict = get_band_info(hse_wch)
+            if not band_info_dict:
+                failed_hse.append(uuid_str)
+                continue
+            add_version_to_existing_structure(
+                    uuid_str,
+                    "HSE",
+                    {"structure": hse_wch.inputs.structure.get_pymatgen().as_dict(),
+                     "energy": hse_wch.outputs.misc["total_energies"]["energy_extrapolated"],
+                     "band_info": band_info_dict | core_state_dict
+                    },
+                    "override"
+            )
+        if failed_hse:
+            self.report(f"Warning: HSE calculations failed (structure uuids: {failed_hse})")
 
     def final_report(self):
         """Final report"""

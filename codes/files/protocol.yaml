@@ -55,6 +55,31 @@ r2SCAN_adsorbates:
     PREC: Accurate
     SIGMA: 0.05
     SYMPREC: 1.0E-5
+PBE_sp:
+  name: PBE # single point PBE before HSE
+  kpoint_distance: 0.25
+  incar:
+    ALGO: Fast
+    EDIFF: 1.0E-5
+    EDIFFG: -0.05
+    ENCUT: 520
+    IBRION: -1
+    ICORELEVEL: 1
+    ISMEAR: 0
+    ISIF: 2
+    ISPIN: 1
+    ISYM: 2
+    KPAR: 4
+    LCHARG: True
+    LREAL: Auto
+    LWAVE: True
+    NCORE: 4          
+    NELM: 100
+    NELMIN: 6
+    NSW: 0
+    PREC: Accurate
+    SIGMA: 0.05
+    SYMPREC: 1.0E-5
 HSE:
   name: HSE  # for proper band alignment
   kpoint_distance: 0.25
@@ -67,6 +92,8 @@ HSE:
     IBRION: -1
     ICORELEVEL: 1
     ISMEAR: 0
+    ISPIN: 1
+    ISYM: 2
     HFSCREEN: 0.2   
     KPAR: 1
     LCHARG: False
