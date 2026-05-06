@@ -92,6 +92,7 @@ class PhaseDiagramMLWorkChain(WorkChain):
         self.ctx.chemical_systems = self.inputs.chemical_systems.get_list()
         self.ctx.ML_model = self.inputs.ML_model.value
         self.ctx.failed_ml_e = []
+        self.ctx.inputs = {'metadata': {'label': '{} PDML for {}'.format(self.ctx.ML_model, self.ctx.chemical_systems)}}
         self.report(f"Running PhaseDiagramML WorkChain for {self.ctx.chemical_formula}")
 
     def should_run_csp(self):
@@ -171,7 +172,7 @@ class PhaseDiagramMLWorkChain(WorkChain):
     def store_stable_structs(self):
         """Return final structures"""
         chemical_formula = self.ctx.chemical_formula
-        self.report("Constructing phase diagram")
+        self.report("Constructing phase diagram for {}".format(chemical_formula))
         entries = get_entries_from_db(chemical_formula, self.ctx.ML_model)
         if not entries:
             self.report(f"Constructing phase diagram for {chemical_formula} failed")

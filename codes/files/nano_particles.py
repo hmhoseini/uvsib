@@ -120,10 +120,23 @@ def generate_nano_particles(element_list, calculator, max_force, max_relax_steps
 
                     atoms = AseAtomsAdaptor().get_atoms(structure=heat_cell)
                     atoms.center(vacuum=10)
-                    generated_clusters.append(atoms.copy())
+                    generated_clusters.append(AseAtomsAdaptor().get_structure(atoms).as_dict())
+
         else:
             raise NotImplementedError('Generator {} not implemented yet'.format(generator))
 
+
+    output = dict({'structures': generated_clusters})
+
+    with open('output.json', 'w') as f:
+        json.dump(output, f)
+    with open('total.txt', 'w') as f:
+        f.write(str(len(relaxed_particles)))
+    with open('failed.txt', 'w') as f:
+        f.write(str(num_failed))
+
+
+    quit()
 
     print('GENERATED: {}'.format(len(generated_clusters)))
     sys.stdout.flush()

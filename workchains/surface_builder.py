@@ -8,7 +8,8 @@ from uvsib.workflows import settings
 
 def get_struct_uuid(chemical_formula):
     """Query structures from the database by formula and return list of (structure_dict, uuid)"""
-    results = query_structure({"composition": chemical_formula}, method = "r2SCAN") or []
+    results = query_structure({"composition": chemical_formula})  # or []
+    # results = query_structure({"composition": chemical_formula}, method = "r2SCAN") or []
     return [(row.structure, str(row.structure_uuid)) for row in results]
 
 def read_yaml(file_path):

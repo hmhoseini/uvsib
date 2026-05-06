@@ -84,6 +84,6 @@ class uPETWorkChain(BaseRestartWorkChain):
             }),
             'metadata': {
                 'options': get_options(),
-                'label': 'uPET calculation'
+                'label': 'uPET on {} structures'.format(len(input_structures))
             }
         }
