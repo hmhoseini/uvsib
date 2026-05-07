@@ -20,14 +20,16 @@
 		"mattersim = uvsib.codes.mattersim.calculation:MatterSimCalculation",
 		"mace = uvsib.codes.mace.calculation:MACECalculation",
 		"upet = uvsib.codes.upet.calculation:uPETCalculation",
-		"mh = uvsib.codes.minimahopping.calculation:MinimaHoppingCalculation"
+		"mh = uvsib.codes.minimahopping.calculation:MinimaHoppingCalculation",
+		"similarity = matseran.codes.similarity.calculation:SimilarityCalculation"
 	],
 	"aiida.parsers": [
 		"mattergen_parser = uvsib.codes.mattergen.parser:MatterGenParser",
 		"mattersim_parser = uvsib.codes.mattersim.parser:MatterSimParser",
 		"mace_parser = uvsib.codes.mace.parser:MACEParser",
 		"upet_parser = uvsib.codes.upet.parser:uPETParser",
-		"minimahopping_parser = uvsib.codes.minimahopping.parser:MinimaHoppingParser"
+		"minimahopping_parser = uvsib.codes.minimahopping.parser:MinimaHoppingParser",
+		"similarity_parser = matseran.codes.similarity.parser:SimilarityParser"
 	],
 	"aiida.workflows": [
 		"mattergen.base = uvsib.codes.mattergen.workchain:MatterGenBaseWorkChain",
@@ -43,7 +45,9 @@
 		"gen = uvsib.workchains.gen:GeneratorWorkChain",
 		"surfacebuilder = uvsib.workchains.surface_builder:SurfaceBuilderWorkChain",
 		"adsorbates = uvsib.workchains.adsorbates:AdsorbatesWorkChain",
-		"nano_particles = uvsib.workchains.nano_particles:NanoParticleWorkChain"
+		"nano_particles = uvsib.workchains.nano_particles:NanoParticleWorkChain",
+		"similarity = matseran.workchains.similarity:SimilarityWorkChain",
+		"similarity_calc = matseran.codes.similarity.workchain:SimilarityWorkChain"
 	]
     }
 }

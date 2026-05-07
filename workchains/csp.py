@@ -50,6 +50,7 @@ class CSPWorkChain(WorkChain):
         self.ctx.n_csp = self.inputs.n_csp.value
         self.ctx.n_mh = self.inputs.n_mh.value
         self.ctx.csp_structures = []
+        self.ctx.inputs = {"metadata": {"label": "CSP for {}".format(self.ctx.chemical_formula)}}
         self.report(f"Launching CSPWorkChain for {self.ctx.chemical_formula}")
 
     def run_csp(self):
@@ -202,6 +203,7 @@ class CSPWorkChain(WorkChain):
 
         builder.input_structures = List(structures)
         builder.code = get_code(ML_model)
+        builder.local_label = Str("relax {}".format(self.ctx.chemical_formula))
 
         model, model_path, device = get_model_device(ML_model)
 
@@ -222,12 +224,12 @@ class CSPWorkChain(WorkChain):
         builder.job_info = Dict(job_info)
         return builder
 
-    @staticmethod
-    def _construct_mh_builder(struct, ML_model):
+    def _construct_mh_builder(self, struct, ML_model):
         Workflow = WorkflowFactory("minimahopping")
         builder = Workflow.get_builder()
         builder.structure = struct
         builder.code = get_code("MinimaHopping")
+        builder.this_label = '{}'.format(self.ctx.chemical_formula)
 
         model, model_path, device = get_model_device(ML_model)
 

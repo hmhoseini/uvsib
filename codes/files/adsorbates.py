@@ -1303,7 +1303,7 @@ def get_multipliers(slab_pmg):
         return [(1, 1, 1), (1, 2, 1), (1, 3, 1), (2, 2, 1)]
     return [(1, 1, 1), (2, 1, 1), (3, 1, 1), (2, 2, 1)]
 
-def generate_adsorbed_structures(reaction: str, pathway_name: str = "") -> list:
+def generate_adsorbed_structures(reaction: str, pathway_name: str = "") -> dict:
     """Generate surface + adsorbate structures for specified reaction.
     
     Parameters
@@ -1315,8 +1315,8 @@ def generate_adsorbed_structures(reaction: str, pathway_name: str = "") -> list:
     
     Returns
     -------
-    list
-        List of adsorption sets, where each set is a list of ASE Atoms objects
+    dict
+        Dict of adsorption sets, where each set is a list of ASE Atoms objects
         with site_type, ads_coord, and adsorbate info in the Atoms.info dict.
     
     Raises

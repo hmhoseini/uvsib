@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import create_engine, Column, String, Text, Integer, DateTime, ForeignKey, UniqueConstraint, Boolean
+from sqlalchemy import create_engine, Column, String, Text, Integer, DateTime, ForeignKey, UniqueConstraint, Float
 from sqlalchemy.dialects.postgresql import UUID, JSONB, DOUBLE_PRECISION
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.sql import func
@@ -210,6 +210,23 @@ class DBNanoParticles(Base):
     ctime = Column(DateTime(timezone=True), server_default=func.now())
     mtime = Column(DateTime(timezone=True), onupdate=func.now())
 
+
+class DBSimilarities(Base):
+    __tablename__ = "db_similarities"
+    uuid = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, unique=True, nullable=False)
+    similarity = Column(Float, nullable=True)
+    composition = Column(String, nullable=True)
+    csp_structure = Column(JSONB, nullable=True)
+    chemical_system = Column(String, nullable=True)
+    reference_structure = Column(JSONB, nullable=True)
+    reference_material_id = Column(String, nullable=True)
+    mtime = Column(DateTime(timezone=True), onupdate=func.now())
+    ctime = Column(DateTime(timezone=True), server_default=func.now())
+
+
+if __name__ == "__main__":
+    engine = create_engine(DB_URL, echo=False)
+    Base.metadata.create_all(engine)
 
 
 if __name__ == "__main__":

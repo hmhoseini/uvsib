@@ -1,5 +1,5 @@
 from aiida.engine import BaseRestartWorkChain, while_
-from aiida.orm import Dict, Code
+from aiida.orm import Dict, Code, Str
 from aiida.plugins import DataFactory, CalculationFactory
 from uvsib.workflows import settings
 
@@ -56,6 +56,7 @@ class MinimaHoppingWorkChain(BaseRestartWorkChain):
         spec.input('structure', valid_type=StructureData)
         spec.input("code", valid_type=Code)
         spec.input('job_info', valid_type=Dict)
+        spec.input('this_label', valid_type=Str)
         spec.outline(
             cls.setup,
             while_(cls.should_run_process)(
@@ -88,6 +89,6 @@ class MinimaHoppingWorkChain(BaseRestartWorkChain):
             }),
             'metadata': {
                 'options': get_options(),
-                'label': 'MinmaHopping calculation'
+                'label': 'MinimaHopping on {}'.format(self.inputs.this_label.value)
             }
         }

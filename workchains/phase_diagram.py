@@ -11,6 +11,7 @@ from uvsib.db.utils import (
         delete_row,
         query_by_columns,
         get_chemical_systems,
+        add_version_to_existing_structure,
         query_structure)
 from uvsib.workchains.utils import unique_low_energy_comp
 from uvsib.workchains.pythonjob_inputs import is_data_available
@@ -18,6 +19,7 @@ from uvsib.workflows import settings
 
 DFT_FUNC = settings.DFT_FUNC
 EHULL_ML = settings.EHULL_ML
+MAX_NUM_BULK = settings.MAX_NUM_BULK
 
 def cleanup_failed_systems(chemical_systems):
     """Remove database entries for failed calculations"""
@@ -78,6 +80,7 @@ class PhaseDiagramMLWorkChain(WorkChain):
             cls.wait_for_data,
             cls.check_pythonjob,
             cls.store_stable_structs,
+            cls.reformat_entries,
             cls.final_report
         )
 
@@ -91,8 +94,7 @@ class PhaseDiagramMLWorkChain(WorkChain):
         self.ctx.chemical_formula = self.inputs.chemical_formula.value
         self.ctx.chemical_systems = self.inputs.chemical_systems.get_list()
         self.ctx.ML_model = self.inputs.ML_model.value
-        self.ctx.failed_ml_e = []
-        self.ctx.inputs = {'metadata': {'label': '{} PDML for {}'.format(self.ctx.ML_model, self.ctx.chemical_systems)}}
+        self.local_list = list()
         self.report(f"Running PhaseDiagramML WorkChain for {self.ctx.chemical_formula}")
 
     def should_run_csp(self):
@@ -174,6 +176,7 @@ class PhaseDiagramMLWorkChain(WorkChain):
         chemical_formula = self.ctx.chemical_formula
         self.report("Constructing phase diagram for {}".format(chemical_formula))
         entries = get_entries_from_db(chemical_formula, self.ctx.ML_model)
+
         if not entries:
             self.report(f"Constructing phase diagram for {chemical_formula} failed")
             return self.exit_codes.ERROR_CALCULATION_FAILED
@@ -182,21 +185,22 @@ class PhaseDiagramMLWorkChain(WorkChain):
         unique_entries, _ = unique_low_energy_comp(chemical_formula, entries, DFT_FUNC, EHULL_ML, min_n_return=1)
         for entry in unique_entries:
             uuid_list.append(str(entry.data["struct_uuid"]))
+            self.local_list.append([entry.data["struct_uuid"],
+                                    "{}".format(self.ctx.ML_model),
+                                    {"structure": entry.structure.as_dict(), "energy": entry.energy}])
 
         if not uuid_list:
             self.report(f"WARNING: no stable structure for {self.ctx.chemical_formula} has been found")
 
         # add uuids of stable structures to the DBComposition table
-        row = query_by_columns(DBComposition,
-                               {"composition": self.ctx.chemical_formula}
-        )[0]
+        row = query_by_columns(DBComposition,{"composition": self.ctx.chemical_formula})[0]
 
-        update_row(
-                DBComposition,
-                row.uuid,
-                {"stable_struct": {"ml_uuid_list": uuid_list},
-                }
-        )
+        update_row(DBComposition, row.uuid,{"stable_struct": {"ml_uuid_list": uuid_list}})
+
+    def reformat_entries(self):
+        for uuid, model, str_en_pair in self.local_list[:MAX_NUM_BULK]:
+            print(uuid, model, str_en_pair['energy'])
+            add_version_to_existing_structure(uuid, model,{"structure": str_en_pair['structure'], "energy": str_en_pair['energy']})
 
     def final_report(self):
         """Final report"""

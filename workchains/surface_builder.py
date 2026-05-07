@@ -5,12 +5,14 @@ from aiida.orm import Str, List, Dict
 from uvsib.db.utils import query_structure, add_slab
 from uvsib.workchains.utils import get_code, get_model_device
 from uvsib.workflows import settings
+from pymatgen.io.ase import AseAtomsAdaptor
+from pymatgen.core.structure import Structure
 
-def get_struct_uuid(chemical_formula):
+def get_struct_uuid(chemical_formula, ml_model):
     """Query structures from the database by formula and return list of (structure_dict, uuid)"""
-    results = query_structure({"composition": chemical_formula})  # or []
+    results = query_structure({"composition": chemical_formula}, method=ml_model)  # or []
     # results = query_structure({"composition": chemical_formula}, method = "r2SCAN") or []
-    return [(row.structure, str(row.structure_uuid)) for row in results]
+    return [(row.structure, row.energy, str(row.structure_uuid)) for row in results]
 
 def read_yaml(file_path):
     """Read a yaml file"""
@@ -19,7 +21,6 @@ def read_yaml(file_path):
 
 class SurfaceBuilderWorkChain(WorkChain):
     """SurfaceBuilder WorkChain"""
-
     @classmethod
     def define(cls, spec):
         super().define(spec)
@@ -55,7 +56,7 @@ class SurfaceBuilderWorkChain(WorkChain):
         self.report("Running SurfaceBuilder WorkChain")
         self.ctx.chemical_formula = self.inputs.chemical_formula.value
         self.ctx.ML_model = self.inputs.ML_model.value
-        self.ctx.struct_uuid = get_struct_uuid(self.ctx.chemical_formula)
+        self.ctx.struct_uuid = get_struct_uuid(self.ctx.chemical_formula, self.ctx.ML_model)
         if not self.ctx.struct_uuid:
             self.report(f"No structures were found for {self.ctx.chemical_formula}")
             return self.exit_codes.ERROR_NO_STRUCTURES_FOUND
@@ -63,24 +64,22 @@ class SurfaceBuilderWorkChain(WorkChain):
 
     def run_facebuild(self):
         """Run SurfaceBuilder Workchain"""
-        for struct_dict, uuid_str in self.ctx.struct_uuid:
-            structure_row = query_structure({"uuid": uuid_str}, method = "r2SCAN")[0]
-            bulk_energy = structure_row.energy
-            builder = self._construct_facebuild_builder(
-                    struct_dict,
-                    bulk_energy,
-                    self.ctx.ML_model)
+        for struct_dict, energy, uuid_str in self.ctx.struct_uuid:
+
+            # structure_row = query_structure({"uuid": uuid_str})
+
+            builder = self._construct_facebuild_builder(struct_dict, energy, self.ctx.ML_model)
             future = self.submit(builder)
             self.to_context(**{f"sfb_{uuid_str}": future})
 
     def inspect_facebuild(self):
         """Inspect SurfaceBuilder WorkChain"""
-        for _, uuid_str in self.ctx.struct_uuid:
-            sfb_wch = self.ctx[f"sfb_{uuid_str}"]
-            if not sfb_wch.is_finished_ok:
+        for _, _, uuid_str in self.ctx.struct_uuid:
+            wch = self.ctx[f"sfb_{uuid_str}"]
+            if not wch.is_finished_ok:
                 self.report("Some surface builder jobs crashed.")
                 return self.exit_codes.ERROR_CALCULATION_FAILED
-            output_dict = sfb_wch.outputs.output_dict
+            output_dict = wch.outputs.output_dict
             if output_dict:
                 self.ctx.slabs_uuid.append([output_dict["slabs"], uuid_str])
             else:
@@ -100,8 +99,7 @@ class SurfaceBuilderWorkChain(WorkChain):
         """Final report"""
         self.report(f"SurfaceBuilderWorkChain for {self.ctx.chemical_formula} finished successfully")
 
-    @staticmethod
-    def _construct_facebuild_builder(ml_structure, ml_energy, ML_model):
+    def _construct_facebuild_builder(self, ml_structure, ml_energy, ML_model):
         """Builder for generating surface and surface optimiziation"""
         structure = [ml_structure]
 
@@ -111,6 +109,7 @@ class SurfaceBuilderWorkChain(WorkChain):
 
         builder.input_structures = List(structure)
         builder.code = get_code(ML_model)
+        builder.local_label = Str("FaceBuild: {}".format(self.ctx.chemical_formula))
 
         model, model_path, device = get_model_device(ML_model)
 
