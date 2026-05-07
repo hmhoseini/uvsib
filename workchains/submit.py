@@ -2,7 +2,7 @@ import uuid
 from uvsib.workchains.launch_calculations import MainSubmissionController
 
 
-def submit_mainworkchain(chemical_formula, chemical_systems, model, reaction, reaction_path, nano, similarity = None):
+def submit_mainworkchain(chemical_formula, chemical_systems, model, reaction, reaction_path, nano=False, similarities=None):
     controller = MainSubmissionController(
         group_label='wf_test',
         max_concurrent=5,
@@ -13,7 +13,7 @@ def submit_mainworkchain(chemical_formula, chemical_systems, model, reaction, re
         reaction = reaction,
         reaction_path = reaction_path,
         nanoparticles = nano,
-        similarity = similarity
+        similarities = similarities
     )
     controller.submit_new_batch(dry_run=False)
     return controller.get_all_submitted_pks()

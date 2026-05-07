@@ -5,14 +5,20 @@ from aiida.orm import Str, List, Dict
 from uvsib.db.utils import query_structure, add_slab
 from uvsib.workchains.utils import get_code, get_model_device
 from uvsib.workflows import settings
-from pymatgen.io.ase import AseAtomsAdaptor
-from pymatgen.core.structure import Structure
+
 
 def get_struct_uuid(chemical_formula, ml_model):
     """Query structures from the database by formula and return list of (structure_dict, uuid)"""
     results = query_structure({"composition": chemical_formula}, method=ml_model)  # or []
     # results = query_structure({"composition": chemical_formula}, method = "r2SCAN") or []
-    return [(row.structure, row.energy, str(row.structure_uuid)) for row in results]
+    # [(row.structure, row.energy, str(row.structure_uuid)) for row in results]
+    filtered_results = list()
+    for s, e, u in sorted([(row.structure, row.energy, str(row.structure_uuid)) for row in results], key=lambda x: x[1]):
+        print(e)
+        filtered_results.append([s, e, u])
+        if len(filtered_results) == 10:
+            break
+    return filtered_results
 
 def read_yaml(file_path):
     """Read a yaml file"""
@@ -102,17 +108,13 @@ class SurfaceBuilderWorkChain(WorkChain):
     def _construct_facebuild_builder(self, ml_structure, ml_energy, ML_model):
         """Builder for generating surface and surface optimiziation"""
         structure = [ml_structure]
-
         Workflow = WorkflowFactory(ML_model.lower())
 
         builder = Workflow.get_builder()
-
         builder.input_structures = List(structure)
         builder.code = get_code(ML_model)
         builder.local_label = Str("FaceBuild: {}".format(self.ctx.chemical_formula))
-
         model, model_path, device = get_model_device(ML_model)
-
         relax_key = "face_build"
 
         job_info = {
