@@ -30,7 +30,6 @@ class SurfaceBuilderWorkChain(WorkChain):
     @classmethod
     def define(cls, spec):
         super().define(spec)
-
         spec.input("ML_model", valid_type=Str)
         spec.input("chemical_formula", valid_type=Str)
 
@@ -71,9 +70,6 @@ class SurfaceBuilderWorkChain(WorkChain):
     def run_facebuild(self):
         """Run SurfaceBuilder Workchain"""
         for struct_dict, energy, uuid_str in self.ctx.struct_uuid:
-
-            # structure_row = query_structure({"uuid": uuid_str})
-
             builder = self._construct_facebuild_builder(struct_dict, energy, self.ctx.ML_model)
             future = self.submit(builder)
             self.to_context(**{f"sfb_{uuid_str}": future})
