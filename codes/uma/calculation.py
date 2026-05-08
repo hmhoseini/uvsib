@@ -33,7 +33,7 @@ class UMACalculation(CalcJob):
         elif job_type == 'nano_particles':
             input_file = os.path.join(settings.uma_files_path, 'nano_particles.py')
         else:
-            input_file = os.path.join(settings.uma_path, 'energy_forces.py')
+            input_file = os.path.join(settings.uma_files_path, 'energy_forces.py')
 
         with open(input_file, 'r', encoding='utf-8') as f:
             content = f.read()

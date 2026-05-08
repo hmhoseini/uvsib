@@ -6,7 +6,6 @@ from aiida.orm import Dict
 
 class UMAParser(Parser):
     """ Parser for UMA """
-
     def parse(self, **kwargs):
         try:
             retrieved_folder = self.retrieved

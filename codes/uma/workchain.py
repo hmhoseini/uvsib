@@ -10,7 +10,7 @@ from uvsib.codes.utils import get_cmdline
 
 def get_options():
     """Return scheduler options"""
-    job_script = settings.configs['codes']['uma']['job_script']
+    job_script = settings.configs['codes']['UMA']['job_script']
     resources = {
         'num_machines': job_script['nodes'],
         'num_mpiprocs_per_machine': job_script['ntasks'],
@@ -49,7 +49,7 @@ class UMAWorkChain(BaseRestartWorkChain):
         spec.input("code", valid_type=Code)
         spec.input('job_info', valid_type=Dict)
         spec.input('local_label', valid_type=Str)
-        spec.expose_outputs(UMACalculation)
+        # spec.expose_outputs(UMACalculation)
 
         spec.outline(
             cls.setup,
@@ -57,14 +57,10 @@ class UMAWorkChain(BaseRestartWorkChain):
                 cls.run_process,
                 cls.inspect_process,
             ),
-            cls.results,
+            cls.results
         )
 
-        spec.exit_code(
-            400,
-            'ERROR_MAX_RESTARTS_EXCEEDED',
-            message='Maximum number of restarts exceeded for uPETWorkChain.'
-        )
+        spec.exit_code(400,'ERROR_MAX_RESTARTS_EXCEEDED', message='Maximum number of restarts exceeded for UMA WorkChain.')
 
     def setup(self):
         """Initialize context before first calculation."""
@@ -72,6 +68,7 @@ class UMAWorkChain(BaseRestartWorkChain):
         input_structures = self.inputs.input_structures.get_list()
         job_info = self.inputs.job_info
         input_structures_file = get_structures_file(input_structures)
+
         self.ctx.inputs = {
             'code': self.inputs.code,
             'file': {'input_structures_file': input_structures_file},

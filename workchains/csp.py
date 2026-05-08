@@ -216,10 +216,13 @@ class CSPWorkChain(WorkChain):
             "fmax": settings.inputs[relax_key]["fmax"],
             "max_steps": settings.inputs[relax_key]["max_steps"],
         }
-        if ML_model in ["uPET"]:
-            job_info.update({"model_name": model})
-        else:
-            job_info.update({"model_path": model_path})
+
+        job_info.update({"model_name": model, "model_path": model_path, "device": device})
+
+        # if ML_model in ["uPET"]:
+        #     job_info.update({"model_name": model})
+        # else:
+        #     job_info.update({"model_path": model_path})
 
         builder.job_info = Dict(job_info)
         return builder

@@ -31,7 +31,7 @@
 		"upet_parser = uvsib.codes.upet.parser:uPETParser",
 		"minimahopping_parser = uvsib.codes.minimahopping.parser:MinimaHoppingParser",
 		"similarity_parser = ubsib.codes.similarity.parser:SimilarityParser",
-		"uma_parser = ubsib.codes.uma.parser:UMAParser"
+		"uma_parser = uvsib.codes.uma.parser:UMAParser"
 	],
 	"aiida.workflows": [
 		"mattergen.base = uvsib.codes.mattergen.workchain:MatterGenBaseWorkChain",

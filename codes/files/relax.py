@@ -2,8 +2,10 @@ import json
 import argparse
 from pymatgen.core import Lattice, Structure
 from ase import Atoms
+from ase.optimize import FIRE
 from ase.optimize.bfgslinesearch import BFGSLineSearch
 from ase.filters import FrechetCellFilter
+
 
 def ase_to_pmg(atoms):
     """
@@ -13,11 +15,7 @@ def ase_to_pmg(atoms):
     symbols = atoms.get_chemical_symbols()
     frac_coords = atoms.get_scaled_positions().tolist()
     lattice_obj = Lattice(lattice)
-    return Structure(lattice_obj,
-                          symbols,
-                          frac_coords,
-                          coords_are_cartesian=False
-    )
+    return Structure(lattice_obj, symbols, frac_coords, coords_are_cartesian=False)
 
 def pmg_to_ase(pmg_structure):
     """
@@ -26,18 +24,12 @@ def pmg_to_ase(pmg_structure):
     scaled_positions = pmg_structure.frac_coords
     symbols = [str(site.specie) for site in pmg_structure.sites]
     cell = pmg_structure.lattice.matrix
-    return Atoms(
-        symbols=symbols,
-        scaled_positions=scaled_positions,
-        cell=cell,
-        pbc=True
-    )
+    return Atoms(symbols=symbols, scaled_positions=scaled_positions, cell=cell, pbc=True)
 
 def relax_structures(calc, fmax, max_steps):
     """
     Relax a list of ASE Atoms objects 
     """
-
     with open("input_structures.json", "r") as f:
         structure_list = json.load(f)
 
@@ -47,12 +39,12 @@ def relax_structures(calc, fmax, max_steps):
     num_failed = 0
     for structure in structure_list:
         atoms = pmg_to_ase(Structure.from_dict(structure))
-
         atoms.calc = calc
-
         cell_filter = FrechetCellFilter(atoms)
 
         opt = BFGSLineSearch(cell_filter, logfile="opt.log")
+
+        # opt = FIRE(cell_filter, logfile="opt.log")
 
         try:
             converged = opt.run(fmax=fmax, steps=max_steps)
@@ -67,11 +59,8 @@ def relax_structures(calc, fmax, max_steps):
             epas.append(energy/len(pmg_structure.sites))
         else:
             num_failed += 1
-    to_dump = {
-        'structures': relaxed_structures,
-        'energies': energies,
-        'epas': epas
-    }
+
+    to_dump = {'structures': relaxed_structures, 'energies': energies, 'epas': epas}
 
     with open('output.json', 'w') as f:
         json.dump(to_dump, f)
@@ -84,7 +73,6 @@ def relax_structures(calc, fmax, max_steps):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-
     parser.add_argument("--ML_model", type=str)
     parser.add_argument("--model", type=str)
     parser.add_argument("--model_path", type=str)
@@ -93,28 +81,21 @@ if __name__ == "__main__":
     parser.add_argument("--max_steps", type=int)
     args = parser.parse_args()
 
-    if "MACE" in args.ML_model:
+    if "MACE".lower() in args.ML_model.lower():
         from mace.calculators import MACECalculator
-        calc = MACECalculator(
-                model_paths=args.model_path,
-                device=args.device
-        )
-    elif "PET" in args.ML_model:
+        calc = MACECalculator(model_paths=args.model_path, device=args.device)
+    elif "PET".lower() in args.ML_model.lower():
         from upet.calculator import UPETCalculator
-        calc = UPETCalculator(
-                model=args.model,
-                device=args.device
-        )
-    elif "MatterSim" in args.ML_model:
+        calc = UPETCalculator(model=args.model, device=args.device)
+    elif "MatterSim".lower() in args.ML_model.lower():
         from mattersim.forcefield import MatterSimCalculator
-        calc = MatterSimCalculator(
-                load_path=args.model_path,
-                device=args.device
-        )
+        calc = MatterSimCalculator(load_path=args.model_path, device=args.device)
+    elif "UMA".lower() in args.ML_model.lower():
+        from fairchem.core import pretrained_mlip
+        from fairchem.core.calculate.ase_calculator import FAIRChemCalculator
+        predictor = pretrained_mlip.get_predict_unit(args.model, device=args.device)
+        calc = FAIRChemCalculator(predictor, task_name="oc20")  # choices: "omat", "omol", "odac", "omc", "oc20"
     else:
-        raise ValueError(
-            f"Unknown ML_model '{args.ML_model}'. "
-            "Expected one of: MACE, PET, MatterSim."
-        )
+        raise ValueError(f"Unknown ML_model '{args.ML_model}'. Expected one of: MACE, PET, MatterSim.")
 
     relax_structures(calc, args.fmax, args.max_steps)

@@ -1,7 +1,6 @@
 import json
 import argparse
 import numpy as np
-from ase import Atoms
 from ase.optimize.bfgslinesearch import BFGSLineSearch
 from pymatgen.io.ase import AseAtomsAdaptor
 from pymatgen.core import Lattice, Structure
