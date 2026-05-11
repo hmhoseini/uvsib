@@ -393,7 +393,10 @@ class AdsorbatesWorkChain(WorkChain):
         for r in reaction_path:
             dgi = 0
             for q, e in r.items():
-                dgi += local_energy[q] * e + co2rr_zpe[q] * e
+                if q in local_energy:
+                    dgi += local_energy[q] * e
+                if q in co2rr_zpe:
+                    dgi += co2rr_zpe[q]
             dga = np.append(dga, dgi)
 
         # Final gas-phase reference state
@@ -556,7 +559,10 @@ class AdsorbatesWorkChain(WorkChain):
         for r in reaction_path:
             dgi = 0
             for q, e in r.items():
-                dgi += local_energy[q] * e + noxrr_zpe[q] * e
+                if q in local_energy:
+                    dgi += local_energy[q] * e
+                if q in noxrr_zpe:
+                    dgi += noxrr_zpe[q]
             dga = np.append(dga, dgi)
 
         # Final gas-phase reference state

@@ -147,14 +147,16 @@ class DBSurfaceMLAdsorbate(Base):
         ForeignKey("db_surface.id", ondelete="CASCADE"),
         nullable=False
     )
+    surface_miller_index = Column(JSONB, nullable=False)
     composition = Column(String, nullable=True)
     reaction = Column(String, nullable=False)
     reaction_path = Column(String, nullable=False)
     site_type = Column(String, nullable=False)
-    ads_coord = Column(Text, nullable=False)
+    ads_coord = Column(JSONB, nullable=False)
     repeat = Column(Text, nullable=False)
-    eta = Column(DOUBLE_PRECISION, nullable=True)
-    dG = Column(JSONB, nullable=True)
+    eta = Column(DOUBLE_PRECISION, nullable=False)
+    dG_steps = Column(JSONB, nullable=False)
+    dG_cumulative = Column(JSONB, nullable=False)
     adsorb_set = Column(JSONB, nullable=False) # structures & energies
     attributes = Column(JSONB, nullable=True)
     ctime = Column(DateTime(timezone=True), server_default=func.now())

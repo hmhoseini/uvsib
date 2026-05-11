@@ -27,12 +27,13 @@ def add_surface_adsorbate(existing_uuid, surf_id, comp, react, react_path, site_
     return True
 
 
-def add_surface_ml_adsorbate(existing_uuid, surf_id, comp, react, react_path, site_type, ads_coord, repeat, e, dg, ad_set):
+def add_surface_ml_adsorbate(existing_uuid, surf_id, surface_miller_index, comp, react, react_path, site_type, ads_coord, repeat, e, dG_steps, dG_cumulative, ad_set):
     """Store a new DBSurfaceAdsorbate row corresponding to a given DBStructure UUID and surface ID"""
     with get_session() as session:
         adsorb = DBSurfaceMLAdsorbate(
                 structure_uuid=existing_uuid,
                 surface_id=surf_id,
+                surface_miller_index=surface_miller_index,
                 composition=comp,
                 reaction=react,
                 reaction_path=react_path,
@@ -40,7 +41,8 @@ def add_surface_ml_adsorbate(existing_uuid, surf_id, comp, react, react_path, si
                 ads_coord=ads_coord,
                 repeat=repeat,
                 eta=e,
-                dG=dg,
+                dG_steps=dG_steps,
+                dG_cumulative=dG_cumulative,
                 adsorb_set=ad_set
         )
         session.add(adsorb)
