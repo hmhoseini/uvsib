@@ -44,7 +44,7 @@ def get_struct_uuid(chemical_formula, method):
     )
     if mpdb_results:
         for result in mpdb_results:
-            struct_uuid.append((result.structure, result.structure_uuid))
+            struct_uuid.append((result.structure, "MPDB", result.structure_uuid))
 
     row = query_by_columns(DBComposition, {"composition": chemical_formula})[0]
     uuid_list = row.stable_struct.get("ml_uuid_list", [])
@@ -52,25 +52,26 @@ def get_struct_uuid(chemical_formula, method):
     for uuid_str in uuid_list:
         result = query_structure({"uuid": uuid_str}, method=method)
         structure = result[0].structure
+        source = result[0].source
 
         is_duplicate = False
-        for kept_structure, _ in struct_uuid:
+        for kept_structure, _, _ in struct_uuid:
             if matcher.fit(Structure.from_dict(kept_structure), Structure.from_dict(structure)):
                 is_duplicate = True
                 break
 
         if not is_duplicate:
-            struct_uuid.append((structure, uuid_str))
+            struct_uuid.append((structure, source, uuid_str))
 
     return struct_uuid
 
-def get_vasp_output_as_entry(wch, uuid_str):
+def get_vasp_output_as_entry(wch, data):
     """Extract structure and energy outputs from a VASP calculation"""
     outputs = wch.outputs
     return ComputedStructureEntry(
             structure = outputs.structure.get_pymatgen(),
             energy = outputs.misc["total_energies"]["energy_extrapolated"],
-            data = {"uuid": uuid_str})
+            data = data)
 
 class PDVerificationWorkChain(WorkChain):
     """Work chain for verification"""
@@ -123,7 +124,7 @@ class PDVerificationWorkChain(WorkChain):
 
     def run_scan(self):
         """Run r2SCAN geometry optimization"""
-        for struct_dict, uuid_str in self.ctx.struct_uuid:
+        for struct_dict, _, uuid_str in self.ctx.struct_uuid:
             pmg_structure = get_primitive_cell(struct_dict)
             builder = construct_vasp_builder(
                 StructureData(pymatgen=pmg_structure),
@@ -139,10 +140,10 @@ class PDVerificationWorkChain(WorkChain):
         """Inspect SCAN calculations"""
         scan_entries = []
         failed_scan = []
-        for _, uuid_str in self.ctx.struct_uuid:
+        for _, source, uuid_str in self.ctx.struct_uuid:
             scan_wch = self.ctx[f"scan_{uuid_str}"]
             if scan_wch.is_finished_ok:
-                scan_entries.append(get_vasp_output_as_entry(scan_wch, uuid_str))
+                scan_entries.append(get_vasp_output_as_entry(scan_wch, {"uuid": uuid_str, "source": source}))
             else:
                 failed_scan.append(uuid_str)
         if failed_scan:
@@ -164,6 +165,7 @@ class PDVerificationWorkChain(WorkChain):
                 entry.data["uuid"],
                 "r2SCAN",
                 {"structure": entry.structure.as_dict(),
+                 "source": entry.data["source"],
                  "energy": entry.energy,
                  "ehull": ehulls[i]}
             )

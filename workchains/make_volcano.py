@@ -11,7 +11,7 @@ def main():
 
     rows = query_by_columns(
         DBSurfaceMLAdsorbate,
-        {"composition": "WO2", "reaction": "OER"}
+        {"composition": "IrO2", "reaction": "OER"}
     )
 
     for r in rows:

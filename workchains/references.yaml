@@ -1,0 +1,93 @@
+# Reference energies for electrochemical overpotential calculations
+#
+# All values in eV. Energies already include ZPE corrections where noted.
+# Gas-phase molecule energies are approximate unless marked as DFT-computed.
+#
+# Structure:
+#   <method>:        # 'dft' or ML model name (e.g. 'uPET', 'mace', 'mattersim')
+#     <functional>:  # e.g. 'r2SCAN', 'PBE'
+#       <species>: <energy>
+
+dft:
+  r2SCAN:
+    # Computed with VASP r2SCAN; includes ZPE corrections
+    H2:    -7.02570471
+    H2O:   -15.41801614
+    # Approximate gas-phase energies (r2SCAN level)
+    O2:    -12.00
+    CO2:   -22.50
+    CO:    -14.00
+    CH4:   -24.00
+    CH3OH: -30.00
+    C2H4:  -34.00
+    HCOOH: -23.00
+    NO:    -9.90
+    NO2:   -12.50
+    NO3:   -18.00
+    N2O:   -9.25
+    N2:    -16.50
+    NH3:   -19.50
+
+  PBE:
+    # Placeholder — add values when available
+    # H2:    ~
+    # H2O:   ~
+
+uPET:
+  r2SCAN:
+    # uPET (pet-omatpes-l) references, raw ML energies + ZPE corrections added explicitly
+    # H2:  -6.891794204711914 (raw) + 0.27 (ZPE) = -6.621794204711914
+    # H2O: -15.237101554870605 (raw) + 0.56 (ZPE) = -14.677101554870605
+    H2:    -6.621794204711914
+    H2O:   -14.677101554870605
+    # Gas-phase references reuse DFT r2SCAN approximations
+    O2:    -12.00
+    CO2:   -22.50
+    CO:    -14.00
+    CH4:   -24.00
+    CH3OH: -30.00
+    C2H4:  -34.00
+    HCOOH: -23.00
+    NO:    -9.90
+    NO2:   -12.50
+    NO3:   -18.00
+    N2O:   -9.25
+    N2:    -16.50
+    NH3:   -19.50
+
+mace:
+  r2SCAN:
+    # Add MACE-specific references when available
+    H2:    -6.621794204711914
+    H2O:   -14.677101554870605
+    O2:    -12.00
+    CO2:   -22.50
+    CO:    -14.00
+    CH4:   -24.00
+    CH3OH: -30.00
+    C2H4:  -34.00
+    HCOOH: -23.00
+    NO:    -9.90
+    NO2:   -12.50
+    NO3:   -18.00
+    N2O:   -9.25
+    N2:    -16.50
+    NH3:   -19.50
+
+mattersim:
+  r2SCAN:
+    H2:    -6.621794204711914
+    H2O:   -14.677101554870605
+    O2:    -12.00
+    CO2:   -22.50
+    CO:    -14.00
+    CH4:   -24.00
+    CH3OH: -30.00
+    C2H4:  -34.00
+    HCOOH: -23.00
+    NO:    -9.90
+    NO2:   -12.50
+    NO3:   -18.00
+    N2O:   -9.25
+    N2:    -16.50
+    NH3:   -19.50

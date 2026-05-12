@@ -1351,7 +1351,7 @@ def generate_adsorbed_structures(reaction: str, pathway_name: str = "") -> list:
 
     # Build slab + adsorbate structures
     adsorption_sets = {}
-    multipliers = get_multipliers(slab_pmg)
+    multipliers = [(1,1,1)] #get_multipliers(slab_pmg)
     base_slab = pmg_to_ase(asf.slab).copy()
 
     for idx, repeat in enumerate(multipliers):
