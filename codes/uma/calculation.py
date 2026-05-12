@@ -24,8 +24,6 @@ class UMACalculation(CalcJob):
         job_type = parameters['job_type']
         cmdline = parameters['cmdline_params']
 
-        print('PREPEAE')
-
         if job_type == 'relax':
             input_file = os.path.join(settings.uma_files_path, 'relax.py')
         elif job_type == 'facebuild':
@@ -42,11 +40,6 @@ class UMACalculation(CalcJob):
         with folder.open('aiida.py', 'w', encoding='utf-8') as f:
             f.write(content)
 
-        print(job_type)
-        print(os.path.join(settings.uma_files_path, 'relax.py'))
-        print(cmdline)
-
-
         # Code info
         codeinfo = CodeInfo()
         codeinfo.code_uuid = self.inputs.code.uuid
@@ -56,7 +49,10 @@ class UMACalculation(CalcJob):
         calcinfo.uuid = self.uuid
         calcinfo.retrieve_list = ['output.json', 'total.txt', 'failed.txt']
         calcinfo.codes_info = [codeinfo]
-        calcinfo.local_copy_list = [(file.uuid, file.filename, file.filename) for file in self.inputs.file.values()]
+        calcinfo.local_copy_list = [
+            (file.uuid, file.filename, file.filename)
+            for file in self.inputs.file.values()
+        ]
         calcinfo.provenance_exclude_list = ['input_structures.extxyz']
 
         return calcinfo
