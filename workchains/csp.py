@@ -196,9 +196,7 @@ class CSPWorkChain(WorkChain):
         """
         ML_model = self.ctx.ML_model
         structures = self.ctx.csp_structures
-
         Workflow = WorkflowFactory(ML_model.lower())
-
         builder = Workflow.get_builder()
 
         builder.input_structures = List(structures)
@@ -207,22 +205,26 @@ class CSPWorkChain(WorkChain):
 
         model, model_path, device = get_model_device(ML_model)
 
-        relax_key = "bulk_relax"
+        print('MLBUILDER: ', ML_model, model, model_path, device)
+
+        settings_key = "bulk_relax"
 
         job_info = {
             "job_type": "relax",
             "ML_model": ML_model,
             "device": device,
-            "fmax": settings.inputs[relax_key]["fmax"],
-            "max_steps": settings.inputs[relax_key]["max_steps"],
+            "fmax": settings.inputs[settings_key]["fmax"],
+            "max_steps": settings.inputs[settings_key]["max_steps"]
         }
 
-        job_info.update({"model_name": model, "model_path": model_path, "device": device})
+        print(job_info)
 
-        # if ML_model in ["uPET"]:
-        #     job_info.update({"model_name": model})
-        # else:
-        #     job_info.update({"model_path": model_path})
+        if ML_model in ["uPET", "UMA"]:
+            job_info.update({"model_name": model})
+        else:
+            job_info.update({"model_path": model_path})
+
+        print(job_info)
 
         builder.job_info = Dict(job_info)
         return builder

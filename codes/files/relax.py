@@ -60,6 +60,8 @@ def relax_structures(calc, fmax, max_steps):
         else:
             num_failed += 1
 
+    print(len(relaxed_structures), len(energies), len(epas))
+
     to_dump = {'structures': relaxed_structures, 'energies': energies, 'epas': epas}
 
     with open('output.json', 'w') as f:
@@ -71,6 +73,7 @@ def relax_structures(calc, fmax, max_steps):
     with open('failed.txt', 'w') as f:
         f.write(str(num_failed))
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--ML_model", type=str)
@@ -80,7 +83,6 @@ if __name__ == "__main__":
     parser.add_argument("--fmax", type=float)
     parser.add_argument("--max_steps", type=int)
     args = parser.parse_args()
-
     if "MACE".lower() in args.ML_model.lower():
         from mace.calculators import MACECalculator
         calc = MACECalculator(model_paths=args.model_path, device=args.device)
@@ -96,6 +98,6 @@ if __name__ == "__main__":
         predictor = pretrained_mlip.get_predict_unit(args.model, device=args.device)
         calc = FAIRChemCalculator(predictor, task_name="oc20")  # choices: "omat", "omol", "odac", "omc", "oc20"
     else:
-        raise ValueError(f"Unknown ML_model '{args.ML_model}'. Expected one of: MACE, PET, MatterSim.")
+        raise ValueError(f"Unknown ML_model '{args.ML_model}'. Expected one of: MACE, PET, UMA, MatterSim.")
 
     relax_structures(calc, args.fmax, args.max_steps)

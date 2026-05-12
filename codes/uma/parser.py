@@ -26,10 +26,13 @@ class UMAParser(Parser):
         num_structures = int(content)
 
         failed_filename = 'failed.txt'
-        if num_filename not in retrieved_folder.list_object_names():
+        if failed_filename not in retrieved_folder.list_object_names():
             return self.exit_codes.ERROR_MISSING_OUTPUT
         with retrieved_folder.open(failed_filename, 'r') as f:
             content = f.read()
         num_failed = int(content)
+
+        print(num_failed)
+        print(num_structures)
 
         self.out("output_dict", Dict(dict=data))
