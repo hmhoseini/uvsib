@@ -25,6 +25,7 @@ MAX_NUM_SURF = 10
 EHULL_ML = 0.05
 EHULL_SCAN = 0.1
 DFT_FUNC = "r2SCAN"
+ML_FUNC = "r2SCAN"
 
 code_folder_path =  os.path.join(uvsib_directory, 'codes')
 mattergen_files_path = os.path.join(code_folder_path, 'files')

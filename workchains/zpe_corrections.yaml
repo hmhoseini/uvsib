@@ -1,0 +1,79 @@
+# Zero-point energy (ZPE) corrections for adsorbed intermediates (in eV)
+#
+# Values apply to adsorption energies computed with VASP r2SCAN or ML surrogates
+# trained on r2SCAN data. Gas-phase species corrections are 0.0 because their
+# ZPE is already folded into the reference energies in references.yaml.
+#
+# Structure:
+#   <reaction>:
+#     <species>: <ZPE correction in eV>
+
+oer:
+  # 4-electron acidic OER: H2O → O2
+  # Corrections from: Norskov et al., J. Phys. Chem. B 108 (2004) 17886
+  '*':     0.00
+  '*OH':   0.35
+  '*O':    0.05
+  '*OOH':  0.40
+  # Gas-phase (ZPE already in references.yaml)
+  H2:      0.00
+  H2O:     0.00
+  O2:      0.00
+
+co2rr:
+  # CO2 reduction reaction intermediates
+  '*':          0.00
+  '*CO2_ads':   0.30
+  '*COOH':      0.35
+  '*OCHO':      0.25
+  '*CO':        0.15
+  '*CHO':       0.20
+  '*CHOH':      0.40
+  '*CH2O':      0.35
+  '*CH2OH':     0.45
+  '*CH':        0.10
+  '*CH2':       0.20
+  '*CH3':       0.30
+  '*OCCO':      0.40
+  '*CCHO':      0.40
+  '*C2H4_ads':  0.50
+  # Gas-phase (ZPE already in references.yaml)
+  H2:      0.00
+  H2O:     0.00
+  CO2:     0.00
+  CO:      0.00
+  CH4:     0.00
+  CH3OH:   0.00
+  C2H4:    0.00
+  HCOOH:   0.00
+
+noxrr:
+  # NOx reduction reaction intermediates
+  '*':       0.00
+  '*NO':     0.10
+  '*NO2':    0.20
+  '*NO3':    0.30
+  '*NOH':    0.20
+  '*HNO':    0.20
+  '*N2O2':   0.30
+  '*N2O':    0.25
+  '*N':      0.00
+  '*NH':     0.10
+  '*NH2':    0.20
+  '*NH3':    0.30
+  '*NHOH':   0.35
+  '*NH2OH':  0.40
+  '*O':      0.05
+  '*OH':     0.35
+  '*H2O':    0.55
+  # Gas-phase (ZPE already in references.yaml)
+  H2:    0.00
+  H2O:   0.00
+  NO:    0.00
+  NO2:   0.00
+  NO3:   0.00
+  N2O:   0.00
+  N2:    0.00
+  NH3:   0.00
+  O:     0.00
+  O2:    0.00
