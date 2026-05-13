@@ -94,20 +94,30 @@ class CSPWorkChain(WorkChain):
         """ML energies"""
         wch = self.ctx.ml_e
 
-        if not wch.is_finished_ok:
-            return self.exit_codes.ERROR_ML_RELAX_FAILED
+        print(wch)
+        print(wch.outputs)  # .output_dict
+
+
+        # print(self.ctx.ml_e)
+
+
+
+
         try:
+            print('collect')
             new_entries = get_output_as_entry(wch)
         except:
+            print('sucked')
             return self.exit_codes.ERROR_ML_RELAX_FAILED
+
+
 
         self.ctx.low_energy_entries_csp, _ = unique_low_energy_comp(
                 self.ctx.chemical_formula,
                 new_entries,
                 DFT_FUNC,
                 EHULL_ML,
-                min_n_return=self.ctx.n_mh
-        )
+                min_n_return=self.ctx.n_mh)
 
     def minimahopping(self):
         """Run MinimaHopping"""
@@ -200,7 +210,6 @@ class CSPWorkChain(WorkChain):
         Workflow = WorkflowFactory(ML_model.lower())
 
         builder = Workflow.get_builder()
-
         builder.input_structures = List(structures)
         builder.code = get_code(ML_model)
         builder.local_label = Str("relax {}".format(self.ctx.chemical_formula))
@@ -217,12 +226,14 @@ class CSPWorkChain(WorkChain):
             "max_steps": settings.inputs[relax_key]["max_steps"],
         }
 
-        job_info.update({"model_name": model, "model_path": model_path, "device": device})
+        # job_info.update({"model_name": model, "model_path": model_path, "device": device})
 
-        # if ML_model in ["uPET"]:
-        #     job_info.update({"model_name": model})
-        # else:
-        #     job_info.update({"model_path": model_path})
+        if ML_model in ["uPET", "UMA"]:
+            job_info.update({"model_name": model})
+        else:
+            job_info.update({"model_path": model_path})
+
+        print('csp/jobinfo: ', job_info)
 
         builder.job_info = Dict(job_info)
         return builder

@@ -42,9 +42,10 @@ def relax_structures(calc, fmax, max_steps):
         atoms.calc = calc
         cell_filter = FrechetCellFilter(atoms)
 
-        opt = BFGSLineSearch(cell_filter, logfile="opt.log")
-
-        # opt = FIRE(cell_filter, logfile="opt.log")
+        if 1 == 1:
+            opt = BFGSLineSearch(cell_filter, logfile="opt.log")
+        else:
+            opt = FIRE(cell_filter, logfile="opt.log")
 
         try:
             converged = opt.run(fmax=fmax, steps=max_steps)
@@ -81,21 +82,21 @@ if __name__ == "__main__":
     parser.add_argument("--max_steps", type=int)
     args = parser.parse_args()
 
-    if "MACE".lower() in args.ML_model.lower():
+    if "MACE" in args.ML_model:
         from mace.calculators import MACECalculator
         calc = MACECalculator(model_paths=args.model_path, device=args.device)
-    elif "PET".lower() in args.ML_model.lower():
+    elif "uPET" in args.ML_model:
         from upet.calculator import UPETCalculator
         calc = UPETCalculator(model=args.model, device=args.device)
-    elif "MatterSim".lower() in args.ML_model.lower():
+    elif "MatterSim" in args.ML_model:
         from mattersim.forcefield import MatterSimCalculator
         calc = MatterSimCalculator(load_path=args.model_path, device=args.device)
-    elif "UMA".lower() in args.ML_model.lower():
+    elif "UMA" in args.ML_model:
         from fairchem.core import pretrained_mlip
         from fairchem.core.calculate.ase_calculator import FAIRChemCalculator
         predictor = pretrained_mlip.get_predict_unit(args.model, device=args.device)
         calc = FAIRChemCalculator(predictor, task_name="oc20")  # choices: "omat", "omol", "odac", "omc", "oc20"
     else:
-        raise ValueError(f"Unknown ML_model '{args.ML_model}'. Expected one of: MACE, PET, MatterSim.")
+        raise ValueError(f"Unknown ML_model '{args.ML_model}'. Expected one of: MACE, uPET, UMA, MatterSim.")
 
     relax_structures(calc, args.fmax, args.max_steps)

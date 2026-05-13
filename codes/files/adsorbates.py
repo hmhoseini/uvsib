@@ -1326,6 +1326,87 @@ def generate_adsorbed_structures(reaction: str, pathway_name: str = "") -> dict:
     FileNotFoundError
         If input_structures.json is not found.
     """
+    h2_ref = Structure.from_str("# generated using pymatgen"
+                                "data_H2"
+                                "_symmetry_space_group_name_H-M   P2_12_12_1"
+                                "_cell_length_a   7.17722434"
+                                "_cell_length_b   7.18692792"
+                                "_cell_length_c   7.20815403"
+                                "_cell_angle_alpha   90.00000000"
+                                "_cell_angle_beta   90.00000000"
+                                "_cell_angle_gamma   90.00000000"
+                                "_symmetry_Int_Tables_number   19"
+                                "_chemical_formula_structural   H2"
+                                "_chemical_formula_sum   H8"
+                                "_cell_volume   371.81239954"
+                                "_cell_formula_units_Z   4"
+                                "loop_"
+                                "_symmetry_equiv_pos_site_id"
+                                "_symmetry_equiv_pos_as_xyz"
+                                "1  'x, y, z'"
+                                "2  '-x+1/2, -y, z+1/2'"
+                                "3  'x+1/2, -y+1/2, -z'"
+                                "4  '-x, y+1/2, -z+1/2'"
+                                "loop_"
+                                "_atom_type_symbol"
+                                "_atom_type_oxidation_number"
+                                "H0+  0.0"
+                                "loop_"
+                                "_atom_site_type_symbol"
+                                "_atom_site_label"
+                                "_atom_site_symmetry_multiplicity"
+                                "_atom_site_fract_x"
+                                "_atom_site_fract_y"
+                                "_atom_site_fract_z"
+                                "_atom_site_occupancy"
+                                "H0+  H0  4  0.13446739  0.27826371  0.14725933  1"
+                                "H0+  H1  4  0.14452235  0.35074104  0.21972929  1", fmt='cif')
+
+    h2o_ref = Structure.from_str("# generated using pymatgen"
+                                 "data_H2O"
+                                 "_symmetry_space_group_name_H-M   Cmc2_1"
+                                 "_cell_length_a   4.32660432"
+                                 "_cell_length_b   7.52601076"
+                                 "_cell_length_c   7.06770668"
+                                 "_cell_angle_alpha   90.00000000"
+                                 "_cell_angle_beta   90.00000000"
+                                 "_cell_angle_gamma   90.00000000"
+                                 "_symmetry_Int_Tables_number   36"
+                                 "_chemical_formula_structural   H2O"
+                                 "_chemical_formula_sum   'H16 O8'"
+                                 "_cell_volume   230.13916436"
+                                 "_cell_formula_units_Z   8"
+                                 "loop_"
+                                 "_symmetry_equiv_pos_site_id"
+                                 "_symmetry_equiv_pos_as_xyz"
+                                 "1  'x, y, z'"
+                                 "2  '-x, -y, z+1/2'"
+                                 "3  '-x, y, z'"
+                                 "4  'x, -y, z+1/2'"
+                                 "5  'x+1/2, y+1/2, z'"
+                                 "6  '-x+1/2, -y+1/2, z+1/2'"
+                                 "7  '-x+1/2, y+1/2, z'"
+                                 "8  'x+1/2, -y+1/2, z+1/2'"
+                                 "loop_"
+                                 "_atom_type_symbol"
+                                 "_atom_type_oxidation_number"
+                                 "H+  1.0"
+                                 "O2-  -2.0"
+                                 "loop_"
+                                 "_atom_site_type_symbol"
+                                 "_atom_site_label"
+                                 "_atom_site_symmetry_multiplicity"
+                                 "_atom_site_fract_x"
+                                 "_atom_site_fract_y"
+                                 "_atom_site_fract_z"
+                                 "_atom_site_occupancy"
+                                 "H+  H0  8  0.18499514  0.26787625  0.51708756  1"
+                                 "H+  H1  4  0.00000000  0.33603074  0.79929821  1"
+                                 "H+  H2  4  0.00000000  0.46046973  0.98354168  1"
+                                 "O2-  O3  4  0.00000000  0.33248137  0.56479997  1"
+                                 "O2-  O4  4  0.00000000  0.33466271  0.94018801  1", fmt="cif")
+
+
     with open('input_structures.json', 'r') as f:
         data = json.load(f)
 
@@ -1376,8 +1457,17 @@ def generate_adsorbed_structures(reaction: str, pathway_name: str = "") -> dict:
                         break
                     adsorb_set["structures"].append(ase_struct)
 
-                # Only add complete sets where all adsorbates passed validation
-                if len(adsorb_set["structures"]) == len(adsorbates):
+                # feed H2 and H2O refs into the queue
+                ase_struct = pmg_to_ase(h2_ref)
+                ase_struct.info['adsorbate'] = 'H2'
+                adsorb_set["structures"].append(ase_struct)
+
+                ase_struct = pmg_to_ase(h2o_ref)
+                ase_struct.info['adsorbate'] = 'H2O'
+                adsorb_set["structures"].append(ase_struct)
+
+                # Only add complete sets where all adsorbates passed validation -> +2 are the references H2 and H2O
+                if len(adsorb_set["structures"]) == len(adsorbates) + 2:
                     adsorption_sets[idx]["adsorb_set"].append(adsorb_set)
 
     return adsorption_sets
