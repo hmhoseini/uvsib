@@ -227,6 +227,7 @@ class AdsorbatesWorkChain(WorkChain):
 
 #           add_surface_adsorbate(existing_uuid=uuid_str, surf_id=surface_id, comp=self.ctx.chemical_formula,
 #                                 react=self.ctx.reaction, react_path=self.ctx.reaction_path, site_type=site, ads_coord=idx, e=eta, dg=dG, ad_set=self.ctx.adsorption_sets[key])
+
     def final_report(self):
         """Final report"""
         if not self.ctx.candidates:

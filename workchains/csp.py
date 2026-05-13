@@ -94,23 +94,10 @@ class CSPWorkChain(WorkChain):
         """ML energies"""
         wch = self.ctx.ml_e
 
-        print(wch)
-        print(wch.outputs)  # .output_dict
-
-
-        # print(self.ctx.ml_e)
-
-
-
-
         try:
-            print('collect')
             new_entries = get_output_as_entry(wch)
         except:
-            print('sucked')
             return self.exit_codes.ERROR_ML_RELAX_FAILED
-
-
 
         self.ctx.low_energy_entries_csp, _ = unique_low_energy_comp(
                 self.ctx.chemical_formula,
@@ -253,7 +240,7 @@ class CSPWorkChain(WorkChain):
              "mh_steps": settings.inputs["MinimaHopping"]["mh_steps"],
              "fmax": settings.inputs["MinimaHopping"]["fmax"],
             }
-        if ML_model in ["uPET"]:
+        if ML_model in ["uPET", "UMA"]:
             job_info.update({"model_name": model})
         else:
             job_info.update({"model_path": model_path})

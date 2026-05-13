@@ -15,6 +15,379 @@ from pymatgen.core.surface import Slab
 from pymatgen.analysis.adsorption import AdsorbateSiteFinder
 from scipy.spatial.distance import pdist, squareform
 
+
+ch3oh_ref = Structure.from_file("CH3OH methanol, gas-phase equilibrium geometry in 15 Å vacuum cube"
+    "1.0"
+    "15.000000000000000    0.000000000000000    0.000000000000000"
+    "0.000000000000000   15.000000000000000    0.000000000000000"
+    "0.000000000000000    0.000000000000000   15.000000000000000"
+    "C O H"
+    "1 1 4"
+    "Cartesian"
+    "7.153000    7.349000    7.500000"
+    "8.583000    7.349000    7.500000"
+    "8.894000    8.257000    7.500000"
+    "6.790000    8.377000    7.500000"
+    "6.790000    6.835000    8.390000"
+    "6.790000    6.835000    6.610000", fmt='POSCAR')
+
+
+ch4_ref = Structure.from_file("# generated using pymatgen"
+    "data_H4C"
+    "_symmetry_space_group_name_H-M   I-43m"
+    "_cell_length_a   4.95784936"
+    "_cell_length_b   4.95784936"
+    "_cell_length_c   4.95784936"
+    "_cell_angle_alpha   90.00000000"
+    "_cell_angle_beta   90.00000000"
+    "_cell_angle_gamma   90.00000000"
+    "_symmetry_Int_Tables_number   217"
+    "_chemical_formula_structural   H4C"
+    "_chemical_formula_sum   'H8 C2'"
+    "_cell_volume   121.86527739"
+    "_cell_formula_units_Z   2"
+    "loop_"
+    "_symmetry_equiv_pos_site_id"
+    "_symmetry_equiv_pos_as_xyz"
+    "1  'x, y, z'"
+    "2  'y, -x, -z'"
+    "3  '-x, -y, z'"
+    "4  '-y, x, -z'"
+    "5  'x, -y, -z'"
+    "6  'y, x, z'"
+    "7  '-x, y, -z'"
+    "8  '-y, -x, z'"
+    "9  'z, x, y'"
+    "10  '-z, y, -x'"
+    "11  'z, -x, -y'"
+    "12  '-z, -y, x'"
+    "13  '-z, x, -y'"
+    "14  'z, y, x'"
+    "15  '-z, -x, y'"
+    "16  'z, -y, -x'"
+    "17  'y, z, x'"
+    "18  '-x, -z, y'"
+    "19  '-y, z, -x'"
+    "20  'x, -z, -y'"
+    "21  '-y, -z, x'"
+    "22  'x, z, y'"
+    "23  'y, -z, -x'"
+    "24  '-x, z, -y'"
+    "25  'x+1/2, y+1/2, z+1/2'"
+    "26  'y+1/2, -x+1/2, -z+1/2'"
+    "27  '-x+1/2, -y+1/2, z+1/2'"
+    "28  '-y+1/2, x+1/2, -z+1/2'"
+    "29  'x+1/2, -y+1/2, -z+1/2'"
+    "30  'y+1/2, x+1/2, z+1/2'"
+    "31  '-x+1/2, y+1/2, -z+1/2'"
+    "32  '-y+1/2, -x+1/2, z+1/2'"
+    "33  'z+1/2, x+1/2, y+1/2'"
+    "34  '-z+1/2, y+1/2, -x+1/2'"
+    "35  'z+1/2, -x+1/2, -y+1/2'"
+    "36  '-z+1/2, -y+1/2, x+1/2'"
+    "37  '-z+1/2, x+1/2, -y+1/2'"
+    "38  'z+1/2, y+1/2, x+1/2'"
+    "39  '-z+1/2, -x+1/2, y+1/2'"
+    "40  'z+1/2, -y+1/2, -x+1/2'"
+    "41  'y+1/2, z+1/2, x+1/2'"
+    "42  '-x+1/2, -z+1/2, y+1/2'"
+    "43  '-y+1/2, z+1/2, -x+1/2'"
+    "44  'x+1/2, -z+1/2, -y+1/2'"
+    "45  '-y+1/2, -z+1/2, x+1/2'"
+    "46  'x+1/2, z+1/2, y+1/2'"
+    "47  'y+1/2, -z+1/2, -x+1/2'"
+    "48  '-x+1/2, z+1/2, -y+1/2'"
+    "loop_"
+    "_atom_type_symbol"
+    "_atom_type_oxidation_number"
+    "H+  1.0"
+    "C4-  -4.0"
+    "loop_"
+    "_atom_site_type_symbol"
+    "_atom_site_label"
+    "_atom_site_symmetry_multiplicity"
+    "_atom_site_fract_x"
+    "_atom_site_fract_y"
+    "_atom_site_fract_z"
+    "_atom_site_occupancy"
+    "H+  H0  8  0.12684356  0.12684356  0.12684356  1"
+    "C4-  C1  2  0.00000000  0.00000000  0.00000000  1", fmt='cif')
+
+co2_ref = Structure.from_str("# generated using pymatgen"
+    "data_CO2"
+    "_symmetry_space_group_name_H-M   Pa-3"
+    "_cell_length_a   5.49707328"
+    "_cell_length_b   5.49707328"
+    "_cell_length_c   5.49707328"
+    "_cell_angle_alpha   90.00000000"
+    "_cell_angle_beta   90.00000000"
+    "_cell_angle_gamma   90.00000000"
+    "_symmetry_Int_Tables_number   205"
+    "_chemical_formula_structural   CO2"
+    "_chemical_formula_sum   'C4 O8'"
+    "_cell_volume   166.10954147"
+    "_cell_formula_units_Z   4"
+    "loop_"
+    "_symmetry_equiv_pos_site_id"
+    "_symmetry_equiv_pos_as_xyz"
+    "1  'x, y, z'"
+    "2  '-x, -y, -z'"
+    "3  '-x+1/2, -y, z+1/2'"
+    "4  'x+1/2, y, -z+1/2'"
+    "5  'x+1/2, -y+1/2, -z'"
+    "6  '-x+1/2, y+1/2, z'"
+    "7  '-x, y+1/2, -z+1/2'"
+    "8  'x, -y+1/2, z+1/2'"
+    "9  'z, x, y'"
+    "10  '-z, -x, -y'"
+    "11  'z+1/2, -x+1/2, -y'"
+    "12  '-z+1/2, x+1/2, y'"
+    "13  '-z, x+1/2, -y+1/2'"
+    "14  'z, -x+1/2, y+1/2'"
+    "15  '-z+1/2, -x, y+1/2'"
+    "16  'z+1/2, x, -y+1/2'"
+    "17  'y, z, x'"
+    "18  '-y, -z, -x'"
+    "19  '-y, z+1/2, -x+1/2'"
+    "20  'y, -z+1/2, x+1/2'"
+    "21  '-y+1/2, -z, x+1/2'"
+    "22  'y+1/2, z, -x+1/2'"
+    "23  'y+1/2, -z+1/2, -x'"
+    "24  '-y+1/2, z+1/2, x'"
+    "loop_"
+    "_atom_type_symbol"
+    "_atom_type_oxidation_number"
+    "C4+  4.0"
+    "O2-  -2.0"
+    "loop_"
+    "_atom_site_type_symbol"
+    "_atom_site_label"
+    "_atom_site_symmetry_multiplicity"
+    "_atom_site_fract_x"
+    "_atom_site_fract_y"
+    "_atom_site_fract_z"
+    "_atom_site_occupancy"
+    "C4+  C0  4  0.00000000  0.00000000  0.00000000  1"
+    "O2-  O1  8  0.12253698  0.12253698  0.12253698  1", fmt='cif')
+
+
+n2o_ref = Structure.from_str("# generated using pymatgen"
+    "data_N2O"
+    "_symmetry_space_group_name_H-M   Pnma"
+    "_cell_length_a   6.62729400"
+    "_cell_length_b   4.37266700"
+    "_cell_length_c   5.40011600"
+    "_cell_angle_alpha   90.00000000"
+    "_cell_angle_beta   90.00000000"
+    "_cell_angle_gamma   90.00000000"
+    "_symmetry_Int_Tables_number   62"
+    "_chemical_formula_structural   N2O"
+    "_chemical_formula_sum   'N8 O4'"
+    "_cell_volume   156.48969033"
+    "_cell_formula_units_Z   4"
+    "loop_"
+    "_symmetry_equiv_pos_site_id"
+    "_symmetry_equiv_pos_as_xyz"
+    "1  'x, y, z'"
+    "2  '-x, -y, -z'"
+    "3  '-x+1/2, -y, z+1/2'"
+    "4  'x+1/2, y, -z+1/2'"
+    "5  'x+1/2, -y+1/2, -z+1/2'"
+    "6  '-x+1/2, y+1/2, z+1/2'"
+    "7  '-x, y+1/2, -z'"
+    "8  'x, -y+1/2, z'"
+    "loop_"
+    "_atom_type_symbol"
+    "_atom_type_oxidation_number"
+    "N+  1.0"
+    "O2-  -2.0"
+    "loop_"
+    "_atom_site_type_symbol"
+    "_atom_site_label"
+    "_atom_site_symmetry_multiplicity"
+    "_atom_site_fract_x"
+    "_atom_site_fract_y"
+    "_atom_site_fract_z"
+    "_atom_site_occupancy"
+    "N+  N0  4  0.12740100  0.75000000  0.78998500  1"
+    "N+  N1  4  0.13717100  0.75000000  0.00114000  1"
+    "O2-  O2  4  0.11425100  0.75000000  0.56932500  1", fmt='cif')
+
+
+nh3_ref = Structure.from_str("# generated using pymatgen"
+    "data_H3N"
+    "_symmetry_space_group_name_H-M   P2_13"
+    "_cell_length_a   4.97708948"
+    "_cell_length_b   4.97708948"
+    "_cell_length_c   4.97708948"
+    "_cell_angle_alpha   90.00000000"
+    "_cell_angle_beta   90.00000000"
+    "_cell_angle_gamma   90.00000000"
+    "_symmetry_Int_Tables_number   198"
+    "_chemical_formula_structural   H3N"
+    "_chemical_formula_sum   'H12 N4'"
+    "_cell_volume   123.28957206"
+    "_cell_formula_units_Z   4"
+    "loop_"
+    "_symmetry_equiv_pos_site_id"
+    "_symmetry_equiv_pos_as_xyz"
+    "1  'x, y, z'"
+    "2  '-x+1/2, -y, z+1/2'"
+    "3  'x+1/2, -y+1/2, -z'"
+    "4  '-x, y+1/2, -z+1/2'"
+    "5  'z, x, y'"
+    "6  'z+1/2, -x+1/2, -y'"
+    "7  '-z, x+1/2, -y+1/2'"
+    "8  '-z+1/2, -x, y+1/2'"
+    "9  'y, z, x'"
+    "10  '-y, z+1/2, -x+1/2'"
+    "11  '-y+1/2, -z, x+1/2'"
+    "12  'y+1/2, -z+1/2, -x'"
+    "loop_"
+    "_atom_type_symbol"
+    "_atom_type_oxidation_number"
+    "H+  1.0"
+    "N3-  -3.0"
+    "loop_"
+    "_atom_site_type_symbol"
+    "_atom_site_label"
+    "_atom_site_symmetry_multiplicity"
+    "_atom_site_fract_x"
+    "_atom_site_fract_y"
+    "_atom_site_fract_z"
+    "_atom_site_occupancy"
+    "H+  H0  12  0.02566050  0.37440103  0.35824229  1"
+    "N3-  N1  4  0.03956435  0.03956435  0.03956435  1", fmt='cif')
+
+
+n2_ref = Structure.from_str("# generated using pymatgen"
+    "data_N2"
+    "_symmetry_space_group_name_H-M   P2_13"
+    "_cell_length_a   5.81510172"
+    "_cell_length_b   5.81510172"
+    "_cell_length_c   5.81510172"
+    "_cell_angle_alpha   90.00000000"
+    "_cell_angle_beta   90.00000000"
+    "_cell_angle_gamma   90.00000000"
+    "_symmetry_Int_Tables_number   198"
+    "_chemical_formula_structural   N2"
+    "_chemical_formula_sum   N8"
+    "_cell_volume   196.64003730"
+    "_cell_formula_units_Z   4"
+    "loop_"
+    "_symmetry_equiv_pos_site_id"
+    "_symmetry_equiv_pos_as_xyz"
+    "1  'x, y, z'"
+    "2  '-x+1/2, -y, z+1/2'"
+    "3  'x+1/2, -y+1/2, -z'"
+    "4  '-x, y+1/2, -z+1/2'"
+    "5  'z, x, y'"
+    "6  'z+1/2, -x+1/2, -y'"
+    "7  '-z, x+1/2, -y+1/2'"
+    "8  '-z+1/2, -x, y+1/2'"
+    "9  'y, z, x'"
+    "10  '-y, z+1/2, -x+1/2'"
+    "11  '-y+1/2, -z, x+1/2'"
+    "12  'y+1/2, -z+1/2, -x'"
+    "loop_"
+    "_atom_type_symbol"
+    "_atom_type_oxidation_number"
+    "N0+  0.0"
+    "loop_"
+    "_atom_site_type_symbol"
+    "_atom_site_label"
+    "_atom_site_symmetry_multiplicity"
+    "_atom_site_fract_x"
+    "_atom_site_fract_y"
+    "_atom_site_fract_z"
+    "_atom_site_occupancy"
+    "N0+  N0  4  0.04586114  0.45413886  0.54586114  1"
+    "N0+  N1  4  0.06390144  0.06390144  0.06390144  1", fmt='cif')
+
+
+
+h2_ref = Structure.from_str("# generated using pymatgen"
+    "data_H2"
+    "_symmetry_space_group_name_H-M   P2_12_12_1"
+    "_cell_length_a   7.17722434"
+    "_cell_length_b   7.18692792"
+    "_cell_length_c   7.20815403"
+    "_cell_angle_alpha   90.00000000"
+    "_cell_angle_beta   90.00000000"
+    "_cell_angle_gamma   90.00000000"
+    "_symmetry_Int_Tables_number   19"
+    "_chemical_formula_structural   H2"
+    "_chemical_formula_sum   H8"
+    "_cell_volume   371.81239954"
+    "_cell_formula_units_Z   4"
+    "loop_"
+    "_symmetry_equiv_pos_site_id"
+    "_symmetry_equiv_pos_as_xyz"
+    "1  'x, y, z'"
+    "2  '-x+1/2, -y, z+1/2'"
+    "3  'x+1/2, -y+1/2, -z'"
+    "4  '-x, y+1/2, -z+1/2'"
+    "loop_"
+    "_atom_type_symbol"
+    "_atom_type_oxidation_number"
+    "H0+  0.0"
+    "loop_"
+    "_atom_site_type_symbol"
+    "_atom_site_label"
+    "_atom_site_symmetry_multiplicity"
+    "_atom_site_fract_x"
+    "_atom_site_fract_y"
+    "_atom_site_fract_z"
+    "_atom_site_occupancy"
+    "H0+  H0  4  0.13446739  0.27826371  0.14725933  1"
+    "H0+  H1  4  0.14452235  0.35074104  0.21972929  1", fmt='cif')
+
+
+h2o_ref = Structure.from_str("# generated using pymatgen"
+    "data_H2O"
+    "_symmetry_space_group_name_H-M   Cmc2_1"
+    "_cell_length_a   4.32660432"
+    "_cell_length_b   7.52601076"
+    "_cell_length_c   7.06770668"
+    "_cell_angle_alpha   90.00000000"
+    "_cell_angle_beta   90.00000000"
+    "_cell_angle_gamma   90.00000000"
+    "_symmetry_Int_Tables_number   36"
+    "_chemical_formula_structural   H2O"
+    "_chemical_formula_sum   'H16 O8'"
+    "_cell_volume   230.13916436"
+    "_cell_formula_units_Z   8"
+    "loop_"
+    "_symmetry_equiv_pos_site_id"
+    "_symmetry_equiv_pos_as_xyz"
+    "1  'x, y, z'"
+    "2  '-x, -y, z+1/2'"
+    "3  '-x, y, z'"
+    "4  'x, -y, z+1/2'"
+    "5  'x+1/2, y+1/2, z'"
+    "6  '-x+1/2, -y+1/2, z+1/2'"
+    "7  '-x+1/2, y+1/2, z'"
+    "8  'x+1/2, -y+1/2, z+1/2'"
+    "loop_"
+    "_atom_type_symbol"
+    "_atom_type_oxidation_number"
+    "H+  1.0"
+    "O2-  -2.0"
+    "loop_"
+    "_atom_site_type_symbol"
+    "_atom_site_label"
+    "_atom_site_symmetry_multiplicity"
+    "_atom_site_fract_x"
+    "_atom_site_fract_y"
+    "_atom_site_fract_z"
+    "_atom_site_occupancy"
+    "H+  H0  8  0.18499514  0.26787625  0.51708756  1"
+    "H+  H1  4  0.00000000  0.33603074  0.79929821  1"
+    "H+  H2  4  0.00000000  0.46046973  0.98354168  1"
+    "O2-  O3  4  0.00000000  0.33248137  0.56479997  1"
+    "O2-  O4  4  0.00000000  0.33466271  0.94018801  1", fmt="cif")
+
+
 def _create_adsorbate_with_dummy(species: List[str],
                                  coords: List[List[float]],
                                  properties: Dict = {},
@@ -1296,6 +1669,9 @@ def generate_noxrr_adsorbates(pathway_name: str) -> tuple:
 
     return pathway, adsorbates
 
+
+
+
 def get_multipliers(slab_pmg):
     a = slab_pmg.lattice.a
     b = slab_pmg.lattice.b
@@ -1326,87 +1702,6 @@ def generate_adsorbed_structures(reaction: str, pathway_name: str = "") -> dict:
     FileNotFoundError
         If input_structures.json is not found.
     """
-    h2_ref = Structure.from_str("# generated using pymatgen"
-                                "data_H2"
-                                "_symmetry_space_group_name_H-M   P2_12_12_1"
-                                "_cell_length_a   7.17722434"
-                                "_cell_length_b   7.18692792"
-                                "_cell_length_c   7.20815403"
-                                "_cell_angle_alpha   90.00000000"
-                                "_cell_angle_beta   90.00000000"
-                                "_cell_angle_gamma   90.00000000"
-                                "_symmetry_Int_Tables_number   19"
-                                "_chemical_formula_structural   H2"
-                                "_chemical_formula_sum   H8"
-                                "_cell_volume   371.81239954"
-                                "_cell_formula_units_Z   4"
-                                "loop_"
-                                "_symmetry_equiv_pos_site_id"
-                                "_symmetry_equiv_pos_as_xyz"
-                                "1  'x, y, z'"
-                                "2  '-x+1/2, -y, z+1/2'"
-                                "3  'x+1/2, -y+1/2, -z'"
-                                "4  '-x, y+1/2, -z+1/2'"
-                                "loop_"
-                                "_atom_type_symbol"
-                                "_atom_type_oxidation_number"
-                                "H0+  0.0"
-                                "loop_"
-                                "_atom_site_type_symbol"
-                                "_atom_site_label"
-                                "_atom_site_symmetry_multiplicity"
-                                "_atom_site_fract_x"
-                                "_atom_site_fract_y"
-                                "_atom_site_fract_z"
-                                "_atom_site_occupancy"
-                                "H0+  H0  4  0.13446739  0.27826371  0.14725933  1"
-                                "H0+  H1  4  0.14452235  0.35074104  0.21972929  1", fmt='cif')
-
-    h2o_ref = Structure.from_str("# generated using pymatgen"
-                                 "data_H2O"
-                                 "_symmetry_space_group_name_H-M   Cmc2_1"
-                                 "_cell_length_a   4.32660432"
-                                 "_cell_length_b   7.52601076"
-                                 "_cell_length_c   7.06770668"
-                                 "_cell_angle_alpha   90.00000000"
-                                 "_cell_angle_beta   90.00000000"
-                                 "_cell_angle_gamma   90.00000000"
-                                 "_symmetry_Int_Tables_number   36"
-                                 "_chemical_formula_structural   H2O"
-                                 "_chemical_formula_sum   'H16 O8'"
-                                 "_cell_volume   230.13916436"
-                                 "_cell_formula_units_Z   8"
-                                 "loop_"
-                                 "_symmetry_equiv_pos_site_id"
-                                 "_symmetry_equiv_pos_as_xyz"
-                                 "1  'x, y, z'"
-                                 "2  '-x, -y, z+1/2'"
-                                 "3  '-x, y, z'"
-                                 "4  'x, -y, z+1/2'"
-                                 "5  'x+1/2, y+1/2, z'"
-                                 "6  '-x+1/2, -y+1/2, z+1/2'"
-                                 "7  '-x+1/2, y+1/2, z'"
-                                 "8  'x+1/2, -y+1/2, z+1/2'"
-                                 "loop_"
-                                 "_atom_type_symbol"
-                                 "_atom_type_oxidation_number"
-                                 "H+  1.0"
-                                 "O2-  -2.0"
-                                 "loop_"
-                                 "_atom_site_type_symbol"
-                                 "_atom_site_label"
-                                 "_atom_site_symmetry_multiplicity"
-                                 "_atom_site_fract_x"
-                                 "_atom_site_fract_y"
-                                 "_atom_site_fract_z"
-                                 "_atom_site_occupancy"
-                                 "H+  H0  8  0.18499514  0.26787625  0.51708756  1"
-                                 "H+  H1  4  0.00000000  0.33603074  0.79929821  1"
-                                 "H+  H2  4  0.00000000  0.46046973  0.98354168  1"
-                                 "O2-  O3  4  0.00000000  0.33248137  0.56479997  1"
-                                 "O2-  O4  4  0.00000000  0.33466271  0.94018801  1", fmt="cif")
-
-
     with open('input_structures.json', 'r') as f:
         data = json.load(f)
 
@@ -1424,18 +1719,13 @@ def generate_adsorbed_structures(reaction: str, pathway_name: str = "") -> dict:
         adsorbates = list(adsorbates.values())
     else:
         raise ValueError(
-            f"Unknown reaction: {reaction}. "
-            f"Expected one of: OER, CO2RR, NOXRR"
-        )
+            f"Unknown reaction: {reaction}. Expected one of: OER, CO2RR, NOXRR")
 
     # Get adsorption sites from slab
     sites_dict, asf = get_adsorption_sites(slab_pmg)
 
     # Build slab + adsorbate
-    adsorption_sets = {}
     site_types = ['ontop', 'bridge', 'hollow']
-
-    # Build slab + adsorbate structures
     adsorption_sets = {}
     multipliers = [(1,1,1)] #get_multipliers(slab_pmg)
     base_slab = pmg_to_ase(asf.slab).copy()
@@ -1444,7 +1734,6 @@ def generate_adsorbed_structures(reaction: str, pathway_name: str = "") -> dict:
         clean_slab = base_slab * repeat
         clean_slab.info['adsorbate'] = "*"
         adsorption_sets[idx] = {"clean_slab": clean_slab, "adsorb_set": []}
-
         for site_type in site_types:
             sites = sites_dict.get(site_type, [])
             for ads_coord in sites:
@@ -1452,7 +1741,7 @@ def generate_adsorbed_structures(reaction: str, pathway_name: str = "") -> dict:
                     "site_type": site_type,
                     "ads_coord": ads_coord,
                     "repeat": repeat,
-                    "structures": [],
+                    "structures": []
                 }
 
                 for ads in adsorbates:
@@ -1475,6 +1764,30 @@ def generate_adsorbed_structures(reaction: str, pathway_name: str = "") -> dict:
                 ase_struct.info['adsorbate'] = 'H2O'
                 adsorb_set["structures"].append(ase_struct)
 
+                ase_struct = pmg_to_ase(n2_ref)
+                ase_struct.info['adsorbate'] = 'N2'
+                adsorb_set["structures"].append(ase_struct)
+
+                ase_struct = pmg_to_ase(nh3_ref)
+                ase_struct.info['adsorbate'] = 'NH3'
+                adsorb_set["structures"].append(ase_struct)
+
+                ase_struct = pmg_to_ase(n2o_ref)
+                ase_struct.info['adsorbate'] = 'N2O'
+                adsorb_set["structures"].append(ase_struct)
+
+                ase_struct = pmg_to_ase(co2_ref)
+                ase_struct.info['adsorbate'] = 'CO2'
+                adsorb_set["structures"].append(ase_struct)
+
+                ase_struct = pmg_to_ase(ch4_ref)
+                ase_struct.info['adsorbate'] = 'CH4'
+                adsorb_set["structures"].append(ase_struct)
+
+                ase_struct = pmg_to_ase(ch3oh_ref)
+                ase_struct.info['adsorbate'] = 'CH3OH'
+                adsorb_set["structures"].append(ase_struct)
+
                 # Only add complete sets where all adsorbates passed validation -> +2 are the references H2 and H2O
                 if len(adsorb_set["structures"]) == len(adsorbates) + 2:
                     adsorption_sets[idx]["adsorb_set"].append(adsorb_set)
@@ -1482,7 +1795,7 @@ def generate_adsorbed_structures(reaction: str, pathway_name: str = "") -> dict:
     return adsorption_sets
 
 def run_relaxation(ml_model: str, calc, fmax: float, max_steps: int,
-                   reaction: str, pathway: str) -> dict:
+                   reaction: str, pathway: str, **relaxation_kwargs) -> dict:
     """Run geometry relaxation on adsorbate structures.
     
     Parameters
@@ -1502,6 +1815,7 @@ def run_relaxation(ml_model: str, calc, fmax: float, max_steps: int,
     """
     relaxed_sets = []
     num_failed = 0
+    total_number = 0
     model_key = f'{ml_model.lower()}_energy'
 
     adsorption_sets = generate_adsorbed_structures(reaction, pathway)
@@ -1524,7 +1838,6 @@ def run_relaxation(ml_model: str, calc, fmax: float, max_steps: int,
             site_type = adsorb_set["site_type"]
             ads_coords = adsorb_set["ads_coord"]
             relaxed_structures = []
-
             for adsorbed in adsorb_set["structures"]:
                 adsorbed.calc = calc
                 relax = BFGSLineSearch(adsorbed, maxstep=0.1, logfile='opt.log')
@@ -1542,6 +1855,7 @@ def run_relaxation(ml_model: str, calc, fmax: float, max_steps: int,
                 ads_energy = adsorbed.get_potential_energy()
                 adsorbed.info[model_key] = ads_energy
                 relaxed_structures.append(jsonio.encode(adsorbed))
+                total_number += 1
 
             # Only add complete relaxed sets with all adsorbates successfully relaxed
             if len(relaxed_structures) == len(adsorb_set["structures"]):
@@ -1559,7 +1873,7 @@ def run_relaxation(ml_model: str, calc, fmax: float, max_steps: int,
         json.dump(output, f)
 
     with open('total.txt', 'w') as f:
-        f.write(str(num_total))
+        f.write(str(total_number))
 
     with open('failed.txt', 'w') as f:
         f.write(str(num_failed))

@@ -56,8 +56,6 @@ def get_cmdline(job_info):
             '--max_natoms={}'.format(job_info['particles_range'].split('-')[1]),
             '--generator={}'.format(job_info['generator'])]
         )
-    print('codes/utils.py: ', job_info['ML_model'], model_name, model_path)
-    print('codes/utils.py: ', cmdline)
     return cmdline
 
 def get_element_entries(chemsys_list, functional):

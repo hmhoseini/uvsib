@@ -48,11 +48,7 @@ def get_primitive_cell(struct_dict):
     """Refine a structure dictionary into its primitive cell"""
     structure = Structure.from_dict(struct_dict)
 
-    sga = SpacegroupAnalyzer(
-        structure,
-        symprec=0.05,
-        angle_tolerance=5,
-    )
+    sga = SpacegroupAnalyzer(structure, symprec=0.05, angle_tolerance=5)
 
     try:
         prim_struct = sga.get_primitive_standard_structure()
@@ -168,7 +164,5 @@ def get_model_device(ML_model):
         device = None
     else:
         device = settings.configs["codes"][ML_model]["job_script"]["device"]
-
-    print('wch/utils.py: ', ML_model, model, model_path, device)
 
     return model, model_path, device
