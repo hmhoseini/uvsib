@@ -1,6 +1,5 @@
 import os
 import json
-import numpy as np
 from ase.constraints import FixAtoms
 from pymatgen.core import Lattice, Structure
 from pymatgen.entries.computed_entries import ComputedStructureEntry
@@ -8,20 +7,15 @@ from mp_api.client import MPRester
 from ase import Atoms
 from uvsib.workflows import settings
 
+
 def get_cmdline(job_info):
     """Construct command line"""
 
     cmdline = []
-
     cmdline.append(f"--ML_model={job_info['ML_model']}")
 
     model_name = job_info.get("model_name")
     model_path = job_info.get("model_path")
-    # device = job_info.get("device")
-
-    print(' ============= utils: ', model_name, model_path)
-
-
 
     if model_name:
         cmdline.append(f"--model={model_name}")
@@ -62,6 +56,8 @@ def get_cmdline(job_info):
             '--max_natoms={}'.format(job_info['particles_range'].split('-')[1]),
             '--generator={}'.format(job_info['generator'])]
         )
+    print('codes/utils.py: ', job_info['ML_model'], model_name, model_path)
+    print('codes/utils.py: ', cmdline)
     return cmdline
 
 def get_element_entries(chemsys_list, functional):

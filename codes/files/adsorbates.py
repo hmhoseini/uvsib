@@ -1316,8 +1316,6 @@ def generate_adsorbed_structures(reaction: str, pathway_name: str = "") -> dict:
     Returns
     -------
     dict
-        Dictionary mapping repeat indices to adsorption sets with 'clean_slab'
-        and 'adsorb_set' keys. Each adsorb_set contains structures with metadata.
         Dict of adsorption sets, where each set is a list of ASE Atoms objects
         with site_type, ads_coord, and adsorbate info in the Atoms.info dict.
     
@@ -1328,12 +1326,8 @@ def generate_adsorbed_structures(reaction: str, pathway_name: str = "") -> dict:
     FileNotFoundError
         If input_structures.json is not found.
     """
-    # Load and prepare slab
-    try:
-        with open('input_structures.json', 'r') as f:
-            data = json.load(f)
-    except FileNotFoundError as e:
-        raise FileNotFoundError(f"Input file not found: {e}")
+    with open('input_structures.json', 'r') as f:
+        data = json.load(f)
 
     slab_pmg = Slab.from_dict(data[0])
     slab_pmg.sort()
@@ -1356,6 +1350,8 @@ def generate_adsorbed_structures(reaction: str, pathway_name: str = "") -> dict:
     # Get adsorption sites from slab
     sites_dict, asf = get_adsorption_sites(slab_pmg)
 
+    # Build slab + adsorbate
+    adsorption_sets = {}
     site_types = ['ontop', 'bridge', 'hollow']
 
     # Build slab + adsorbate structures
@@ -1369,7 +1365,7 @@ def generate_adsorbed_structures(reaction: str, pathway_name: str = "") -> dict:
         adsorption_sets[idx] = {"clean_slab": clean_slab, "adsorb_set": []}
 
         for site_type in site_types:
-            sites = sites_dict[site_type]
+            sites = sites_dict.get(site_type, [])
             for ads_coord in sites:
                 adsorb_set = {
                     "site_type": site_type,
@@ -1381,16 +1377,25 @@ def generate_adsorbed_structures(reaction: str, pathway_name: str = "") -> dict:
                 for ads in adsorbates:
                     ads_slab = asf.add_adsorbate(ads, ads_coord, repeat=repeat, translate=False, reorient=True)
                     ads_slab.remove_species("X")
+
                     ase_struct = pmg_to_ase(ads_slab)
                     ase_struct.info['adsorbate'] = ads.properties['adsorbate']
 
                     if not has_reasonable_distances(ase_struct):
                         break
-
                     adsorb_set["structures"].append(ase_struct)
 
-                # Only add complete sets where all adsorbates passed validation
-                if len(adsorb_set["structures"]) == len(adsorbates):
+                # feed H2 and H2O refs into the queue
+                ase_struct = pmg_to_ase(h2_ref)
+                ase_struct.info['adsorbate'] = 'H2'
+                adsorb_set["structures"].append(ase_struct)
+
+                ase_struct = pmg_to_ase(h2o_ref)
+                ase_struct.info['adsorbate'] = 'H2O'
+                adsorb_set["structures"].append(ase_struct)
+
+                # Only add complete sets where all adsorbates passed validation -> +2 are the references H2 and H2O
+                if len(adsorb_set["structures"]) == len(adsorbates) + 2:
                     adsorption_sets[idx]["adsorb_set"].append(adsorb_set)
 
     return adsorption_sets
@@ -1416,9 +1421,7 @@ def run_relaxation(ml_model: str, calc, fmax: float, max_steps: int,
     """
     relaxed_sets = []
     num_failed = 0
-    num_total = 0
     model_key = f'{ml_model.lower()}_energy'
-    relaxation_kwargs = {'maxstep': 0.1, 'logfile': 'opt.log'}
 
     adsorption_sets = generate_adsorbed_structures(reaction, pathway)
 
@@ -1442,17 +1445,16 @@ def run_relaxation(ml_model: str, calc, fmax: float, max_steps: int,
             relaxed_structures = []
 
             for adsorbed in adsorb_set["structures"]:
-                num_total += 1
-
                 adsorbed.calc = calc
-                relax_ads = BFGSLineSearch(adsorbed, **relaxation_kwargs)
+                relax = BFGSLineSearch(adsorbed, maxstep=0.1, logfile='opt.log')
                 try:
-                    relax_ads.run(fmax=fmax, steps=max_steps)
-                except:
+                    relax.run(fmax=fmax, steps=max_steps)
+                except Exception as e:
+                    print(f"Warning: Relaxation failed for {adsorbed.info.get('adsorbate', 'unknown')}: {e}")
                     num_failed += 1
                     break
 
-                if not relax_ads.converged:
+                if not relax.converged:
                     num_failed += 1
                     break
 
@@ -1473,7 +1475,7 @@ def run_relaxation(ml_model: str, calc, fmax: float, max_steps: int,
     # Write output files
     output = {'structures': relaxed_sets}
     with open('output.json', 'w') as f:
-        json.dump(output, f, indent=2)
+        json.dump(output, f)
 
     with open('total.txt', 'w') as f:
         f.write(str(num_total))

@@ -49,7 +49,7 @@ class UMAWorkChain(BaseRestartWorkChain):
         spec.input("code", valid_type=Code)
         spec.input('job_info', valid_type=Dict)
         spec.input('local_label', valid_type=Str)
-        # spec.expose_outputs(UMACalculation)
+        spec.expose_outputs(UMACalculation)
 
         spec.outline(
             cls.setup,
