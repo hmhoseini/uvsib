@@ -74,7 +74,7 @@ if __name__ == "__main__":
         from fairchem.core import pretrained_mlip
         from fairchem.core.calculate.ase_calculator import FAIRChemCalculator
         predictor = pretrained_mlip.get_predict_unit(args.model, device=args.device)
-        calc = FAIRChemCalculator(predictor, task_name="oc20")  # choices: "omat", "omol", "odac", "omc", "oc20"
+        calc = FAIRChemCalculator(predictor, task_name="omat")  # choices: "omat", "omol", "odac", "omc", "oc20"
     else:
         raise ValueError(f"Unknown ML_model '{args.ML_model}'. Expected one of: MACE, PET, MatterSim.")
 
