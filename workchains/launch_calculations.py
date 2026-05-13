@@ -1,4 +1,4 @@
-from aiida.orm import Str, List
+from aiida.orm import Str, List, Dict
 from aiida_submission_controller import BaseSubmissionController
 from uvsib.workchains.main import MainWorkChain
 
@@ -14,6 +14,7 @@ class MainSubmissionController(BaseSubmissionController):
             reaction,
             reaction_path,
             nanoparticles,
+            similarities,
             *args,
             **kwargs):
         super().__init__(*args, **kwargs)
@@ -23,7 +24,8 @@ class MainSubmissionController(BaseSubmissionController):
         self.model = model
         self.reaction = reaction
         self.reaction_path = reaction_path
-        self.nanoparticles = nanoparticles
+        self.nanoparticles = nanoparticles if nanoparticles else False
+        self.similarities = similarities if similarities else {}
 
     def get_extra_unique_keys(self):
         """ Return a tuple of the keys of the unique extras that
@@ -50,10 +52,17 @@ class MainSubmissionController(BaseSubmissionController):
             Param: extras_values: a tuple of values of the extras,
             in same order as the keys returned by get_extra_unique_keys().
         """
+        if self.nanoparticles:
+            label = "NanoParticleChain: {}".format(self.chemical_formula)
+        else:
+            label = "CatalystChain: {} on {}".format(self.reaction_path, self.chemical_formula)
+
         inputs = {"chemical_formula": Str(self.chemical_formula),
                   "chemical_systems": List(list=self.chemical_systems),
                   "ML_model": Str(self.model),
                   "reaction": Str(self.reaction),
                   "reaction_path": Str(self.reaction_path),
-                  "nanoparticles": Str(self.nanoparticles)}
+                  "nanoparticles": Str(self.nanoparticles),
+                  "similarities": Dict(self.similarities),
+                  "metadata": {"label": label}}
         return inputs, MainWorkChain

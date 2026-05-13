@@ -20,14 +20,18 @@
 		"mattersim = uvsib.codes.mattersim.calculation:MatterSimCalculation",
 		"mace = uvsib.codes.mace.calculation:MACECalculation",
 		"upet = uvsib.codes.upet.calculation:uPETCalculation",
-		"mh = uvsib.codes.minimahopping.calculation:MinimaHoppingCalculation"
+		"mh = uvsib.codes.minimahopping.calculation:MinimaHoppingCalculation",
+		"similarity = uvsib.codes.similarity.calculation:SimilarityCalculation",
+		"uma = uvsib.codes.uma.calculation:UMACalculation"
 	],
 	"aiida.parsers": [
 		"mattergen_parser = uvsib.codes.mattergen.parser:MatterGenParser",
 		"mattersim_parser = uvsib.codes.mattersim.parser:MatterSimParser",
 		"mace_parser = uvsib.codes.mace.parser:MACEParser",
 		"upet_parser = uvsib.codes.upet.parser:uPETParser",
-		"minimahopping_parser = uvsib.codes.minimahopping.parser:MinimaHoppingParser"
+		"minimahopping_parser = uvsib.codes.minimahopping.parser:MinimaHoppingParser",
+		"similarity_parser = ubsib.codes.similarity.parser:SimilarityParser",
+		"uma_parser = uvsib.codes.uma.parser:UMAParser"
 	],
 	"aiida.workflows": [
 		"mattergen.base = uvsib.codes.mattergen.workchain:MatterGenBaseWorkChain",
@@ -35,6 +39,7 @@
 		"mattersim = uvsib.codes.mattersim.workchain:MatterSimWorkChain",
 		"mace = uvsib.codes.mace.workchain:MACEWorkChain",
 		"upet = uvsib.codes.upet.workchain:uPETWorkChain",
+		"uma = uvsib.codes.uma.workchain:UMAWorkChain",
 		"minimahopping = uvsib.codes.minimahopping.workchain:MinimaHoppingWorkChain",
 		"phasediagram = uvsib.workchains.phase_diagram:PhaseDiagramMLWorkChain",
 		"pdverification = uvsib.workchains.pd_verification:PDVerificationWorkChain",
@@ -43,7 +48,9 @@
 		"gen = uvsib.workchains.gen:GeneratorWorkChain",
 		"surfacebuilder = uvsib.workchains.surface_builder:SurfaceBuilderWorkChain",
 		"adsorbates = uvsib.workchains.adsorbates:AdsorbatesWorkChain",
-		"nano_particles = uvsib.workchains.nano_particles:NanoParticleWorkChain"
+		"nano_particles = uvsib.workchains.nano_particles:NanoParticleWorkChain",
+		"similarity = uvsib.workchains.similarity:SimilarityWorkChain",
+		"similarity_calc = uvsib.codes.similarity.workchain:SimilarityWorkChain"
 	]
     }
 }

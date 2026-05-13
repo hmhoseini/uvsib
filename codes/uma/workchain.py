@@ -10,7 +10,7 @@ from uvsib.codes.utils import get_cmdline
 
 def get_options():
     """Return scheduler options"""
-    job_script = settings.configs['codes']['uPET']['job_script']
+    job_script = settings.configs['codes']['UMA']['job_script']
     resources = {
         'num_machines': job_script['nodes'],
         'num_mpiprocs_per_machine': job_script['ntasks'],
@@ -19,7 +19,7 @@ def get_options():
     options = {
         'resources': resources,
         'max_wallclock_seconds': job_script['time'],
-        'parser_name': 'upet_parser'
+        'parser_name': 'uma_parser'
     }
     if job_script['exclusive']:
         options.update({'custom_scheduler_commands' : '#SBATCH --exclusive'})
@@ -34,23 +34,22 @@ def get_structures_file(structures):
         json.dump(structures, f)
     return SinglefileData(file=file_path)
 
-uPETCalculation = CalculationFactory('upet')
 
-class uPETWorkChain(BaseRestartWorkChain):
+UMACalculation = CalculationFactory('uma')
+
+
+class UMAWorkChain(BaseRestartWorkChain):
     """BaseRestartWorkChain to run uPETCalculation with automatic restarts."""
-
-    _process_class = uPETCalculation
-
+    _process_class = UMACalculation
     @classmethod
     def define(cls, spec):
         super().define(spec)
-
         # Declare the inputs needed for this workchain:
         spec.input('input_structures', valid_type=List)
         spec.input("code", valid_type=Code)
         spec.input('job_info', valid_type=Dict)
         spec.input('local_label', valid_type=Str)
-        spec.expose_outputs(uPETCalculation)
+        # spec.expose_outputs(UMACalculation)
 
         spec.outline(
             cls.setup,
@@ -58,22 +57,16 @@ class uPETWorkChain(BaseRestartWorkChain):
                 cls.run_process,
                 cls.inspect_process,
             ),
-            cls.results,
+            cls.results
         )
 
-        spec.exit_code(
-            400,
-            'ERROR_MAX_RESTARTS_EXCEEDED',
-            message='Maximum number of restarts exceeded for uPETWorkChain.'
-        )
+        spec.exit_code(400,'ERROR_MAX_RESTARTS_EXCEEDED', message='Maximum number of restarts exceeded for UMA WorkChain.')
 
     def setup(self):
         """Initialize context before first calculation."""
         super().setup()
-
         input_structures = self.inputs.input_structures.get_list()
         job_info = self.inputs.job_info
-
         input_structures_file = get_structures_file(input_structures)
 
         self.ctx.inputs = {
@@ -85,6 +78,6 @@ class uPETWorkChain(BaseRestartWorkChain):
             }),
             'metadata': {
                 'options': get_options(),
-                'label': 'uPET: {}'.format(self.inputs.local_label.value)
+                'label': 'UMA: {}'.format(self.inputs.local_label.value)
             }
         }

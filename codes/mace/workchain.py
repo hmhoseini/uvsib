@@ -2,10 +2,11 @@ import os
 import json
 import tempfile
 from aiida.engine import BaseRestartWorkChain, while_
-from aiida.orm import List, Dict, SinglefileData, Code
+from aiida.orm import List, Dict, SinglefileData, Code, Str
 from aiida.plugins import CalculationFactory
 from uvsib.workflows import settings
 from uvsib.codes.utils import get_cmdline
+
 
 def get_options():
     """Return scheduler options"""
@@ -48,6 +49,7 @@ class MACEWorkChain(BaseRestartWorkChain):
         spec.input('input_structures', valid_type=List)
         spec.input("code", valid_type=Code)
         spec.input('job_info', valid_type=Dict)
+        spec.input('local_label', valid_type=Str)
         spec.outline(
             cls.setup,
             while_(cls.should_run_process)(

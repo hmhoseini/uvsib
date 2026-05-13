@@ -60,10 +60,10 @@ class GeneratorWorkChain(WorkChain):
         """Predict the energies of the structures with the given ML model"""
         chemical_systems = self.ctx.chemical_systems
         for chemical_system in chemical_systems:
-
             wch = self.ctx[f"{chemical_system}_mattergen"]
             output_structures = wch.outputs.output_dict["structures"]
             builder = self._construct_ML_relax_builder(output_structures, self.ctx.ML_model)
+            builder.local_label = Str("relax: {}".format(chemical_system))
             future = self.submit(builder)
             self.to_context(**{f"{chemical_system}_ml_e": future})
 

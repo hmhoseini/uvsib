@@ -79,12 +79,14 @@ class AdsorbatesWorkChain(WorkChain):
 
     def run_adsorbs(self):
         """Run Adsorbates WorkChain"""
-        for structure_uuid, surface_id in self.ctx.structure_surface_rows:
+        for index, (structure_uuid, surface_id) in enumerate(self.ctx.structure_surface_rows):
             slab_row = query_by_columns(DBSurface, {"id":surface_id})[0]
             uuid_str = str(structure_uuid)
             builder = self._construct_adsorbate_builder(slab_row.slab, self.ctx.ML_model, self.ctx.reaction, self.ctx.reaction_path)
             future = self.submit(builder)
             self.to_context(**{f"ads_{uuid_str}_{surface_id}": future})
+            if index > 10:
+                return
 
     def inspect_adsorbs(self):
         """Inspect Adsorbates WorkChain"""
@@ -232,8 +234,7 @@ class AdsorbatesWorkChain(WorkChain):
             return self.exit_codes.ERROE_CALCULATION_FAILED
         self.report(f"AdsorbatesWorkChain for {self.ctx.chemical_formula} finished successfully.")
 
-    @staticmethod
-    def _construct_adsorbate_builder(slab, ML_model, reaction, pathway):
+    def _construct_adsorbate_builder(self, slab, ML_model, reaction, pathway):
         """
         Builder for generating surface and surface optimiziation with MatterSim or MACE
         """
@@ -242,7 +243,12 @@ class AdsorbatesWorkChain(WorkChain):
         Workflow = WorkflowFactory(ML_model.lower())
         builder = Workflow.get_builder()
         builder.input_structures = List(structure)
+        if self.ctx.reaction == "OER":
+            builder.local_label = Str("Adsorbates: OER on {}".format(self.ctx.chemical_formula))
+        else:
+            builder.local_label = Str("Adsorbates: {} on {}".format(self.ctx.reaction_path, self.ctx.chemical_formula))
         builder.code = get_code(ML_model)
+
         model, model_path, device = get_model_device(ML_model)
         relax_key = "adsorbates"
         job_info = {

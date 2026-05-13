@@ -145,14 +145,8 @@ def add_from_mpdb(chemical_formula):
     stable_structures = get_structures_from_mpdb_by_composition(chemical_formula, EHULL_SCAN)
     if stable_structures:
         for s in stable_structures:
-
             prim_struct = get_primitive_cell(s)
-
-            add_structures(
-                    "MPDB",
-                    "mixed",
-                    [(prim_struct.as_dict(), None)]
-                )
+            add_structures("MPDB","mixed",[(prim_struct.as_dict(), None)])
 
 def get_code(model_key):
     """
@@ -165,7 +159,14 @@ def get_model_device(ML_model):
     """Return (model_path, device) for the given ML model."""
     path_to_pretrained_models = settings.configs["models"]["path_to_pretrained_models"]
     model = settings.configs["models"][ML_model]
-    if ML_model in ["MatterGen", "uPET"]:
+
+
+    print(model, settings.configs["models"][ML_model])
+
+    if ML_model in ["MatterGen", "uPET", "UMA"]:
+
+        print(ML_model)
+
         model_path = None
     else:
         model_path = os.path.join(path_to_pretrained_models, model)
@@ -173,4 +174,8 @@ def get_model_device(ML_model):
         device = None
     else:
         device = settings.configs["codes"][ML_model]["job_script"]["device"]
+
+    print('wat nu:', model, model_path, device)
+
+
     return model, model_path, device

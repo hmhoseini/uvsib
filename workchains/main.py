@@ -1,4 +1,4 @@
-from aiida.orm import Str, List
+from aiida.orm import Str, List, Dict
 from aiida.plugins import WorkflowFactory
 from aiida.engine import WorkChain, if_, while_
 from aiida_pythonjob import PythonJob, prepare_pythonjob_inputs
@@ -19,6 +19,7 @@ class MainWorkChain(WorkChain):
         spec.input("reaction", valid_type=Str)
         spec.input("reaction_path", valid_type=Str)
         spec.input("nanoparticles", valid_type=Str)
+        spec.input("similarities", valid_type=Dict)
 
         spec.outline(
             cls.setup,
@@ -30,14 +31,14 @@ class MainWorkChain(WorkChain):
                 cls.pd_ml,
                 cls.inspect_pd_ml
             ),
-            if_(cls.should_run_pd_verification)(
-                while_(cls.should_wait_pd_ver)(
-                    cls.wait_sleep,
-                    cls.check_pythonjob_sleep
-                ),
-                cls.pd_verification,
-                cls.inspect_pd_verification
-            ),
+            # if_(cls.should_run_pd_verification)(
+            #     while_(cls.should_wait_pd_ver)(
+            #         cls.wait_sleep,
+            #         cls.check_pythonjob_sleep
+            #     ),
+            #     cls.pd_verification,
+            #     cls.inspect_pd_verification
+            # ),
             if_(cls.should_run_surface_builder)(
                 while_(cls.should_wait_surface_builder)(
                     cls.wait_sleep,
@@ -79,6 +80,7 @@ class MainWorkChain(WorkChain):
         self.ctx.reaction_path = self.inputs.reaction_path
         self.ctx.dbcomposition_row = query_by_columns(DBComposition,{"composition": self.ctx.chemical_formula})[0]
         self.ctx.nano_generator = True if len(self.inputs.nanoparticles.value.split('-')) == 2 else False
+        self.ctx.similarities = self.inputs.similarities.value
         if self.ctx.nano_generator:
             self.ctx.nano_particles_range = self.inputs.nanoparticles.value
             elements = '-'.join(sorted(list([str(el) for el in Composition(self.ctx.chemical_formula).elements])))
