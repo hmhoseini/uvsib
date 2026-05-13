@@ -21,7 +21,6 @@ class CSPWorkChain(WorkChain):
     @classmethod
     def define(cls, spec):
         super().define(spec)
-
         spec.input("chemical_formula", valid_type=Str)
         spec.input("ML_model", valid_type=Str)
         spec.input("n_csp", valid_type=Int)
@@ -70,9 +69,7 @@ class CSPWorkChain(WorkChain):
                 continue
 
             try:
-                self.ctx.csp_structures.extend(
-                    csp_wch.outputs.output_dict["structures"]
-                )
+                self.ctx.csp_structures.extend(csp_wch.outputs.output_dict["structures"])
             except:
                 failed_jobs += 1
 
@@ -147,7 +144,6 @@ class CSPWorkChain(WorkChain):
     def final_step(self):
         """Store structures"""
         all_entries = self.ctx.low_energy_entries_csp + self.ctx.low_energy_entries_mh
-
         low_energy_entries, _ = unique_low_energy_comp(
                 self.ctx.chemical_formula,
                 all_entries,
@@ -159,11 +155,7 @@ class CSPWorkChain(WorkChain):
         for entry in low_energy_entries:
             structure_energy_pairs.append((entry.structure.as_dict(), entry.energy))
 
-        add_structures(
-                "csp",
-                self.ctx.ML_model,
-                structure_energy_pairs
-        )
+        add_structures("csp", self.ctx.ML_model, structure_energy_pairs)
 
     def final_report(self):
         """Final report"""
@@ -189,7 +181,7 @@ class CSPWorkChain(WorkChain):
 
     def _construct_ML_relax_builder(self):
         """
-        General builder for structure opimization with an ML model
+        General builder for structure optimization with an ML model
         """
         ML_model = self.ctx.ML_model
         structures = self.ctx.csp_structures
@@ -210,17 +202,13 @@ class CSPWorkChain(WorkChain):
             "ML_model": ML_model,
             "device": device,
             "fmax": settings.inputs[relax_key]["fmax"],
-            "max_steps": settings.inputs[relax_key]["max_steps"],
+            "max_steps": settings.inputs[relax_key]["max_steps"]
         }
-
-        # job_info.update({"model_name": model, "model_path": model_path, "device": device})
 
         if ML_model in ["uPET", "UMA"]:
             job_info.update({"model_name": model})
         else:
             job_info.update({"model_path": model_path})
-
-        print('csp/jobinfo: ', job_info)
 
         builder.job_info = Dict(job_info)
         return builder
@@ -238,7 +226,7 @@ class CSPWorkChain(WorkChain):
              "ML_model": ML_model,
              "device": device,
              "mh_steps": settings.inputs["MinimaHopping"]["mh_steps"],
-             "fmax": settings.inputs["MinimaHopping"]["fmax"],
+             "fmax": settings.inputs["MinimaHopping"]["fmax"]
             }
         if ML_model in ["uPET", "UMA"]:
             job_info.update({"model_name": model})

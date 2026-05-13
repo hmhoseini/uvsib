@@ -113,6 +113,7 @@ ch4_ref = Structure.from_file("# generated using pymatgen"
     "H+  H0  8  0.12684356  0.12684356  0.12684356  1"
     "C4-  C1  2  0.00000000  0.00000000  0.00000000  1", fmt='cif')
 
+
 co2_ref = Structure.from_str("# generated using pymatgen"
     "data_CO2"
     "_symmetry_space_group_name_H-M   Pa-3"
@@ -303,7 +304,6 @@ n2_ref = Structure.from_str("# generated using pymatgen"
     "_atom_site_occupancy"
     "N0+  N0  4  0.04586114  0.45413886  0.54586114  1"
     "N0+  N1  4  0.06390144  0.06390144  0.06390144  1", fmt='cif')
-
 
 
 h2_ref = Structure.from_str("# generated using pymatgen"
@@ -695,8 +695,8 @@ def generate_co2rr_adsorbates(pathway_name: str) -> tuple:
             ["C", "O", "O"],
             [
                 [0.00, 0.00, 0.00],
-                [d * np.sin(angle_rad), 0, d * np.cos(angle_rad)],
-                [-d * np.sin(angle_rad), 0, d * np.cos(angle_rad)],
+                [float(d * np.sin(angle_rad)), 0.0, float(d * np.cos(angle_rad))],
+                [float(-d * np.sin(angle_rad)), 0.0, float(d * np.cos(angle_rad))]
             ],
             properties = {"adsorbate": "*CO2"}
         )
@@ -1670,8 +1670,6 @@ def generate_noxrr_adsorbates(pathway_name: str) -> tuple:
     return pathway, adsorbates
 
 
-
-
 def get_multipliers(slab_pmg):
     a = slab_pmg.lattice.a
     b = slab_pmg.lattice.b
@@ -1788,8 +1786,8 @@ def generate_adsorbed_structures(reaction: str, pathway_name: str = "") -> dict:
                 ase_struct.info['adsorbate'] = 'CH3OH'
                 adsorb_set["structures"].append(ase_struct)
 
-                # Only add complete sets where all adsorbates passed validation -> +2 are the references H2 and H2O
-                if len(adsorb_set["structures"]) == len(adsorbates) + 2:
+                # Only add complete sets where all adsorbates passed validation -> +8 are the references
+                if len(adsorb_set["structures"]) == len(adsorbates) + 8:
                     adsorption_sets[idx]["adsorb_set"].append(adsorb_set)
 
     return adsorption_sets
@@ -1863,8 +1861,7 @@ def run_relaxation(ml_model: str, calc, fmax: float, max_steps: int,
                     "site_type": site_type,
                     "ads_coord": ads_coords.tolist(),
                     "repeat": adsorb_set["repeat"],
-                    "structures": relaxed_structures + [jsonio.encode(clean_slab)],
-                }
+                    "structures": relaxed_structures + [jsonio.encode(clean_slab)]}
                 relaxed_sets.append(relaxed_set)
 
     # Write output files
@@ -1893,27 +1890,20 @@ if __name__ == "__main__":
 
     if "MACE" in args.ML_model:
         from mace.calculators import MACECalculator
-        calc = MACECalculator(
-                model_paths=args.model_path,
-                device=args.device
-        )
-    elif "PET" in args.ML_model:
+        calc = MACECalculator(model_paths=args.model_path, device=args.device)
+    elif "uPET" in args.ML_model:
         from upet.calculator import UPETCalculator
-        calc = UPETCalculator(
-                model=args.model,
-                device=args.device
-        )
+        calc = UPETCalculator(model=args.model, device=args.device)
     elif "MatterSim" in args.ML_model:
         from mattersim.forcefield import MatterSimCalculator
-        calc = MatterSimCalculator(
-                load_path=args.model_path,
-                device=args.device
-        )
+        calc = MatterSimCalculator(load_path=args.model_path, device=args.device)
+    elif "UMA" in args.ML_model:
+        from fairchem.core import pretrained_mlip
+        from fairchem.core.calculate.ase_calculator import FAIRChemCalculator
+        predictor = pretrained_mlip.get_predict_unit(args.model, device=args.device)
+        calc = FAIRChemCalculator(predictor, task_name="oc20")  # choices: "omat", "omol", "odac", "omc", "oc20"
     else:
-        raise ValueError(
-            f"Unknown ML_model '{args.ML_model}'. "
-            "Expected one of: MACE, PET, MatterSim."
-        )
+        raise ValueError(f"Unknown ML_model '{args.ML_model}'. Expected one of: MACE, PET, MatterSim.")
 
     run_relaxation(ml_model=args.ML_model, calc=calc, fmax=args.fmax, max_steps=args.max_steps,
                    reaction=args.reaction, pathway=args.pathway)

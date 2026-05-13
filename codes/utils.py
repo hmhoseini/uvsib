@@ -152,8 +152,8 @@ def get_energy_per_atom(functional):
                 "Na","Mg","Al","Si","P","S","Cl","Ar",
                 "K","Ca","Sc","Ti","V","Cr","Mn","Fe","Co","Ni","Cu","Zn","Ga","Ge","As","Se","Br","Kr",
                 "Rb","Sr","Y","Zr","Nb","Mo","Tc","Ru","Rh","Pd","Ag","Cd","In","Sn","Sb","Te","I","Xe",
-                "Cs","Ba","La","Ce","Pr","Nd","Pm","Sm","Eu","Gd","Tb","Dy","Ho","Er","Tm","Yb","Lu","Hf","Ta","W","Re","Os","Ir","Pt","Au","Hg","Tl","Pb","Bi",
-                          "Ac","Th","Pa","U","Np","Pu"]
+                "Cs","Ba","La","Ce","Pr","Nd","Pm","Sm","Eu","Gd","Tb","Dy","Ho","Er","Tm","Yb","Lu","Hf","Ta",
+                "W","Re","Os","Ir","Pt","Au","Hg","Tl","Pb","Bi","Ac","Th","Pa","U","Np","Pu"]
     with MPRester(settings.api_key) as mpr:
         entries = mpr.materials.thermo.search(
                 chemsys=elements,

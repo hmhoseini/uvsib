@@ -54,7 +54,6 @@ def run_mh(calc, mh_steps):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-
     parser.add_argument("--ML_model", type=str)
     parser.add_argument("--model", type=str)
     parser.add_argument("--model_path", type=str)
@@ -64,31 +63,28 @@ if __name__ == "__main__":
 
     if "MACE" in args.ML_model:
         from mace.calculators import MACECalculator
-        c = MACECalculator(
-                model_path=args.model_path,
-                device=args.device
-        )
-    elif "PET" in args.ML_model:
+        calc = MACECalculator(model_path=args.model_path, device=args.device)
+    elif "uPET" in args.ML_model:
         from upet.calculator import UPETCalculator
-        c = UPETCalculator(model=args.model, device=args.device)
+        calc = UPETCalculator(model=args.model, device=args.device)
     elif "MatterSim" in args.ML_model:
         from mattersim.forcefield import MatterSimCalculator
-        c = MatterSimCalculator(
-                load_path=args.model_path,
-                device=args.device
-        )
+        calc = MatterSimCalculator(load_path=args.model_path, device=args.device)
+    elif "UMA" in args.ML_model:
+        from fairchem.core import pretrained_mlip
+        from fairchem.core.calculate.ase_calculator import FAIRChemCalculator
+        predictor = pretrained_mlip.get_predict_unit(args.model, device=args.device)
+        calc = FAIRChemCalculator(predictor, task_name="oc20")  # choices: "omat", "omol", "odac", "omc", "oc20"
     else:
-        raise ValueError(
-            f"Unknown ML_model '{args.ML_model}'. "
-            "Expected one of: MACE, PET, MatterSim."
-        )
+        raise ValueError(f"Unknown ML_model '{args.ML_model}'. Expected one of: MACE, PET, MatterSim.")
 
-    run_mh(c, args.mh_steps)
+    run_mh(calc, args.mh_steps)
 
     try:
         accepted_minima = read('output/accepted_minima.extxyz', index=':')
     except:
         pass
+
     existing_structs = []
     structures = []
     energies = []
@@ -96,11 +92,7 @@ if __name__ == "__main__":
         pmg_struct = ase_to_pmg(atoms)
         energy = float(atoms.get_potential_energy())
 
-        sga = SpacegroupAnalyzer(
-            pmg_struct,
-            symprec=0.05,
-            angle_tolerance=5,
-        )
+        sga = SpacegroupAnalyzer(pmg_struct, symprec=0.05, angle_tolerance=5)
 
         try:
             prim_struct = sga.get_primitive_standard_structure()
@@ -114,10 +106,7 @@ if __name__ == "__main__":
         structures.append(prim_struct.as_dict())
         energies.append(energy * (prim_struct.num_sites/pmg_struct.num_sites))
 
-    to_dump = {
-            'structures': structures,
-            'energies': energies,
-    }
+    to_dump = {'structures': structures, 'energies': energies}
 
     with open('output.json', 'w') as f:
         json.dump(to_dump, f)

@@ -113,9 +113,6 @@ class PhaseDiagramMLWorkChain(WorkChain):
     def inspect_csp_cals(self):
         """Inspect CSPWorkChain"""
         failed_chemsys = []
-
-        print('CTX CSP: ', self.ctx.csp)
-
         if not self.ctx.csp.is_finished_ok:
            # remove corresponding row from DBChemsys
             for chemsys in self.ctx.chemical_systems:

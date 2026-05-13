@@ -152,7 +152,6 @@ def run_surface_builder(bulk_energy, calc, fmax, max_steps, max_miller_idx, max_
         at = entry["atoms"]
         built_faces.append(ase_to_pmg(at).as_dict())
 
-
     to_dump = dict({'slabs': built_faces})
 
     with open('output.json', 'w') as f:
@@ -179,27 +178,20 @@ if __name__ == "__main__":
 
     if "MACE" in args.ML_model:
         from mace.calculators import MACECalculator
-        calc = MACECalculator(
-                model_paths=args.model_path,
-                device=args.device
-        )
+        calc = MACECalculator(model_paths=args.model_path, device=args.device)
     elif "PET" in args.ML_model:
         from upet.calculator import UPETCalculator
-        calc = UPETCalculator(
-                model=args.model,
-                device=args.device
-        )
+        calc = UPETCalculator(model=args.model, device=args.device)
     elif "MatterSim" in args.ML_model:
         from mattersim.forcefield import MatterSimCalculator
-        calc = MatterSimCalculator(
-                load_path=args.model_path,
-                device=args.device
-        )
+        calc = MatterSimCalculator(load_path=args.model_path, device=args.device)
+    elif "UMA" in args.ML_model:
+        from fairchem.core import pretrained_mlip
+        from fairchem.core.calculate.ase_calculator import FAIRChemCalculator
+        predictor = pretrained_mlip.get_predict_unit(args.model, device=args.device)
+        calc = FAIRChemCalculator(predictor, task_name="oc20")  # choices: "omat", "omol", "odac", "omc", "oc20"
     else:
-        raise ValueError(
-            f"Unknown ML_model '{args.ML_model}'. "
-            "Expected one of: MACE, PET, MatterSim."
-        )
+        raise ValueError(f"Unknown ML_model '{args.ML_model}'. Expected one of: MACE, PET, MatterSim.")
 
     run_surface_builder(args.bulk_energy, calc,
                         args.fmax, args.max_steps,
