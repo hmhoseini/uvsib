@@ -1318,8 +1318,6 @@ def generate_adsorbed_structures(reaction: str, pathway_name: str = "") -> dict:
     dict
         Dictionary mapping repeat indices to adsorption sets with 'clean_slab'
         and 'adsorb_set' keys. Each adsorb_set contains structures with metadata.
-        Dict of adsorption sets, where each set is a list of ASE Atoms objects
-        with site_type, ads_coord, and adsorbate info in the Atoms.info dict.
     
     Raises
     ------

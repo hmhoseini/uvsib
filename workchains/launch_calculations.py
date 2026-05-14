@@ -53,9 +53,9 @@ class MainSubmissionController(BaseSubmissionController):
             in same order as the keys returned by get_extra_unique_keys().
         """
         if self.nanoparticles:
-            label = "NanoParticleChain: {}".format(self.chemical_formula)
+            label = f"NanoParticleChain: {self.chemical_formula}"
         else:
-            label = "CatalystChain: {} on {}".format(self.reaction_path, self.chemical_formula)
+            label = f"CatalystChain {self.reaction}:{self.reaction_path} on {self.chemical_formula}"
 
         inputs = {"chemical_formula": Str(self.chemical_formula),
                   "chemical_systems": List(list=self.chemical_systems),

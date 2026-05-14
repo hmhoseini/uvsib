@@ -79,14 +79,12 @@ class AdsorbatesWorkChain(WorkChain):
 
     def run_adsorbs(self):
         """Run Adsorbates WorkChain"""
-        for index, (structure_uuid, surface_id) in enumerate(self.ctx.structure_surface_rows):
+        for structure_uuid, surface_id in self.ctx.structure_surface_rows:
             slab_row = query_by_columns(DBSurface, {"id":surface_id})[0]
             uuid_str = str(structure_uuid)
             builder = self._construct_adsorbate_builder(slab_row.slab, self.ctx.ML_model, self.ctx.reaction, self.ctx.reaction_path)
             future = self.submit(builder)
             self.to_context(**{f"ads_{uuid_str}_{surface_id}": future})
-            if index > 10:
-                return
 
     def inspect_adsorbs(self):
         """Inspect Adsorbates WorkChain"""
@@ -231,7 +229,7 @@ class AdsorbatesWorkChain(WorkChain):
         """Final report"""
         if not self.ctx.candidates:
             self.report(f"AdsorbatesWorkChain for {self.ctx.chemical_formula}: no candidates below eta threshold.")
-            return self.exit_codes.ERROE_CALCULATION_FAILED
+            return self.exit_codes.ERROR_CALCULATION_FAILED
         self.report(f"AdsorbatesWorkChain for {self.ctx.chemical_formula} finished successfully.")
 
     def _construct_adsorbate_builder(self, slab, ML_model, reaction, pathway):

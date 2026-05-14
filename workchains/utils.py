@@ -160,13 +160,7 @@ def get_model_device(ML_model):
     path_to_pretrained_models = settings.configs["models"]["path_to_pretrained_models"]
     model = settings.configs["models"][ML_model]
 
-
-    print(model, settings.configs["models"][ML_model])
-
     if ML_model in ["MatterGen", "uPET", "UMA"]:
-
-        print(ML_model)
-
         model_path = None
     else:
         model_path = os.path.join(path_to_pretrained_models, model)
@@ -174,8 +168,5 @@ def get_model_device(ML_model):
         device = None
     else:
         device = settings.configs["codes"][ML_model]["job_script"]["device"]
-
-    print('wat nu:', model, model_path, device)
-
 
     return model, model_path, device

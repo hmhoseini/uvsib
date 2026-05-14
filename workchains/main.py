@@ -2,11 +2,13 @@ from aiida.orm import Str, List, Dict
 from aiida.plugins import WorkflowFactory
 from aiida.engine import WorkChain, if_, while_
 from aiida_pythonjob import PythonJob, prepare_pythonjob_inputs
+from pymatgen.core.composition import Composition
 from uvsib.db.tables import DBComposition, DBSurfaceMLAdsorbate, DBNanoParticles
 from uvsib.db.utils import update_row, query_by_columns
 from uvsib.workchains.pythonjob_inputs import wait_sleep
-from pymatgen.core.composition import Composition
+from uvsib.workflows import settings
 
+_SKIP_PD_VERIFICATION = settings._SKIP_PD_VERIFICATION  #TODO for test
 
 class MainWorkChain(WorkChain):
     """ Main WorkChain"""
@@ -31,14 +33,14 @@ class MainWorkChain(WorkChain):
                 cls.pd_ml,
                 cls.inspect_pd_ml
             ),
-            # if_(cls.should_run_pd_verification)(
-            #     while_(cls.should_wait_pd_ver)(
-            #         cls.wait_sleep,
-            #         cls.check_pythonjob_sleep
-            #     ),
-            #     cls.pd_verification,
-            #     cls.inspect_pd_verification
-            # ),
+            if_(cls.should_run_pd_verification)(
+                while_(cls.should_wait_pd_ver)(
+                    cls.wait_sleep,
+                    cls.check_pythonjob_sleep
+                ),
+                cls.pd_verification,
+                cls.inspect_pd_verification
+            ),
             if_(cls.should_run_surface_builder)(
                 while_(cls.should_wait_surface_builder)(
                     cls.wait_sleep,
@@ -87,7 +89,7 @@ class MainWorkChain(WorkChain):
             self.ctx.nano_row = query_by_columns(DBNanoParticles,{'elements': elements})[0]
             self.report('Running NanoParticleGenerator for elements {}'.format(elements))
         else:
-            self.report(f"Running MainWorkChain for {self.ctx.chemical_formula}")
+            self.report(f"Running MainWorkChain for {self.ctx.chemical_formula}, reaction {self.ctx.reaction.value}, reaction path {self.ctx.reaction_path.value}")
 
     def should_run_pd_ml(self):
         """Check whether should run PhaseDiagramML"""
@@ -102,6 +104,9 @@ class MainWorkChain(WorkChain):
         """Check whether should run PDVerification"""
         if self.ctx.nano_generator:
             return False
+        if _SKIP_PD_VERIFICATION: #TODO remove after test
+            return False
+
         pd_ver_step_status = self.ctx.dbcomposition_row.step_status.get("pd_verification")
         if pd_ver_step_status in ["Done"]:
             return False

@@ -65,9 +65,6 @@ def add_from_frontend(dict_from_frontend_list):
         if row:
             continue
 
-        print("submitting:", nano, similars)
-
-        # submit the main workflow
         submit_mainworkchain(chemical_formula=chemical_formula, chemical_systems=new_chemsys,
                              model=model, reaction=reaction, reaction_path=reaction_path,
                              nano=nano, similarities=similars)
