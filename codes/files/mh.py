@@ -1,21 +1,12 @@
 import json
 import argparse
+from ase import Atoms
 from ase.io import read
 from pymatgen.core import Lattice, Structure
-from pymatgen.io.ase import AseAtomsAdaptor
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
 from pymatgen.analysis.structure_matcher import StructureMatcher
 from minimahopping.minhop import Minimahopping
 
-matcher = StructureMatcher(
-    ltol=0.3,
-    stol=0.5,
-    angle_tol=7,
-    scale=True,
-    attempt_supercell=False,
-    allow_subset=False,
-    primitive_cell=True,
-)
 
 def ase_to_pmg(atoms):
     """
@@ -25,32 +16,28 @@ def ase_to_pmg(atoms):
     symbols = atoms.get_chemical_symbols()
     frac_coords = atoms.get_scaled_positions().tolist()
     lattice_obj = Lattice(lattice)
-    return Structure(lattice_obj,
-                          symbols,
-                          frac_coords,
-                          coords_are_cartesian=False
-    )
+    return Structure(lattice_obj, symbols, frac_coords, coords_are_cartesian=False)
+
+def pmg_to_ase(pmg_structure):
+    """
+    Convert a pymatgen Structure to an ASE Atoms object
+    """
+    scaled_positions = pmg_structure.frac_coords
+    symbols = [str(site.specie) for site in pmg_structure.sites]
+    cell = pmg_structure.lattice.matrix
+    return Atoms(symbols=symbols, scaled_positions=scaled_positions, cell=cell, pbc=True)
 
 def run_mh(calc, mh_steps):
-
     with open("initial_structure.json", "r") as f:
         struct = json.load(f)
     pmg_structure = Structure.from_dict(struct)
-    init_conf = AseAtomsAdaptor.get_atoms(pmg_structure)
+    init_conf = pmg_to_ase(pmg_structure)
     init_conf.calc = calc
 
-    with Minimahopping(
-            init_conf,
-            symprec=0.05,
-            verbose_output=False,
-            energy_threshold=0.05,
-            fingerprint_threshold=5e-1,
-            T0=1000,
-            dt0=0.01,
-            write_graph_output=False,
-            use_MPI=False,
-            mdmin=5) as mh:
+    with Minimahopping(init_conf, symprec=0.05, verbose_output=False, energy_threshold=0.05, fingerprint_threshold=5e-1,
+                       T0=1000, dt0=0.01, write_graph_output=False, use_MPI=False, mdmin=5) as mh:
         mh(totalsteps=int(mh_steps))
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -76,7 +63,7 @@ if __name__ == "__main__":
         predictor = pretrained_mlip.get_predict_unit(args.model, device=args.device)
         calc = FAIRChemCalculator(predictor, task_name="omat")  # choices: "omat", "omol", "odac", "omc", "oc20"
     else:
-        raise ValueError(f"Unknown ML_model '{args.ML_model}'. Expected one of: MACE, PET, MatterSim.")
+        raise ValueError(f"Unknown ML_model '{args.ML_model}'. Expected one of: MACE, uPET, UMA, MatterSim.")
 
     run_mh(calc, args.mh_steps)
 
@@ -84,6 +71,9 @@ if __name__ == "__main__":
         accepted_minima = read('output/accepted_minima.extxyz', index=':')
     except:
         pass
+
+    matcher = StructureMatcher(ltol=0.3, stol=0.5, angle_tol=7, scale=True,
+                               attempt_supercell=False, allow_subset=False, primitive_cell=True)
 
     existing_structs = []
     structures = []

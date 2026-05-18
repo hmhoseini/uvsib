@@ -10,6 +10,7 @@ from uvsib.workchains.utils import (
 from uvsib.db.utils import add_structures
 from uvsib.workflows import settings
 
+
 StructureData = DataFactory('core.structure')
 
 DFT_FUNC = settings.DFT_FUNC
@@ -17,7 +18,6 @@ EHULL_ML = settings.EHULL_ML
 
 class CSPWorkChain(WorkChain):
     """WorkChain for Crystal Structure Prediction (CSP)"""
-
     @classmethod
     def define(cls, spec):
         super().define(spec)
@@ -90,7 +90,6 @@ class CSPWorkChain(WorkChain):
     def collect_ml_energies(self):
         """ML energies"""
         wch = self.ctx.ml_e
-
         try:
             new_entries = get_output_as_entry(wch)
         except:
@@ -109,6 +108,9 @@ class CSPWorkChain(WorkChain):
         n_mh = min(len(entries_csp), self.ctx.n_mh)
         selected_entries = random.sample(entries_csp, n_mh)
         for i, entry in enumerate(selected_entries):
+            if entry.structure.num_sites > 10:
+                print('threw out: {} '.format(entry.structure))
+                continue
             struct = StructureData(pymatgen_structure = entry.structure)
             builder = self._construct_mh_builder(struct, self.ctx.ML_model)
             future = self.submit(builder)
@@ -121,7 +123,6 @@ class CSPWorkChain(WorkChain):
         failed_jobs = 0
         for i in range(n_mh):
             wch = self.ctx[f"mh_{i}"]
-
             if not wch.is_finished_ok:
                 failed_jobs += 1
                 continue

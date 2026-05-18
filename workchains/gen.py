@@ -6,8 +6,7 @@ from uvsib.db.tables import DBChemsys
 from uvsib.workchains.utils import (get_output_as_entry,
                               unique_low_energy_chemsys,
                               get_code,
-                              get_model_device
-                             )
+                              get_model_device)
 from uvsib.workflows import settings
 
 DFT_FUNC = settings.DFT_FUNC
@@ -15,7 +14,6 @@ EHULL_ML = settings.EHULL_ML
 
 class GeneratorWorkChain(WorkChain):
     """Work chain for generating structures"""
-
     @classmethod
     def define(cls, spec):
         super().define(spec)
@@ -72,9 +70,7 @@ class GeneratorWorkChain(WorkChain):
         failed_ml_e = []
         chemical_systems = self.ctx.chemical_systems
         for chemical_system in chemical_systems:
-
             wch = self.ctx[f"{chemical_system}_ml_e"]
-
             if not wch.is_finished_ok:
                 failed_ml_e.append(chemical_system)
                 self.report(f"Warning: {self.ctx.ML_model} for {chemical_system} failed")
@@ -83,9 +79,7 @@ class GeneratorWorkChain(WorkChain):
                 new_entries = get_output_as_entry(wch)
 
             except:
-                self.report(
-                    f"Warning: Failed to store results for {chemical_system}"
-                )
+                self.report(f"Warning: Failed to store results for {chemical_system}")
                 failed_ml_e.append(chemical_system)
                 continue
 
@@ -100,19 +94,10 @@ class GeneratorWorkChain(WorkChain):
             for entry in low_energy_entries:
                 structure_energy_pairs.append((entry.structure.as_dict(), entry.energy))
 
-            add_structures(
-                    "generated",
-                    self.ctx.ML_model,
-                    structure_energy_pairs
-            )
+            add_structures("generated", self.ctx.ML_model, structure_energy_pairs)
             # DBChemsys status is updated to Ready
-            row = query_by_columns(DBChemsys,
-                             {"chemsys": chemical_system}
-                            )[0]
-            update_row(DBChemsys,
-                       row.uuid,
-                      {"gen_structures": "Ready"}
-            )
+            row = query_by_columns(DBChemsys,{"chemsys": chemical_system})[0]
+            update_row(DBChemsys, row.uuid,{"gen_structures": "Ready"})
 
         if failed_ml_e:
             return self.exit_codes.ERROR_ML_RELAX_FAILED
@@ -147,12 +132,9 @@ class GeneratorWorkChain(WorkChain):
         General builder for MatterSim or MACE for structure opimization
         """
         Workflow = WorkflowFactory(ML_model.lower())
-
         builder = Workflow.get_builder()
-
         builder.input_structures = List(structures)
         builder.code = get_code(ML_model)
-
         model , model_path, device = get_model_device(ML_model)
 
         relax_key = "bulk_relax"
@@ -162,9 +144,9 @@ class GeneratorWorkChain(WorkChain):
             "ML_model": ML_model,
             "device": device,
             "fmax": settings.inputs[relax_key]["fmax"],
-            "max_steps": settings.inputs[relax_key]["max_steps"],
+            "max_steps": settings.inputs[relax_key]["max_steps"]
         }
-        if ML_model in ["uPET"]:
+        if ML_model in ["uPET", "UMA"]:
             job_info.update({"model_name": model})
         else:
             job_info.update({"model_path": model_path})

@@ -47,12 +47,9 @@ def relax_structures(calc, fmax, max_steps):
         else:
             opt = FIRE(cell_filter, logfile="opt.log")
 
-        try:
-            converged = opt.run(fmax=fmax, steps=max_steps)
-        except:
-            converged = False
+        opt.run(fmax=fmax, steps=max_steps)
 
-        if converged:
+        if opt.converged:
             energy = float(atoms.get_potential_energy())
             energies.append(energy)
             pmg_structure = ase_to_pmg(atoms)
@@ -95,7 +92,7 @@ if __name__ == "__main__":
         from fairchem.core import pretrained_mlip
         from fairchem.core.calculate.ase_calculator import FAIRChemCalculator
         predictor = pretrained_mlip.get_predict_unit(args.model, device=args.device)
-        calc = FAIRChemCalculator(predictor, task_name="oc20")  # choices: "omat", "omol", "odac", "omc", "oc20"
+        calc = FAIRChemCalculator(predictor, task_name="omat")  # choices: "omat", "omol", "odac", "omc", "oc20"
     else:
         raise ValueError(f"Unknown ML_model '{args.ML_model}'. Expected one of: MACE, uPET, UMA, MatterSim.")
 

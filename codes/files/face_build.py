@@ -62,14 +62,8 @@ def process_slab(slab, target_vacuum=10.0, angle_tol=1.0):
     if abs(alpha - 90) > angle_tol or abs(beta - 90) > angle_tol:
         return None
 
-    new_lattice = Lattice.from_parameters(
-        a=a_len,
-        b=b_len,
-        c=c_len,
-        alpha=90,
-        beta=90,
-        gamma=gamma
-    )
+    new_lattice = Lattice.from_parameters(a=a_len, b=b_len, c=c_len,
+                                          alpha=90, beta=90, gamma=gamma)
 
     cart_coords = np.array(slab.cart_coords)
     z_coords = cart_coords[:, 2]
@@ -163,6 +157,7 @@ def run_surface_builder(bulk_energy, calc, fmax, max_steps, max_miller_idx, max_
     with open('failed.txt', 'w') as f:
         f.write(str(num_failed))
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--bulk_energy", type=float)
@@ -191,7 +186,7 @@ if __name__ == "__main__":
         predictor = pretrained_mlip.get_predict_unit(args.model, device=args.device)
         calc = FAIRChemCalculator(predictor, task_name="oc20")  # choices: "omat", "omol", "odac", "omc", "oc20"
     else:
-        raise ValueError(f"Unknown ML_model '{args.ML_model}'. Expected one of: MACE, PET, MatterSim.")
+        raise ValueError(f"Unknown ML_model '{args.ML_model}'. Expected one of: MACE, uPET, UMA, MatterSim.")
 
     run_surface_builder(args.bulk_energy, calc,
                         args.fmax, args.max_steps,

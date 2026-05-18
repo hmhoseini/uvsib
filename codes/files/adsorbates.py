@@ -2332,11 +2332,10 @@ def run_relaxation(ml_model: str, calc, fmax: float, max_steps: int,
         try:
             relax.run(fmax=fmax, steps=max_steps)
         except Exception as e:
-            raise RuntimeError(
-                f"Cannot proceed without gas-phase reference '{name}': {e}")
+            raise RuntimeError(f"Cannot proceed without gas-phase reference '{name}': {e}")
         if not relax.converged:
-            raise RuntimeError(
-                f"Gas-phase reference '{name}' did not converge in {max_steps} steps")
+            raise RuntimeError(f"Gas-phase reference '{name}' did not converge in {max_steps} steps")
+
         atoms.info[model_key] = atoms.get_potential_energy()
         relaxed_refs_json.append(jsonio.encode(atoms))
         total_number += 1
@@ -2400,6 +2399,7 @@ def run_relaxation(ml_model: str, calc, fmax: float, max_steps: int,
     with open('failed.txt', 'w') as f:
         f.write(str(num_failed))
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--ML_model", type=str)
@@ -2426,9 +2426,9 @@ if __name__ == "__main__":
         from fairchem.core import pretrained_mlip
         from fairchem.core.calculate.ase_calculator import FAIRChemCalculator
         predictor = pretrained_mlip.get_predict_unit(args.model, device=args.device)
-        calc = FAIRChemCalculator(predictor, task_name="oc20")  # choices: "omat", "omol", "odac", "omc", "oc20"
+        calc = FAIRChemCalculator(predictor, task_name="oc22")  # choices: "omat", "omol", "odac", "omc", "oc20"
     else:
-        raise ValueError(f"Unknown ML_model '{args.ML_model}'. Expected one of: MACE, PET, MatterSim.")
+        raise ValueError(f"Unknown ML_model '{args.ML_model}'. Expected one of: MACE, uPET, UMA, MatterSim.")
 
     run_relaxation(ml_model=args.ML_model, calc=calc, fmax=args.fmax, max_steps=args.max_steps,
                    reaction=args.reaction, pathway=args.pathway)

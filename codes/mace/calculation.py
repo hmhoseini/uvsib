@@ -11,28 +11,12 @@ class MACECalculation(CalcJob):
     def define(cls, spec):
         super().define(spec)
         spec.input("parameters", valid_type=Dict)
-        spec.input_namespace("file",
-                             valid_type=(SinglefileData),
-                             dynamic=True
-        )
-        spec.output("output_dict",
-                    valid_type=Dict,
-                    required=True)
+        spec.input_namespace("file", valid_type=(SinglefileData), dynamic=True)
+        spec.output("output_dict", valid_type=Dict, required=True)
 
-        spec.exit_code(
-                100,
-                "ERROR_MISSING_OUTPUT",
-                message="Required output file not found."
-        )
-        spec.exit_code(
-                200,
-                "ERROR_NO_RETRIEVED_FOLDER",
-                message="The retrieved folder data node can not be accessed."
-        )
-        spec.exit_code(
-                303, "ERROR_OUTPUT_INCOMPLETE",
-                message="The output file is incomplete."
-        )
+        spec.exit_code(100,"ERROR_MISSING_OUTPUT", message="Required output file not found.")
+        spec.exit_code(200,"ERROR_NO_RETRIEVED_FOLDER", message="The retrieved folder data node can not be accessed.")
+        spec.exit_code(303, "ERROR_OUTPUT_INCOMPLETE", message="The output file is incomplete.")
 
     def prepare_for_submission(self, folder):
         """Create input files for MatterGen. Here, adding to the command line"""
@@ -63,10 +47,7 @@ class MACECalculation(CalcJob):
         calcinfo.uuid = self.uuid
         calcinfo.retrieve_list = ['output.json', 'total.txt', 'failed.txt']
         calcinfo.codes_info = [codeinfo]
-        calcinfo.local_copy_list = [
-            (file.uuid, file.filename, file.filename)
-            for file in self.inputs.file.values()
-        ]
+        calcinfo.local_copy_list = [(file.uuid, file.filename, file.filename) for file in self.inputs.file.values()]
         calcinfo.provenance_exclude_list = ['input_structures.extxyz']
 
         return calcinfo
