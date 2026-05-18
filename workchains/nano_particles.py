@@ -165,9 +165,10 @@ class NanoParticleWorkChain(WorkChain):
             'particles_range': particles_range,
             'generator': 'systematic',
             'fmax': settings.inputs[relax_key]['fmax'],
-            'max_steps': settings.inputs[relax_key]['max_steps']
+            'max_steps': settings.inputs[relax_key]['max_steps'],
+            'task_name': settings.inputs[relax_key].get('task_name', 'omat'),
         }
-        if ml_model in ['uPET']:
+        if ml_model in ['uPET', 'UMA']:
             job_info.update({'model_name': model})
         else:
             job_info.update({'model_path': model_path})
@@ -191,9 +192,10 @@ class NanoParticleWorkChain(WorkChain):
             'ML_model': ml_model,
             'device': device,
             'fmax': settings.inputs[relax_key]['fmax'],
-            'max_steps': settings.inputs[relax_key]['max_steps']
+            'max_steps': settings.inputs[relax_key]['max_steps'],
+            'task_name': settings.inputs[relax_key].get('task_name', 'omat'),
         }
-        if ml_model in ['uPET']:
+        if ml_model in ['uPET', 'UMA']:
             job_info.update({'model_name': model})
         else:
             job_info.update({'model_path': model_path})

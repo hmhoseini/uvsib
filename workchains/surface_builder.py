@@ -121,9 +121,10 @@ class SurfaceBuilderWorkChain(WorkChain):
             "max_steps": settings.inputs[relax_key]["max_steps"],
             "max_miller_idx": settings.inputs[relax_key]["max_miller_idx"],
             "bulk_energy": ml_energy,
-            "max_num_surf": settings.MAX_NUM_SURF
+            "max_num_surf": settings.MAX_NUM_SURF,
+            "task_name": settings.inputs[relax_key].get("task_name", "omat"),
         }
-        if ML_model in ["uPET"]:
+        if ML_model in ["uPET", "UMA"]:
             job_info.update({"model_name": model})
         else:
             job_info.update({"model_path": model_path})

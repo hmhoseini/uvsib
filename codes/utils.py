@@ -22,6 +22,10 @@ def get_cmdline(job_info):
     if model_path:
         cmdline.append(f"--model_path={model_path}")
 
+    task_name = job_info.get("task_name")
+    if task_name:
+        cmdline.append(f"--task_name={task_name}")
+
     cmdline.append(f"--device={job_info['device']}")
 
     job_type = job_info['job_type']

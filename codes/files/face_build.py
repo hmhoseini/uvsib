@@ -165,28 +165,16 @@ if __name__ == "__main__":
     parser.add_argument("--model", type=str)
     parser.add_argument("--model_path", type=str)
     parser.add_argument("--device", type=str)
+    parser.add_argument("--task_name", type=str, default=None)
     parser.add_argument("--fmax", type=float)
     parser.add_argument("--max_steps", type=int)
     parser.add_argument("--max_miller_idx", type=int)
     parser.add_argument("--max_num_surf", type=int)
     args = parser.parse_args()
 
-    if "MACE" in args.ML_model:
-        from mace.calculators import MACECalculator
-        calc = MACECalculator(model_paths=args.model_path, device=args.device)
-    elif "PET" in args.ML_model:
-        from upet.calculator import UPETCalculator
-        calc = UPETCalculator(model=args.model, device=args.device)
-    elif "MatterSim" in args.ML_model:
-        from mattersim.forcefield import MatterSimCalculator
-        calc = MatterSimCalculator(load_path=args.model_path, device=args.device)
-    elif "UMA" in args.ML_model:
-        from fairchem.core import pretrained_mlip
-        from fairchem.core.calculate.ase_calculator import FAIRChemCalculator
-        predictor = pretrained_mlip.get_predict_unit(args.model, device=args.device)
-        calc = FAIRChemCalculator(predictor, task_name="oc20")  # choices: "omat", "omol", "odac", "omc", "oc20"
-    else:
-        raise ValueError(f"Unknown ML_model '{args.ML_model}'. Expected one of: MACE, uPET, UMA, MatterSim.")
+    from _calculators import make_calculator
+    calc = make_calculator(args.ML_model, model=args.model, model_path=args.model_path,
+                           device=args.device, task_name=args.task_name)
 
     run_surface_builder(args.bulk_energy, calc,
                         args.fmax, args.max_steps,

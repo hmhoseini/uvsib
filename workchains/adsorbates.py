@@ -179,9 +179,10 @@ class AdsorbatesWorkChain(WorkChain):
             "fmax": settings.inputs[relax_key]["fmax"],
             "max_steps": settings.inputs[relax_key]["max_steps"],
             "reaction": reaction,
-            "pathway": pathway
+            "pathway": pathway,
+            "task_name": settings.inputs[relax_key].get("task_name", "oc22"),
         }
-        if ML_model in ["uPET"]:
+        if ML_model in ["uPET", "UMA"]:
             job_info.update({"model_name": model})
         else:
             job_info.update({"model_path": model_path})

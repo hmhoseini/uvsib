@@ -195,6 +195,7 @@ if __name__ == "__main__":
     parser.add_argument("--model", type=str)
     parser.add_argument("--model_path", type=str)
     parser.add_argument("--device", type=str)
+    parser.add_argument("--task_name", type=str, default=None)
     parser.add_argument("--fmax", type=float)
     parser.add_argument("--max_steps", type=int)
     parser.add_argument("--min_natoms", type=int)
@@ -202,17 +203,9 @@ if __name__ == "__main__":
     parser.add_argument("--generator", type=str)
     args = parser.parse_args()
 
-    if "MACE" in args.ML_model:
-        from mace.calculators import MACECalculator
-        calc = MACECalculator(model_paths=args.model_path, device=args.device)
-    elif "PET" in args.ML_model:
-        from upet.calculator import UPETCalculator
-        calc = UPETCalculator(model=args.model, device=args.device)
-    elif "MatterSim" in args.ML_model:
-        from mattersim.forcefield import MatterSimCalculator
-        calc = MatterSimCalculator(load_path=args.model_path, device=args.device)
-    else:
-        raise ValueError("Unknown ML_model {}, expected one of: MACE, PET, MatterSim.")
+    from _calculators import make_calculator
+    calc = make_calculator(args.ML_model, model=args.model, model_path=args.model_path,
+                           device=args.device, task_name=args.task_name)
 
     generate_nano_particles(element_list=args.elements, calculator=calc, max_force=args.fmax, max_relax_steps=args.max_steps,
                             min_natoms=args.min_natoms, max_natoms=args.max_natoms, generator=args.generator)
