@@ -20,18 +20,18 @@
 		"mattersim = uvsib.codes.mattersim.calculation:MatterSimCalculation",
 		"mace = uvsib.codes.mace.calculation:MACECalculation",
 		"upet = uvsib.codes.upet.calculation:uPETCalculation",
+		"uma = uvsib.codes.uma.calculation:UMACalculation",
 		"mh = uvsib.codes.minimahopping.calculation:MinimaHoppingCalculation",
-		"similarity = uvsib.codes.similarity.calculation:SimilarityCalculation",
-		"uma = uvsib.codes.uma.calculation:UMACalculation"
+		"similarity = uvsib.codes.similarity.calculation:SimilarityCalculation"
 	],
 	"aiida.parsers": [
 		"mattergen_parser = uvsib.codes.mattergen.parser:MatterGenParser",
 		"mattersim_parser = uvsib.codes.mattersim.parser:MatterSimParser",
 		"mace_parser = uvsib.codes.mace.parser:MACEParser",
 		"upet_parser = uvsib.codes.upet.parser:uPETParser",
+		"uma_parser = uvsib.codes.uma.parser:UMAParser",
 		"minimahopping_parser = uvsib.codes.minimahopping.parser:MinimaHoppingParser",
-		"similarity_parser = ubsib.codes.similarity.parser:SimilarityParser",
-		"uma_parser = uvsib.codes.uma.parser:UMAParser"
+		"similarity_parser = uvsib.codes.similarity.parser:SimilarityParser"
 	],
 	"aiida.workflows": [
 		"mattergen.base = uvsib.codes.mattergen.workchain:MatterGenBaseWorkChain",

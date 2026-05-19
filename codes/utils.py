@@ -16,6 +16,7 @@ def get_cmdline(job_info):
 
     model_name = job_info.get("model_name")
     model_path = job_info.get("model_path")
+    # device = job_info.get("device")
 
     if model_name:
         cmdline.append(f"--model={model_name}")

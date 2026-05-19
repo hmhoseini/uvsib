@@ -49,7 +49,7 @@ class CSPWorkChain(WorkChain):
         self.ctx.n_csp = self.inputs.n_csp.value
         self.ctx.n_mh = self.inputs.n_mh.value
         self.ctx.csp_structures = []
-        self.ctx.inputs = {"metadata": {"label": "CSP for {}".format(self.ctx.chemical_formula)}}
+#        self.ctx.inputs = {"metadata": {"label": "CSP for {}".format(self.ctx.chemical_formula)}}
         self.report(f"Launching CSPWorkChain for {self.ctx.chemical_formula}")
 
     def run_csp(self):

@@ -148,6 +148,6 @@ class MatterGenCSPWorkChain(BaseRestartWorkChain):
             'parameters': Dict(dict={'cmdline_params': cmdline}),
             'metadata': {
                 'options': get_options(),
-                'label': 'MatterGen CSP: {}'.format(chemical_formula)
+                'label': 'MatterGen: CSP for {}'.format(chemical_formula)
             }
         }

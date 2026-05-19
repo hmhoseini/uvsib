@@ -1410,18 +1410,16 @@ def generate_cer_adsorbates(pathway_name: str) -> tuple:
 
     Returns
     -------
-    tuple
-        (pathway, adsorbates_dict) where pathway is a ReactionPathway and
-        adsorbates_dict maps intermediate names to Molecule objects.
-
-    References
-    ----------
-    Hansen et al. *Phys. Chem. Chem. Phys.* **12**, 283 (2010).
-    Exner et al. *Electrocatalysis* **6**, 163 (2015).
-    Exner et al. *ChemElectroChem* **3**, 1607 (2016).
-    Karlsson & Cornell *Chem. Rev.* **116**, 2982 (2016).
-    Lim et al. *Nat. Commun.* **11**, 412 (2020).
-    Kim et al. *Angew. Chem. Int. Ed.* **64**, e202417293 (2025).
+    dict
+        Dictionary mapping repeat indices to adsorption sets with 'clean_slab'
+        and 'adsorb_set' keys. Each adsorb_set contains structures with metadata.
+    
+    Raises
+    ------
+    ValueError
+        If reaction type is unknown or pathway_name missing for certain reactions.
+    FileNotFoundError
+        If input_structures.json is not found.
     """
 
     # =========================================================================
