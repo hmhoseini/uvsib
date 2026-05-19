@@ -148,21 +148,13 @@ def get_code(model_key):
     """
     Helper to fetch builder.code, model_path, and device 
     """
-    return load_code(
-        settings.configs["codes"][model_key]["code_string"])
+    return load_code(settings.configs["codes"][model_key]["code_string"])
 
 def get_model_device(ML_model):
     """Return (model_path, device) for the given ML model."""
     path_to_pretrained_models = settings.configs["models"]["path_to_pretrained_models"]
     model = settings.configs["models"][ML_model]
-
-    if ML_model in ["MatterGen", "uPET", "UMA"]:
-        model_path = None
-    else:
-        model_path = os.path.join(path_to_pretrained_models, model)
-    if ML_model in ["MatterGen", "MatterGenCSP"]:
-        device = None
-    else:
-        device = settings.configs["codes"][ML_model]["job_script"]["device"]
+    model_path = os.path.join(path_to_pretrained_models, model)
+    device = settings.configs["codes"][ML_model]["job_script"]["device"]
 
     return model, model_path, device

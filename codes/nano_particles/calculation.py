@@ -36,7 +36,7 @@ class NanoParticleGenerator(CalcJob):
 
         if job_type == 'relax':
             input_file = os.path.join(settings.upet_files_path, 'relax.py')
-        elif job_type == 'facebuild':
+        elif job_type == 'face_build':
             input_file = os.path.join(settings.upet_files_path, 'face_build.py')
         elif job_type == 'adsorbates':
             input_file = os.path.join(settings.upet_files_path, 'adsorbates.py')

@@ -108,9 +108,6 @@ class CSPWorkChain(WorkChain):
         n_mh = min(len(entries_csp), self.ctx.n_mh)
         selected_entries = random.sample(entries_csp, n_mh)
         for i, entry in enumerate(selected_entries):
-            if entry.structure.num_sites > 10:
-                print('threw out: {} '.format(entry.structure))
-                continue
             struct = StructureData(pymatgen_structure = entry.structure)
             builder = self._construct_mh_builder(struct, self.ctx.ML_model)
             future = self.submit(builder)
@@ -167,8 +164,8 @@ class CSPWorkChain(WorkChain):
         Workflow = WorkflowFactory("mattergen.csp")
         builder = Workflow.get_builder()
         builder.chemical_formula = Str(self.ctx.chemical_formula)
-        builder.code = get_code("MatterGen")
-        _, model_path, _ = get_model_device("MatterGenCSP")
+        builder.code = get_code("MatterGen_CSP")
+        _, model_path, _ = get_model_device("MatterGen_CSP")
         builder.job_info = Dict(
             {
                 "job_type": "csp",
@@ -187,30 +184,33 @@ class CSPWorkChain(WorkChain):
         ML_model = self.ctx.ML_model
         structures = self.ctx.csp_structures
 
-        Workflow = WorkflowFactory(ML_model.lower())
+        local_model = settings.inputs['bulk_relax']['model']
+        Workflow = WorkflowFactory(local_model.lower())
 
         builder = Workflow.get_builder()
         builder.input_structures = List(structures)
-        builder.code = get_code(ML_model)
+        builder.code = get_code(local_model)
         builder.local_label = Str("relax {}".format(self.ctx.chemical_formula))
 
-        model, model_path, device = get_model_device(ML_model)
+        model, model_path, device = get_model_device(local_model)
 
         relax_key = "bulk_relax"
 
         job_info = {
             "job_type": "relax",
-            "ML_model": ML_model,
+            "ML_model": local_model,
+            "model_name": model,
+            "model_path": model_path,
             "device": device,
             "fmax": settings.inputs[relax_key]["fmax"],
             "max_steps": settings.inputs[relax_key]["max_steps"],
             "task_name": settings.inputs[relax_key].get("task_name", "omat"),
         }
 
-        if ML_model in ["uPET", "UMA"]:
-            job_info.update({"model_name": model})
-        else:
-            job_info.update({"model_path": model_path})
+        # if ML_model in ["uPET", "UMA"]:
+        #     job_info.update({"model_name": model})
+        # else:
+        #     job_info.update({"model_path": model_path})
 
         builder.job_info = Dict(job_info)
         return builder
@@ -222,19 +222,25 @@ class CSPWorkChain(WorkChain):
         builder.code = get_code("MinimaHopping")
         builder.this_label = '{}'.format(self.ctx.chemical_formula)
 
-        model, model_path, device = get_model_device(ML_model)
+        local_model = settings.inputs['MinimaHopping']['model']
+        model, model_path, device = get_model_device(local_model)
 
         job_info = {
-             "ML_model": ML_model,
+             "ML_model": local_model,
+             "model_name": model,
+             "model_path": model_path,
              "device": device,
              "mh_steps": settings.inputs["MinimaHopping"]["mh_steps"],
              "fmax": settings.inputs["MinimaHopping"]["fmax"],
              "task_name": settings.inputs["MinimaHopping"].get("task_name", "omat"),
             }
-        if ML_model in ["uPET", "UMA"]:
-            job_info.update({"model_name": model})
-        else:
-            job_info.update({"model_path": model_path})
+
+        # print('csp / minhop / job_info: ', job_info)
+
+        # if ML_model in ["uPET", "UMA"]:
+        #     job_info.update({})
+        # else:
+        #     job_info.update({"model_path": model_path})
 
         builder.job_info = Dict(job_info)
 

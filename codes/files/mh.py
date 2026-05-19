@@ -50,7 +50,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     from _calculators import make_calculator
-    calc = make_calculator(args.ML_model, model=args.model, model_path=args.model_path,
+
+    calc = make_calculator(ml_model=args.ML_model, model=args.model, model_path=args.model_path,
                            device=args.device, task_name=args.task_name)
 
     run_mh(calc, args.mh_steps)

@@ -10,7 +10,7 @@ and the workchain controls the backend + UMA task head via ``--ML_model`` and
 _UMA_TASKS = ("omat", "oc20", "oc22", "omol", "odac", "omc")
 
 
-def make_calculator(ml_model, *, model=None, model_path=None, device="cpu",
+def make_calculator(ml_model, *, model=None, model_path=None, device="cuda",
                     task_name=None):
     """Build an ASE calculator from the workflow-supplied backend identifier.
 

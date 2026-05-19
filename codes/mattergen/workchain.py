@@ -6,7 +6,7 @@ from uvsib.workflows import settings
 
 def get_options():
     """Return scheduler options"""
-    job_script = settings.configs['codes']['MatterGen']['job_script']
+    job_script = settings.configs['codes']['MatterGen_CSP']['job_script']
     resources = {
         'num_machines': job_script['nodes'],
         'num_mpiprocs_per_machine': job_script['ntasks'],

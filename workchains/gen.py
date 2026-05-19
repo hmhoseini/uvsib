@@ -112,12 +112,14 @@ class GeneratorWorkChain(WorkChain):
         Workflow = WorkflowFactory("mattergen.base")
         builder = Workflow.get_builder()
         builder.chemical_system = Str(chemical_system)
-        builder.code = get_code("MatterGen")
-        model_name, _, _ = get_model_device("MatterGen")
+        builder.code = get_code("MatterGen_generate")
+        model, model_path, device = get_model_device("MatterGen_generate")
 
         builder.job_info = Dict(
                 {"job_type": "gen",
-                 "model_name":  model_name,
+                 "model_name": model,
+                 "model_path": model_path,
+                 "device": device,
                  "energy_above_hull": settings.inputs["MatterGen_generate"]["energy_above_hull"],
                  "batch_size": settings.inputs["MatterGen_generate"]["batch_size"],
                  "num_batches": settings.inputs["MatterGen_generate"]["num_batches"]
@@ -131,26 +133,25 @@ class GeneratorWorkChain(WorkChain):
         """
         General builder for MatterSim or MACE for structure opimization
         """
-        Workflow = WorkflowFactory(ML_model.lower())
+        local_model = settings.inputs['bulk_relax']['model']
+        Workflow = WorkflowFactory(local_model.lower())
         builder = Workflow.get_builder()
         builder.input_structures = List(structures)
-        builder.code = get_code(ML_model)
-        model , model_path, device = get_model_device(ML_model)
+        builder.code = get_code(local_model)
+        model , model_path, device = get_model_device(local_model)
 
         relax_key = "bulk_relax"
 
         job_info = {
             "job_type": "relax",
-            "ML_model": ML_model,
+            "ML_model": local_model,
+            "model_name": model,
+            "model_path": model_path,
             "device": device,
             "fmax": settings.inputs[relax_key]["fmax"],
             "max_steps": settings.inputs[relax_key]["max_steps"],
             "task_name": settings.inputs[relax_key].get("task_name", "omat"),
         }
-        if ML_model in ["uPET", "UMA"]:
-            job_info.update({"model_name": model})
-        else:
-            job_info.update({"model_path": model_path})
 
         builder.job_info = Dict(job_info)
         return builder

@@ -26,7 +26,7 @@ class UMACalculation(CalcJob):
 
         if job_type == 'relax':
             input_file = os.path.join(settings.uma_files_path, 'relax.py')
-        elif job_type == 'facebuild':
+        elif job_type == 'face_build':
             input_file = os.path.join(settings.uma_files_path, 'face_build.py')
         elif job_type == 'adsorbates':
             input_file = os.path.join(settings.uma_files_path, 'adsorbates.py')
@@ -55,10 +55,7 @@ class UMACalculation(CalcJob):
         calcinfo.uuid = self.uuid
         calcinfo.retrieve_list = ['output.json', 'total.txt', 'failed.txt']
         calcinfo.codes_info = [codeinfo]
-        calcinfo.local_copy_list = [
-            (file.uuid, file.filename, file.filename)
-            for file in self.inputs.file.values()
-        ]
+        calcinfo.local_copy_list = [(file.uuid, file.filename, file.filename) for file in self.inputs.file.values()]
         calcinfo.provenance_exclude_list = ['input_structures.extxyz']
 
         return calcinfo

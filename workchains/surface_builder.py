@@ -14,7 +14,6 @@ def get_struct_uuid(chemical_formula, ml_model):
     # [(row.structure, row.energy, str(row.structure_uuid)) for row in results]
     filtered_results = list()
     for s, e, u in sorted([(row.structure, row.energy, str(row.structure_uuid)) for row in results], key=lambda x: x[1]):
-        print(e)
         filtered_results.append([s, e, u])
         if len(filtered_results) == 10:
             break
@@ -41,20 +40,9 @@ class SurfaceBuilderWorkChain(WorkChain):
             cls.final_report
         )
 
-        spec.exit_code(300,
-            "ERROR_CALCULATION_FAILED",
-            message="The calculation did not finish successfully"
-        )
-        spec.exit_code(
-            301,
-            "ERROR_NO_STRUCTURES_FOUND",
-            message="No structures were found for the given formula"
-        )
-        spec.exit_code(
-            302,
-            "ERROR_NO_SURFACE",
-            message="No surface has been generated"
-        )
+        spec.exit_code(300,"ERROR_CALCULATION_FAILED", message="The calculation did not finish successfully")
+        spec.exit_code(301,"ERROR_NO_STRUCTURES_FOUND", message="No structures were found for the given formula")
+        spec.exit_code(302,"ERROR_NO_SURFACE", message="No surface has been generated")
 
     def setup(self):
         """Setup and report"""
@@ -114,8 +102,10 @@ class SurfaceBuilderWorkChain(WorkChain):
         relax_key = "face_build"
 
         job_info = {
-            "job_type": "facebuild",
+            "job_type": relax_key,
             "ML_model": ML_model,
+            "model_name": model,
+            "model_path": model_path,
             "device": device,
             "fmax": settings.inputs[relax_key]["fmax"],
             "max_steps": settings.inputs[relax_key]["max_steps"],
@@ -124,10 +114,6 @@ class SurfaceBuilderWorkChain(WorkChain):
             "max_num_surf": settings.MAX_NUM_SURF,
             "task_name": settings.inputs[relax_key].get("task_name", "omat"),
         }
-        if ML_model in ["uPET", "UMA"]:
-            job_info.update({"model_name": model})
-        else:
-            job_info.update({"model_path": model_path})
 
         builder.job_info = Dict(job_info)
 

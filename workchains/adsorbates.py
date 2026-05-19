@@ -1,14 +1,14 @@
 import os
 import yaml
-import numpy as np
+# import numpy as np
 from ase.io import jsonio
 from aiida.engine import WorkChain
 from aiida.plugins import WorkflowFactory
-from aiida.orm import Str, List, Dict, load_code, StructureData
+from aiida.orm import Str, List, Dict, load_code # , StructureData
 from uvsib.db.tables import DBSurface
-from uvsib.db.utils import add_surface_adsorbate, add_surface_ml_adsorbate
-from uvsib.codes.vasp.workchains import construct_vasp_builder
-from uvsib.codes.utils import ase_to_pmg
+from uvsib.db.utils import add_surface_ml_adsorbate  # add_surface_adsorbate
+# from uvsib.codes.vasp.workchains import construct_vasp_builder
+# from uvsib.codes.utils import ase_to_pmg
 from uvsib.db.utils import get_structure_uuid_surface_id, query_by_columns
 from uvsib.workchains.utils import get_code, get_model_device
 from uvsib.workchains.oer import calculate_oer_overpotential
@@ -174,18 +174,16 @@ class AdsorbatesWorkChain(WorkChain):
         job_info = {
             "job_type": "adsorbates",
             "ML_model": ML_model,
+            "model_name": model,
+            "model_path": model_path,
             "device": device,
             "slab_energy": slab_energy,
             "fmax": settings.inputs[relax_key]["fmax"],
             "max_steps": settings.inputs[relax_key]["max_steps"],
             "reaction": reaction,
             "pathway": pathway,
-            "task_name": settings.inputs[relax_key].get("task_name", "oc22"),
+            "task_name": settings.inputs[relax_key].get("task_name", "oc20"),
         }
-        if ML_model in ["uPET", "UMA"]:
-            job_info.update({"model_name": model})
-        else:
-            job_info.update({"model_path": model_path})
 
         builder.job_info = Dict(job_info)
 
