@@ -2,7 +2,7 @@ import os
 from aiida.engine import CalcJob
 from aiida.orm import Dict, SinglefileData
 from aiida.common.datastructures import CalcInfo, CodeInfo
-from matseran.workflows import settings
+from uvsib.workflows import settings
 
 
 class SimilarityCalculation(CalcJob):

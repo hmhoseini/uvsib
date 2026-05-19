@@ -2,6 +2,7 @@ from __future__ import annotations
 import json
 import argparse
 import numpy as np
+from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Dict, List, Callable
 from ase.data import covalent_radii
@@ -14,6 +15,97 @@ from pymatgen.core import Lattice, Molecule, Structure
 from pymatgen.core.surface import Slab
 from pymatgen.analysis.adsorption import AdsorbateSiteFinder
 from scipy.spatial.distance import pdist, squareform
+
+
+_REF_DIR = Path(__file__).parent / "molecular_references"
+
+ch3oh_ref = Structure.from_file(_REF_DIR / "ch3oh.vasp")
+ch4_ref   = Structure.from_file(_REF_DIR / "ch4.vasp")
+co2_ref   = Structure.from_file(_REF_DIR / "co2.vasp")
+n2o_ref   = Structure.from_file(_REF_DIR / "n2o.vasp")
+nh3_ref   = Structure.from_file(_REF_DIR / "nh3.vasp")
+n2_ref    = Structure.from_file(_REF_DIR / "n2.vasp")
+h2_ref    = Structure.from_file(_REF_DIR / "h2.vasp")
+h2o_ref   = Structure.from_file(_REF_DIR / "h2o.vasp")
+cl2_ref   = Structure.from_file(_REF_DIR / "cl2.vasp")
+o2_ref    = Structure.from_file(_REF_DIR / "o2.vasp")
+h2o2_ref  = Structure.from_file(_REF_DIR / "h2o2.vasp")
+
+# Registry of gas-phase reference structures, keyed by the same name used
+# in `ReactionStep.released` and (after `_ADS_TO_GAS` translation) by the
+# pathway's initial reactant. `_pathway_required_refs` selects the subset
+# that actually needs to be relaxed for a given reaction/pathway.
+_GAS_REF_REGISTRY: Dict[str, Structure] = {
+    "H2":    h2_ref,
+    "H2O":   h2o_ref,
+    "N2":    n2_ref,
+    "NH3":   nh3_ref,
+    "N2O":   n2o_ref,
+    "CO2":   co2_ref,
+    "CH4":   ch4_ref,
+    "CH3OH": ch3oh_ref,
+    "Cl2":   cl2_ref,
+    "O2":    o2_ref,
+    "H2O2":  h2o2_ref,
+}
+
+# Map *_ads adsorbate names (which appear as the first ReactionStep.reactant
+# for many pathways) to the corresponding gas-phase reference name.
+_ADS_TO_GAS: Dict[str, str] = {
+    "CO2_ads": "CO2",
+    "N2_ads":  "N2",
+    "O2_ads":  "O2",
+}
+
+
+def _pathway_required_refs(reaction: str, pathway_obj) -> List[str]:
+    """Return the gas-phase reference names this pathway needs computed.
+
+    Always includes H2 and H2O when the pathway transfers protons (CHE
+    reference for the H+/e- couple). Adds any species declared in
+    `ReactionStep.released` and any gas-phase reactant the pathway starts
+    from (via `_ADS_TO_GAS`). Special-cased for OER, which has no pathway
+    dataclass.
+
+    Parameters
+    ----------
+    reaction : str
+        Reaction key passed to `generate_adsorbed_structures`.
+    pathway_obj : ReactionPathway | None
+        Pathway object returned by the corresponding `generate_*_adsorbates`
+        helper. `None` is allowed for OER.
+
+    Returns
+    -------
+    list[str]
+        Sorted list of gas-phase reference names, all guaranteed to be keys
+        of `_GAS_REF_REGISTRY`.
+    """
+    needed: set[str] = set()
+
+    if reaction == "OER":
+        # 4 H+/e- transfers; product is O2 from 2 H2O.
+        return sorted({"H2", "H2O", "O2"})
+
+    if pathway_obj is None:
+        return ["H2", "H2O"]
+
+    if any(s.protons != 0 for s in pathway_obj.steps):
+        needed.update(["H2", "H2O"])
+
+    if pathway_obj.steps:
+        first = pathway_obj.steps[0].reactant
+        gas = _ADS_TO_GAS.get(first, first)
+        if gas in _GAS_REF_REGISTRY:
+            needed.add(gas)
+
+    for step in pathway_obj.steps:
+        for sp in step.released:
+            if sp in _GAS_REF_REGISTRY:
+                needed.add(sp)
+
+    return sorted(needed)
+
 
 def _create_adsorbate_with_dummy(species: List[str],
                                  coords: List[List[float]],
@@ -322,8 +414,8 @@ def generate_co2rr_adsorbates(pathway_name: str) -> tuple:
             ["C", "O", "O"],
             [
                 [0.00, 0.00, 0.00],
-                [d * np.sin(angle_rad), 0, d * np.cos(angle_rad)],
-                [-d * np.sin(angle_rad), 0, d * np.cos(angle_rad)],
+                [float(d * np.sin(angle_rad)), 0.0, float(d * np.cos(angle_rad))],
+                [float(-d * np.sin(angle_rad)), 0.0, float(d * np.cos(angle_rad))]
             ],
             properties = {"adsorbate": "*CO2"}
         )
@@ -1296,23 +1388,26 @@ def generate_noxrr_adsorbates(pathway_name: str) -> tuple:
 
     return pathway, adsorbates
 
-def get_multipliers(slab_pmg):
-    a = slab_pmg.lattice.a
-    b = slab_pmg.lattice.b
-    if a > b:
-        return [(1, 1, 1), (1, 2, 1), (1, 3, 1), (2, 2, 1)]
-    return [(1, 1, 1), (2, 1, 1), (3, 1, 1), (2, 2, 1)]
 
-def generate_adsorbed_structures(reaction: str, pathway_name: str = "") -> dict:
-    """Generate surface + adsorbate structures for specified reaction.
-    
-    Parameters
-    ----------
-    reaction : str
-        Reaction type: 'OER', 'CO2RR', or 'NOXRR'.
-    pathway_name : str, optional
-        Pathway name (required for CO2RR and NOXRR).
-    
+def generate_cer_adsorbates(pathway_name: str) -> tuple:
+    """Chlorine evolution reaction pathways on metal / oxide surfaces.
+
+    Provides a literature-grounded library of CER intermediates and reaction
+    pathways (CHE model with the Cl⁻/Cl₂ couple as reference, E° = 1.36 V vs SHE
+    in 1 M HCl) that can be placed on *any* surface slab.
+
+    Pathways implemented
+    --------------------
+    - 'volmer_tafel'      : * + Cl⁻ → *Cl, then 2*Cl → Cl₂(g)      (metallic Pt, Ru)
+    - 'volmer_heyrovsky'  : * + Cl⁻ → *Cl, then *Cl + Cl⁻ → Cl₂(g) (RuO₂, IrO₂)
+    - 'krishtalik'        : *O + Cl⁻ → *OCl, then *OCl + Cl⁻ → Cl₂(g) + *O
+                            (O-covered oxide route on RuO₂(110), Co₃O₄, …)
+
+    All elementary steps consume Cl⁻ rather than H⁺; the CHE-equivalent reference
+    is the Cl⁻/Cl₂ couple. Each pathway is two electrons total to balance
+    2 Cl⁻ → Cl₂ + 2 e⁻ (Tafel is the chemical recombination step and carries no
+    electron).
+
     Returns
     -------
     dict
@@ -1326,37 +1421,830 @@ def generate_adsorbed_structures(reaction: str, pathway_name: str = "") -> dict:
     FileNotFoundError
         If input_structures.json is not found.
     """
-    # Load and prepare slab
-    try:
-        with open('input_structures.json', 'r') as f:
-            data = json.load(f)
-    except FileNotFoundError as e:
-        raise FileNotFoundError(f"Input file not found: {e}")
+
+    # =========================================================================
+    # Adsorbate geometry library (Pymatgen version with DummySpecies)
+    # =========================================================================
+
+    def _cl():
+        """*Cl — atop, atomic chlorine (Volmer/Heyrovsky intermediate)."""
+        return _create_adsorbate_with_dummy(
+            ["Cl"],
+            [[0, 0, 0]],
+            properties={"adsorbate": "*Cl"},
+        )
+
+    def _ocl():
+        """*OCl — O-down, Cl pointing up (Krishtalik intermediate on oxide)."""
+        return _create_adsorbate_with_dummy(
+            ["O", "Cl"],
+            [[0.00, 0.00, 0.00], [0.00, 0.00, 1.70]],
+            properties={"adsorbate": "*OCl"},
+        )
+
+    def _o_ads():
+        """*O — atomic oxygen (Krishtalik starting state on O-covered oxide)."""
+        return _create_adsorbate_with_dummy(
+            ["O"],
+            [[0, 0, 0]],
+            properties={"adsorbate": "*O"},
+        )
+
+    # Registry
+    _ADSORBATE_REGISTRY: Dict[str, Callable] = {
+        "Cl": _cl,
+        "OCl": _ocl,
+        "O": _o_ads,
+    }
+
+    def get_cer_adsorbate(name: str) -> Molecule:
+        """Return a fresh copy of the named CER adsorbate.
+
+        Args:
+            name: Key from the adsorbate registry.
+        Returns:
+            Pymatgen Molecule with X at index 0.
+        Raises:
+            KeyError: If *name* is not in the registry.
+        """
+        if name not in _ADSORBATE_REGISTRY:
+            raise KeyError(
+                f"Unknown CER adsorbate '{name}'. "
+                f"Available: {sorted(_ADSORBATE_REGISTRY)}"
+            )
+        return _ADSORBATE_REGISTRY[name]()
+
+    # =========================================================================
+    # Reaction pathway data
+    # =========================================================================
+    _PATHWAYS: dict[str, ReactionPathway] = {}
+
+    def _reg(pw: ReactionPathway) -> ReactionPathway:
+        _PATHWAYS[pw.name] = pw
+        return pw
+
+    # 1 ── Volmer + Tafel: electrochemical adsorption + chemical recombination
+    _reg(ReactionPathway(
+        name="volmer_tafel",
+        description="CER via Volmer adsorption and Tafel recombination of two *Cl",
+        overall_reaction="2 Cl- → Cl2 + 2 e-",
+        selectivity_metals=["Pt", "Ru", "Pd"],
+        steps=[
+            ReactionStep(
+                reactant="Cl", product="Cl",
+                step_type="electrochemical", electrons=-1, protons=0,
+                notes="Volmer: * + Cl- → *Cl + e- (CHE w.r.t. Cl-/Cl2 couple)",
+            ),
+            ReactionStep(
+                reactant="Cl", product="Cl",  # bare-surface marker
+                step_type="chemical", electrons=0, protons=0,
+                released=["Cl2"],
+                notes="Tafel: 2 *Cl → Cl2(g) + 2*; recombination is chemical "
+                      "(no electron transfer)",
+            ),
+        ],
+    ))
+
+    # 2 ── Volmer + Heyrovsky: electrochemical adsorption + electrochemical desorption
+    _reg(ReactionPathway(
+        name="volmer_heyrovsky",
+        description="CER via Volmer adsorption and Heyrovsky electrochemical desorption",
+        overall_reaction="2 Cl- → Cl2 + 2 e-",
+        selectivity_metals=["RuO2", "IrO2", "Ru", "Ir"],
+        steps=[
+            ReactionStep(
+                reactant="Cl", product="Cl",
+                step_type="electrochemical", electrons=-1, protons=0,
+                notes="Volmer: * + Cl- → *Cl + e-",
+            ),
+            ReactionStep(
+                reactant="Cl", product="Cl",  # bare-surface marker
+                step_type="electrochemical", electrons=-1, protons=0,
+                released=["Cl2"],
+                notes="Heyrovsky: *Cl + Cl- → Cl2(g) + * + e-; "
+                      "potential-limiting on RuO2(110) / IrO2(110)",
+            ),
+        ],
+    ))
+
+    # 3 ── Krishtalik: oxide route via *OCl intermediate (O-covered active site)
+    _reg(ReactionPathway(
+        name="krishtalik",
+        description="CER on O-covered oxide surface via *OCl intermediate",
+        overall_reaction="2 Cl- → Cl2 + 2 e- (active site stays *O between turnovers)",
+        selectivity_metals=["RuO2", "IrO2", "Co3O4"],
+        steps=[
+            ReactionStep(
+                reactant="O", product="OCl",
+                step_type="electrochemical", electrons=-1, protons=0,
+                notes="Volmer-like: *O + Cl- → *OCl + e- (Cl attaches to surface O)",
+            ),
+            ReactionStep(
+                reactant="OCl", product="O",  # active site regenerated
+                step_type="electrochemical", electrons=-1, protons=0,
+                released=["Cl2"],
+                notes="Heyrovsky-like: *OCl + Cl- → Cl2(g) + *O + e-; "
+                      "active site returns to *O, ready for next turnover",
+            ),
+        ],
+    ))
+
+    def get_cer_pathway(name: str) -> ReactionPathway:
+        """Return the named CER :class:`ReactionPathway`.
+
+        Args:
+            name: One of the CER pathway keys.
+        Raises:
+            KeyError: If *name* is not registered.
+        """
+        if name not in _PATHWAYS:
+            raise KeyError(
+                f"Unknown CER pathway '{name}'. "
+                f"Available: {sorted(_PATHWAYS)}"
+            )
+        return _PATHWAYS[name]
+
+    pathway = get_cer_pathway(pathway_name)
+    adsorbates = {}
+
+    for name in pathway.intermediates:
+        if name in _ADSORBATE_REGISTRY:
+            adsorbates[name] = get_cer_adsorbate(name)
+
+    return pathway, adsorbates
+
+
+def generate_her_adsorbates(pathway_name: str) -> tuple:
+    """Hydrogen evolution reaction pathways on metal surfaces.
+
+    The single-intermediate workhorse of (photo)electrocatalysis: H* is the
+    sole surface species, and its binding strength sets the HER activity
+    (Sabatier volcano, |ΔG_H*| ≈ 0 at the optimum).
+
+    Pathways implemented
+    --------------------
+    - 'volmer_tafel'     : * + H⁺ + e⁻ → *H, then 2*H → H₂(g) + 2*  (Pt, MoS₂)
+    - 'volmer_heyrovsky' : * + H⁺ + e⁻ → *H, then *H + H⁺ + e⁻ → H₂(g) + *
+
+    Returns
+    -------
+    tuple
+        (pathway, adsorbates_dict) where pathway is a ReactionPathway and
+        adsorbates_dict maps intermediate names to Molecule objects.
+
+    References
+    ----------
+    Nørskov et al. *J. Electrochem. Soc.* **152**, J23 (2005).
+    Greeley et al. *Nat. Mater.* **5**, 909 (2006).
+    Conway & Tilak *Electrochim. Acta* **47**, 3571 (2002).
+    Skúlason et al. *J. Phys. Chem. C* **114**, 18182 (2010).
+    """
+
+    def _h():
+        """*H — single hydrogen (hollow site preferred on most metals)."""
+        return _create_adsorbate_with_dummy(
+            ["H"],
+            [[0, 0, 0]],
+            properties={"adsorbate": "*H"},
+        )
+
+    _ADSORBATE_REGISTRY: Dict[str, Callable] = {"H": _h}
+
+    def get_her_adsorbate(name: str) -> Molecule:
+        if name not in _ADSORBATE_REGISTRY:
+            raise KeyError(
+                f"Unknown HER adsorbate '{name}'. "
+                f"Available: {sorted(_ADSORBATE_REGISTRY)}"
+            )
+        return _ADSORBATE_REGISTRY[name]()
+
+    _PATHWAYS: dict[str, ReactionPathway] = {}
+
+    def _reg(pw: ReactionPathway) -> ReactionPathway:
+        _PATHWAYS[pw.name] = pw
+        return pw
+
+    _reg(ReactionPathway(
+        name="volmer_tafel",
+        description="HER via Volmer adsorption and Tafel recombination",
+        overall_reaction="2 H+ + 2 e- → H2",
+        selectivity_metals=["Pt", "Pd", "Ir"],
+        steps=[
+            ReactionStep(
+                reactant="H", product="H",
+                step_type="electrochemical", electrons=-1, protons=1,
+                notes="Volmer: * + H+ + e- → *H",
+            ),
+            ReactionStep(
+                reactant="H", product="H",  # bare-surface marker
+                step_type="chemical", electrons=0, protons=0,
+                released=["H2"],
+                notes="Tafel: 2 *H → H2(g) + 2*; chemical recombination",
+            ),
+        ],
+    ))
+
+    _reg(ReactionPathway(
+        name="volmer_heyrovsky",
+        description="HER via Volmer adsorption and Heyrovsky electrochemical desorption",
+        overall_reaction="2 H+ + 2 e- → H2",
+        selectivity_metals=["MoS2", "Ni-Mo", "Au", "Ag"],
+        steps=[
+            ReactionStep(
+                reactant="H", product="H",
+                step_type="electrochemical", electrons=-1, protons=1,
+                notes="Volmer: * + H+ + e- → *H",
+            ),
+            ReactionStep(
+                reactant="H", product="H",  # bare-surface marker
+                step_type="electrochemical", electrons=-1, protons=1,
+                released=["H2"],
+                notes="Heyrovsky: *H + H+ + e- → H2(g) + *",
+            ),
+        ],
+    ))
+
+    def get_her_pathway(name: str) -> ReactionPathway:
+        if name not in _PATHWAYS:
+            raise KeyError(
+                f"Unknown HER pathway '{name}'. "
+                f"Available: {sorted(_PATHWAYS)}"
+            )
+        return _PATHWAYS[name]
+
+    pathway = get_her_pathway(pathway_name)
+    adsorbates = {}
+
+    for name in pathway.intermediates:
+        if name in _ADSORBATE_REGISTRY:
+            adsorbates[name] = get_her_adsorbate(name)
+
+    return pathway, adsorbates
+
+
+def generate_orr_adsorbates(pathway_name: str) -> tuple:
+    """Oxygen reduction reaction pathways on metal / oxide surfaces.
+
+    The cathodic counterpart of OER. Same scaling relations between *OH and
+    *OOH (≈ 3.2 eV gap) constrain the maximum 4e⁻ ORR activity to a
+    theoretical overpotential of ~0.3–0.4 V.
+
+    Pathways implemented
+    --------------------
+    - '4e_associative'  : O₂ → *O₂ → *OOH → *O → *OH → H₂O           (Pt, Pd)
+    - '4e_dissociative' : O₂ → 2*O → *OH → H₂O                       (Pt(111) at low T)
+    - '2e_to_h2o2'      : O₂ → *O₂ → *OOH → H₂O₂(aq)                 (Au, Hg, single-atom Co/N–C)
+
+    Returns
+    -------
+    tuple
+        (pathway, adsorbates_dict) where pathway is a ReactionPathway and
+        adsorbates_dict maps intermediate names to Molecule objects.
+
+    References
+    ----------
+    Nørskov et al. *J. Phys. Chem. B* **108**, 17886 (2004).
+    Stamenkovic et al. *Nat. Mater.* **6**, 241 (2007).
+    Greeley et al. *Nat. Chem.* **1**, 552 (2009).
+    Siahrostami et al. *Nat. Mater.* **12**, 1137 (2013).
+    Kulkarni et al. *Chem. Rev.* **118**, 2302 (2018).
+    """
+
+    def _o2():
+        """*O₂ — end-on (Pauling, superoxide-like, O-O = 1.30 Å)."""
+        return _create_adsorbate_with_dummy(
+            ["O", "O"],
+            [[0.00, 0.00, 0.00], [0.00, 0.00, 1.30]],
+            properties={"adsorbate": "*O2"},
+        )
+
+    def _ooh():
+        """*OOH — O-down, peroxyl. Geometry matches the OER intermediate."""
+        return _create_adsorbate_with_dummy(
+            ["O", "O", "H"],
+            [
+                [0.00, 0.00, 0.00],
+                [1.20, -0.20, 0.80],
+                [1.94, -0.20, 1.32],
+            ],
+            properties={"adsorbate": "*OOH"},
+        )
+
+    def _o_ads():
+        """*O — atomic oxygen (hollow / bridge preferred)."""
+        return _create_adsorbate_with_dummy(
+            ["O"],
+            [[0, 0, 0]],
+            properties={"adsorbate": "*O"},
+        )
+
+    def _oh():
+        """*OH — O-down."""
+        return _create_adsorbate_with_dummy(
+            ["O", "H"],
+            [[0, 0, 0], [0, 0, 0.97]],
+            properties={"adsorbate": "*OH"},
+        )
+
+    _ADSORBATE_REGISTRY: Dict[str, Callable] = {
+        "O2_ads": _o2,
+        "OOH": _ooh,
+        "O": _o_ads,
+        "OH": _oh,
+    }
+
+    def get_orr_adsorbate(name: str) -> Molecule:
+        if name not in _ADSORBATE_REGISTRY:
+            raise KeyError(
+                f"Unknown ORR adsorbate '{name}'. "
+                f"Available: {sorted(_ADSORBATE_REGISTRY)}"
+            )
+        return _ADSORBATE_REGISTRY[name]()
+
+    _PATHWAYS: dict[str, ReactionPathway] = {}
+
+    def _reg(pw: ReactionPathway) -> ReactionPathway:
+        _PATHWAYS[pw.name] = pw
+        return pw
+
+    # 1 ── 4e⁻ associative (Nørskov, dominant on Pt-group metals)
+    _reg(ReactionPathway(
+        name="4e_associative",
+        description="4e⁻ ORR via *O2 → *OOH → *O → *OH → H2O (associative)",
+        overall_reaction="O2 + 4(H+ + e-) → 2 H2O",
+        selectivity_metals=["Pt", "Pd", "Pt3Ni", "Ir"],
+        steps=[
+            ReactionStep(
+                reactant="O2_ads", product="OOH",
+                step_type="electrochemical", electrons=-1, protons=1,
+                notes="O2 protonation; first electron transfer",
+            ),
+            ReactionStep(
+                reactant="OOH", product="O",
+                step_type="electrochemical", electrons=-1, protons=1,
+                released=["H2O"],
+                notes="O-O cleavage upon protonation; H2O released",
+            ),
+            ReactionStep(
+                reactant="O", product="OH",
+                step_type="electrochemical", electrons=-1, protons=1,
+                notes="*O protonation; *OH-vs-*OOH scaling sets the overpotential",
+            ),
+            ReactionStep(
+                reactant="OH", product="O2_ads",  # bare-surface marker
+                step_type="electrochemical", electrons=-1, protons=1,
+                released=["H2O"],
+                notes="*OH protonation; H2O desorbs and site returns to bare",
+            ),
+        ],
+    ))
+
+    # 2 ── 4e⁻ dissociative (direct O-O scission first, then protonation)
+    _reg(ReactionPathway(
+        name="4e_dissociative",
+        description="4e⁻ ORR via O2 dissociation to 2*O then protonation",
+        overall_reaction="O2 + 4(H+ + e-) → 2 H2O",
+        selectivity_metals=["Pt(111)", "Ru", "Rh"],
+        steps=[
+            ReactionStep(
+                reactant="O2_ads", product="O",
+                step_type="chemical", electrons=0, protons=0,
+                notes="O-O scission to 2 *O (single-site bookkeeping)",
+            ),
+            ReactionStep(
+                reactant="O", product="OH",
+                step_type="electrochemical", electrons=-1, protons=1,
+                notes="*O protonation",
+            ),
+            ReactionStep(
+                reactant="OH", product="O2_ads",  # bare-surface marker
+                step_type="electrochemical", electrons=-1, protons=1,
+                released=["H2O"],
+                notes="*OH protonation → H2O desorption",
+            ),
+        ],
+    ))
+
+    # 3 ── 2e⁻ ORR to hydrogen peroxide (Au, Hg, single-atom catalysts)
+    _reg(ReactionPathway(
+        name="2e_to_h2o2",
+        description="2e⁻ ORR producing H2O2 via *OOH (no O-O bond cleavage)",
+        overall_reaction="O2 + 2(H+ + e-) → H2O2",
+        selectivity_metals=["Au", "Hg", "Co-N4", "Fe-N4"],
+        steps=[
+            ReactionStep(
+                reactant="O2_ads", product="OOH",
+                step_type="electrochemical", electrons=-1, protons=1,
+                notes="O2 protonation; first electron transfer",
+            ),
+            ReactionStep(
+                reactant="OOH", product="O2_ads",  # bare-surface marker
+                step_type="electrochemical", electrons=-1, protons=1,
+                released=["H2O2"],
+                notes="*OOH protonation; H2O2 desorbs without O-O cleavage",
+            ),
+        ],
+    ))
+
+    def get_orr_pathway(name: str) -> ReactionPathway:
+        if name not in _PATHWAYS:
+            raise KeyError(
+                f"Unknown ORR pathway '{name}'. "
+                f"Available: {sorted(_PATHWAYS)}"
+            )
+        return _PATHWAYS[name]
+
+    pathway = get_orr_pathway(pathway_name)
+    adsorbates = {}
+
+    for name in pathway.intermediates:
+        if name in _ADSORBATE_REGISTRY:
+            adsorbates[name] = get_orr_adsorbate(name)
+
+    return pathway, adsorbates
+
+
+def generate_nrr_adsorbates(pathway_name: str) -> tuple:
+    """Nitrogen reduction reaction pathways on metal / single-atom surfaces.
+
+    Electrochemical analog of Haber–Bosch. Activity is strongly limited by
+    competition with HER and by the weakness of *N2 binding on most metals.
+
+    Pathways implemented
+    --------------------
+    - 'distal'        : *N2 → *NNH → *NNH₂ → *N + NH₃ → *NH → *NH₂ → NH₃
+                        (one N hydrogenated and released first, then the other)
+    - 'alternating'   : *N2 → *NNH → *NHNH → *NHNH₂ → *NH₂NH₂ → 2 NH₃
+                        (H atoms alternate between the two N atoms)
+    - 'dissociative'  : N2 → 2*N → 2*NH → 2*NH₂ → 2 NH₃
+                        (Haber–Bosch-like; needs very strong *N binding, rare
+                        electrochemically)
+
+    Returns
+    -------
+    tuple
+        (pathway, adsorbates_dict) where pathway is a ReactionPathway and
+        adsorbates_dict maps intermediate names to Molecule objects.
+
+    References
+    ----------
+    Skúlason et al. *Phys. Chem. Chem. Phys.* **14**, 1235 (2012).
+    Montoya et al. *ChemSusChem* **8**, 2180 (2015).
+    Singh et al. *ACS Catal.* **7**, 706 (2017).
+    Andersen et al. *Nature* **570**, 504 (2019).
+    Suryanto et al. *Nat. Catal.* **2**, 290 (2019).
+    """
+
+    def _n2_ads():
+        """*N2 — end-on (η¹), N-N ≈ 1.13 Å (slightly elongated from gas-phase 1.10 Å)."""
+        return _create_adsorbate_with_dummy(
+            ["N", "N"],
+            [[0.00, 0.00, 0.00], [0.00, 0.00, 1.13]],
+            properties={"adsorbate": "*N2"},
+        )
+
+    def _nnh():
+        """*NNH — end-on, terminal H on far N (diazenyl)."""
+        return _create_adsorbate_with_dummy(
+            ["N", "N", "H"],
+            [
+                [0.00, 0.00, 0.00],
+                [0.00, 0.00, 1.20],
+                [0.90, 0.00, 1.70],
+            ],
+            properties={"adsorbate": "*NNH"},
+        )
+
+    def _nnh2():
+        """*NNH2 — end-on, two H on the distal N (hydrazido)."""
+        return _create_adsorbate_with_dummy(
+            ["N", "N", "H", "H"],
+            [
+                [0.00, 0.00, 0.00],
+                [0.00, 0.00, 1.25],
+                [0.95, 0.00, 1.65],
+                [-0.95, 0.00, 1.65],
+            ],
+            properties={"adsorbate": "*NNH2"},
+        )
+
+    def _nhnh():
+        """*NHNH — alternating, one H on each N (trans-diazene-like)."""
+        return _create_adsorbate_with_dummy(
+            ["N", "N", "H", "H"],
+            [
+                [0.00, 0.00, 0.00],
+                [0.00, 0.00, 1.30],
+                [0.95, 0.00, -0.50],
+                [-0.95, 0.00, 1.80],
+            ],
+            properties={"adsorbate": "*NHNH"},
+        )
+
+    def _nhnh2():
+        """*NHNH2 — alternating, one H on near N, two H on distal N."""
+        return _create_adsorbate_with_dummy(
+            ["N", "N", "H", "H", "H"],
+            [
+                [0.00, 0.00, 0.00],
+                [0.00, 0.00, 1.40],
+                [0.95, 0.00, -0.45],
+                [0.95, 0.00, 1.85],
+                [-0.95, 0.00, 1.85],
+            ],
+            properties={"adsorbate": "*NHNH2"},
+        )
+
+    def _n2h4():
+        """*N2H4 (hydrazine adsorbed, near-N atop) — two H on each N, gauche."""
+        return _create_adsorbate_with_dummy(
+            ["N", "N", "H", "H", "H", "H"],
+            [
+                [0.00, 0.00, 0.00],
+                [0.00, 0.00, 1.45],
+                [0.94, 0.00, -0.40],
+                [-0.94, 0.00, -0.40],
+                [0.94, 0.00, 1.85],
+                [-0.94, 0.00, 1.85],
+            ],
+            properties={"adsorbate": "*N2H4"},
+        )
+
+    def _n_ads():
+        """*N — atomic nitrogen (hollow preferred)."""
+        return _create_adsorbate_with_dummy(
+            ["N"],
+            [[0, 0, 0]],
+            properties={"adsorbate": "*N"},
+        )
+
+    def _nh():
+        """*NH — N-down."""
+        return _create_adsorbate_with_dummy(
+            ["N", "H"],
+            [[0, 0, 0], [0, 0, 1.01]],
+            properties={"adsorbate": "*NH"},
+        )
+
+    def _nh2():
+        """*NH2 — N-down."""
+        return _create_adsorbate_with_dummy(
+            ["N", "H", "H"],
+            [
+                [0.00, 0.00, 0.00],
+                [0.82, 0.00, 0.56],
+                [-0.82, 0.00, 0.56],
+            ],
+            properties={"adsorbate": "*NH2"},
+        )
+
+    def _nh3():
+        """*NH3 — N-down (tetrahedral)."""
+        return _create_adsorbate_with_dummy(
+            ["N", "H", "H", "H"],
+            [
+                [0.00, 0.00, 0.00],
+                [0.00, 0.94, 0.34],
+                [0.82, -0.47, 0.34],
+                [-0.82, -0.47, 0.34],
+            ],
+            properties={"adsorbate": "*NH3"},
+        )
+
+    _ADSORBATE_REGISTRY: Dict[str, Callable] = {
+        "N2_ads": _n2_ads,
+        "NNH": _nnh,
+        "NNH2": _nnh2,
+        "NHNH": _nhnh,
+        "NHNH2": _nhnh2,
+        "N2H4": _n2h4,
+        "N": _n_ads,
+        "NH": _nh,
+        "NH2": _nh2,
+        "NH3": _nh3,
+    }
+
+    def get_nrr_adsorbate(name: str) -> Molecule:
+        if name not in _ADSORBATE_REGISTRY:
+            raise KeyError(
+                f"Unknown NRR adsorbate '{name}'. "
+                f"Available: {sorted(_ADSORBATE_REGISTRY)}"
+            )
+        return _ADSORBATE_REGISTRY[name]()
+
+    _PATHWAYS: dict[str, ReactionPathway] = {}
+
+    def _reg(pw: ReactionPathway) -> ReactionPathway:
+        _PATHWAYS[pw.name] = pw
+        return pw
+
+    # 1 ── Distal mechanism (one N hydrogenated and released first)
+    _reg(ReactionPathway(
+        name="distal",
+        description="NRR via distal mechanism: distal N fully hydrogenated and released as NH3 first",
+        overall_reaction="N2 + 6(H+ + e-) → 2 NH3",
+        selectivity_metals=["Ru", "Mo", "Re", "Mo-N3"],
+        steps=[
+            ReactionStep(
+                reactant="N2_ads", product="NNH",
+                step_type="electrochemical", electrons=-1, protons=1,
+                notes="N2 protonation; often potential-limiting",
+            ),
+            ReactionStep(
+                reactant="NNH", product="NNH2",
+                step_type="electrochemical", electrons=-1, protons=1,
+            ),
+            ReactionStep(
+                reactant="NNH2", product="N",
+                step_type="electrochemical", electrons=-1, protons=1,
+                released=["NH3"],
+                notes="N-N bond cleavage; first NH3 desorbs, *N remains",
+            ),
+            ReactionStep(
+                reactant="N", product="NH",
+                step_type="electrochemical", electrons=-1, protons=1,
+            ),
+            ReactionStep(
+                reactant="NH", product="NH2",
+                step_type="electrochemical", electrons=-1, protons=1,
+            ),
+            ReactionStep(
+                reactant="NH2", product="N2_ads",  # bare-surface marker
+                step_type="electrochemical", electrons=-1, protons=1,
+                released=["NH3"],
+                notes="second NH3 desorbs; site available for next N2",
+            ),
+        ],
+    ))
+
+    # 2 ── Alternating mechanism (H alternates between the two N atoms)
+    _reg(ReactionPathway(
+        name="alternating",
+        description="NRR via alternating mechanism: H atoms alternate between the two N atoms",
+        overall_reaction="N2 + 6(H+ + e-) → 2 NH3",
+        selectivity_metals=["Fe", "Co", "Fe-N4"],
+        steps=[
+            ReactionStep(
+                reactant="N2_ads", product="NNH",
+                step_type="electrochemical", electrons=-1, protons=1,
+            ),
+            ReactionStep(
+                reactant="NNH", product="NHNH",
+                step_type="electrochemical", electrons=-1, protons=1,
+                notes="next H goes to the near N rather than distal",
+            ),
+            ReactionStep(
+                reactant="NHNH", product="NHNH2",
+                step_type="electrochemical", electrons=-1, protons=1,
+            ),
+            ReactionStep(
+                reactant="NHNH2", product="N2H4",
+                step_type="electrochemical", electrons=-1, protons=1,
+                notes="fourth proton; surface-bound hydrazine *N2H4",
+            ),
+            ReactionStep(
+                reactant="N2H4", product="NH2",
+                step_type="electrochemical", electrons=-1, protons=1,
+                released=["NH3"],
+                notes="N-N cleavage with first NH3 release",
+            ),
+            ReactionStep(
+                reactant="NH2", product="NH3",
+                step_type="electrochemical", electrons=-1, protons=1,
+            ),
+            ReactionStep(
+                reactant="NH3", product="N2_ads",  # bare-surface marker
+                step_type="chemical", electrons=0, protons=0,
+                released=["NH3"],
+                notes="second NH3 desorbs",
+            ),
+        ],
+    ))
+
+    # 3 ── Dissociative (Haber-Bosch-like, needs strong *N binding)
+    _reg(ReactionPathway(
+        name="dissociative",
+        description="NRR via initial N2 dissociation then sequential protonation of *N",
+        overall_reaction="N2 + 6(H+ + e-) → 2 NH3",
+        selectivity_metals=["Fe", "Ru", "Os"],
+        steps=[
+            ReactionStep(
+                reactant="N2_ads", product="N",
+                step_type="chemical", electrons=0, protons=0,
+                notes="N-N bond scission; very high activation barrier",
+            ),
+            ReactionStep(
+                reactant="N", product="NH",
+                step_type="electrochemical", electrons=-1, protons=1,
+            ),
+            ReactionStep(
+                reactant="NH", product="NH2",
+                step_type="electrochemical", electrons=-1, protons=1,
+            ),
+            ReactionStep(
+                reactant="NH2", product="N2_ads",  # bare-surface marker
+                step_type="electrochemical", electrons=-1, protons=1,
+                released=["NH3"],
+                notes="single-site bookkeeping; full 2-NH3 turnover spans two sites",
+            ),
+        ],
+    ))
+
+    def get_nrr_pathway(name: str) -> ReactionPathway:
+        if name not in _PATHWAYS:
+            raise KeyError(
+                f"Unknown NRR pathway '{name}'. "
+                f"Available: {sorted(_PATHWAYS)}"
+            )
+        return _PATHWAYS[name]
+
+    pathway = get_nrr_pathway(pathway_name)
+    adsorbates = {}
+
+    for name in pathway.intermediates:
+        if name in _ADSORBATE_REGISTRY:
+            adsorbates[name] = get_nrr_adsorbate(name)
+
+    return pathway, adsorbates
+
+
+def get_multipliers(slab_pmg):
+    a = slab_pmg.lattice.a
+    b = slab_pmg.lattice.b
+    if a > b:
+        return [(1, 1, 1), (1, 2, 1), (1, 3, 1), (2, 2, 1)]
+    return [(1, 1, 1), (2, 1, 1), (3, 1, 1), (2, 2, 1)]
+
+def generate_adsorbed_structures(reaction: str, pathway_name: str = "") -> dict:
+    """Generate surface + adsorbate structures for specified reaction.
+    
+    Parameters
+    ----------
+    reaction : str
+        Reaction type: 'OER', 'CO2RR', 'NOXRR', 'CER', 'HER', 'ORR', or 'NRR'.
+    pathway_name : str, optional
+        Pathway name (required for everything except OER).
+    
+    Returns
+    -------
+    dict
+        Dict of adsorption sets, where each set is a list of ASE Atoms objects
+        with site_type, ads_coord, and adsorbate info in the Atoms.info dict.
+    
+    Raises
+    ------
+    ValueError
+        If reaction type is unknown or pathway_name missing for certain reactions.
+    FileNotFoundError
+        If input_structures.json is not found.
+    """
+    with open('input_structures.json', 'r') as f:
+        data = json.load(f)
 
     slab_pmg = Slab.from_dict(data[0])
     slab_pmg.sort()
 
     # Generate adsorbates based on reaction type and pathway
+    pathway_obj = None
     if reaction == "OER":
         adsorbates = generate_oer_adsorbates()
     elif reaction == "CO2RR":
-        _, adsorbates = generate_co2rr_adsorbates(pathway_name)
-        adsorbates = list(adsorbates.values())
+        pathway_obj, ads_dict = generate_co2rr_adsorbates(pathway_name)
+        adsorbates = list(ads_dict.values())
     elif reaction == "NOXRR":
-        _, adsorbates = generate_noxrr_adsorbates(pathway_name)
-        adsorbates = list(adsorbates.values())
+        pathway_obj, ads_dict = generate_noxrr_adsorbates(pathway_name)
+        adsorbates = list(ads_dict.values())
+    elif reaction == "CER":
+        pathway_obj, ads_dict = generate_cer_adsorbates(pathway_name)
+        adsorbates = list(ads_dict.values())
+    elif reaction == "HER":
+        pathway_obj, ads_dict = generate_her_adsorbates(pathway_name)
+        adsorbates = list(ads_dict.values())
+    elif reaction == "ORR":
+        pathway_obj, ads_dict = generate_orr_adsorbates(pathway_name)
+        adsorbates = list(ads_dict.values())
+    elif reaction == "NRR":
+        pathway_obj, ads_dict = generate_nrr_adsorbates(pathway_name)
+        adsorbates = list(ads_dict.values())
     else:
         raise ValueError(
             f"Unknown reaction: {reaction}. "
-            f"Expected one of: OER, CO2RR, NOXRR"
-        )
+            f"Expected one of: OER, CO2RR, NOXRR, CER, HER, ORR, NRR")
+
+    # Build the gas-phase reference set this pathway actually needs. These are
+    # returned alongside `adsorption_sets` and relaxed once at the top of
+    # `run_relaxation`, then attached per-set just like the clean slab.
+    gas_refs = {}
+    for ref_name in _pathway_required_refs(reaction, pathway_obj):
+        atoms = pmg_to_ase(_GAS_REF_REGISTRY[ref_name])
+        atoms.info['adsorbate'] = ref_name
+        gas_refs[ref_name] = atoms
 
     # Get adsorption sites from slab
     sites_dict, asf = get_adsorption_sites(slab_pmg)
 
+    # Build slab + adsorbate
     site_types = ['ontop', 'bridge', 'hollow']
-
-    # Build slab + adsorbate structures
     adsorption_sets = {}
     multipliers = [(1,1,1)] #get_multipliers(slab_pmg)
     base_slab = pmg_to_ase(asf.slab).copy()
@@ -1365,36 +2253,36 @@ def generate_adsorbed_structures(reaction: str, pathway_name: str = "") -> dict:
         clean_slab = base_slab * repeat
         clean_slab.info['adsorbate'] = "*"
         adsorption_sets[idx] = {"clean_slab": clean_slab, "adsorb_set": []}
-
         for site_type in site_types:
-            sites = sites_dict[site_type]
+            sites = sites_dict.get(site_type, [])
             for ads_coord in sites:
                 adsorb_set = {
                     "site_type": site_type,
                     "ads_coord": ads_coord,
                     "repeat": repeat,
-                    "structures": [],
+                    "structures": []
                 }
 
                 for ads in adsorbates:
                     ads_slab = asf.add_adsorbate(ads, ads_coord, repeat=repeat, translate=False, reorient=True)
                     ads_slab.remove_species("X")
+
                     ase_struct = pmg_to_ase(ads_slab)
                     ase_struct.info['adsorbate'] = ads.properties['adsorbate']
 
                     if not has_reasonable_distances(ase_struct):
                         break
-
                     adsorb_set["structures"].append(ase_struct)
 
-                # Only add complete sets where all adsorbates passed validation
+                # Gas-phase references are computed once in run_relaxation and
+                # attached per-set there, so per-site duplication is not needed.
                 if len(adsorb_set["structures"]) == len(adsorbates):
                     adsorption_sets[idx]["adsorb_set"].append(adsorb_set)
 
-    return adsorption_sets
+    return {"sets": adsorption_sets, "gas_refs": gas_refs}
 
 def run_relaxation(ml_model: str, calc, fmax: float, max_steps: int,
-                   reaction: str, pathway: str) -> dict:
+                   reaction: str, pathway: str, **relaxation_kwargs) -> dict:
     """Run geometry relaxation on adsorbate structures.
     
     Parameters
@@ -1408,17 +2296,47 @@ def run_relaxation(ml_model: str, calc, fmax: float, max_steps: int,
     max_steps : int
         Maximum relaxation steps.
     reaction : str
-        Reaction type: 'OER', 'CO2RR', or 'NOXRR'.
+        Reaction type: 'OER', 'CO2RR', 'NOXRR', 'CER', 'HER', 'ORR', or 'NRR'.
     pathway : str
-        Pathway name (for CO2RR/NOXRR) or empty string (for OER).
+        Pathway name (required for everything except OER, which takes "").
+
+    Notes
+    -----
+    Gas-phase reference structures are determined from the requested pathway
+    via `_pathway_required_refs`, relaxed once at the top of this routine, and
+    appended in JSON-encoded form to every relaxed_set's `structures` list
+    alongside `clean_slab`. Downstream analysis routines find them by the
+    `info['adsorbate']` key (e.g. 'H2O', 'O2', 'Cl2') in the same way they
+    find '*' (clean slab) and surface intermediates ('*O', '*OH', …).
     """
     relaxed_sets = []
     num_failed = 0
-    num_total = 0
+    total_number = 0
     model_key = f'{ml_model.lower()}_energy'
-    relaxation_kwargs = {'maxstep': 0.1, 'logfile': 'opt.log'}
 
-    adsorption_sets = generate_adsorbed_structures(reaction, pathway)
+    result = generate_adsorbed_structures(reaction, pathway)
+    adsorption_sets = result["sets"]
+    gas_refs = result["gas_refs"]
+
+    # Relax each pathway-required gas reference once. These energies are
+    # appended (in the same JSON-encoded form) to every relaxed_set below, so
+    # downstream analysis routines find them by their `info['adsorbate']` key
+    # (e.g. 'H2O', 'O2') alongside '*' (clean slab) and the surface
+    # intermediates ('*O', '*OH', ...).
+    relaxed_refs_json = []
+    for name, atoms in gas_refs.items():
+        atoms.calc = calc
+        relax = BFGSLineSearch(atoms, maxstep=0.1, logfile='opt.log')
+        try:
+            relax.run(fmax=fmax, steps=max_steps)
+        except Exception as e:
+            raise RuntimeError(f"Cannot proceed without gas-phase reference '{name}': {e}")
+        if not relax.converged:
+            raise RuntimeError(f"Gas-phase reference '{name}' did not converge in {max_steps} steps")
+
+        atoms.info[model_key] = atoms.get_potential_energy()
+        relaxed_refs_json.append(jsonio.encode(atoms))
+        total_number += 1
 
     for set_data in adsorption_sets.values():
         # Relax clean slab once per repeat configuration
@@ -1438,25 +2356,24 @@ def run_relaxation(ml_model: str, calc, fmax: float, max_steps: int,
             site_type = adsorb_set["site_type"]
             ads_coords = adsorb_set["ads_coord"]
             relaxed_structures = []
-
             for adsorbed in adsorb_set["structures"]:
-                num_total += 1
-
                 adsorbed.calc = calc
-                relax_ads = BFGSLineSearch(adsorbed, **relaxation_kwargs)
+                relax = BFGSLineSearch(adsorbed, maxstep=0.1, logfile='opt.log')
                 try:
-                    relax_ads.run(fmax=fmax, steps=max_steps)
-                except:
+                    relax.run(fmax=fmax, steps=max_steps)
+                except Exception as e:
+                    print(f"Warning: Relaxation failed for {adsorbed.info.get('adsorbate', 'unknown')}: {e}")
                     num_failed += 1
                     break
 
-                if not relax_ads.converged:
+                if not relax.converged:
                     num_failed += 1
                     break
 
                 ads_energy = adsorbed.get_potential_energy()
                 adsorbed.info[model_key] = ads_energy
                 relaxed_structures.append(jsonio.encode(adsorbed))
+                total_number += 1
 
             # Only add complete relaxed sets with all adsorbates successfully relaxed
             if len(relaxed_structures) == len(adsorb_set["structures"]):
@@ -1464,20 +2381,22 @@ def run_relaxation(ml_model: str, calc, fmax: float, max_steps: int,
                     "site_type": site_type,
                     "ads_coord": ads_coords.tolist(),
                     "repeat": adsorb_set["repeat"],
-                    "structures": relaxed_structures + [jsonio.encode(clean_slab)],
-                }
+                    "structures": (relaxed_structures
+                                   + relaxed_refs_json
+                                   + [jsonio.encode(clean_slab)])}
                 relaxed_sets.append(relaxed_set)
 
     # Write output files
     output = {'structures': relaxed_sets}
     with open('output.json', 'w') as f:
-        json.dump(output, f, indent=2)
+        json.dump(output, f)
 
     with open('total.txt', 'w') as f:
-        f.write(str(num_total))
+        f.write(str(total_number))
 
     with open('failed.txt', 'w') as f:
         f.write(str(num_failed))
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -1485,6 +2404,7 @@ if __name__ == "__main__":
     parser.add_argument("--model", type=str)
     parser.add_argument("--model_path", type=str)
     parser.add_argument("--device", type=str)
+    parser.add_argument("--task_name", type=str, default=None)
     parser.add_argument("--fmax", type=float)
     parser.add_argument("--max_steps", type=int)
     parser.add_argument("--slab_energy", type=float)
@@ -1492,29 +2412,9 @@ if __name__ == "__main__":
     parser.add_argument("--pathway", type=str)
     args = parser.parse_args()
 
-    if "MACE" in args.ML_model:
-        from mace.calculators import MACECalculator
-        calc = MACECalculator(
-                model_paths=args.model_path,
-                device=args.device
-        )
-    elif "PET" in args.ML_model:
-        from upet.calculator import UPETCalculator
-        calc = UPETCalculator(
-                model=args.model,
-                device=args.device
-        )
-    elif "MatterSim" in args.ML_model:
-        from mattersim.forcefield import MatterSimCalculator
-        calc = MatterSimCalculator(
-                load_path=args.model_path,
-                device=args.device
-        )
-    else:
-        raise ValueError(
-            f"Unknown ML_model '{args.ML_model}'. "
-            "Expected one of: MACE, PET, MatterSim."
-        )
+    from _calculators import make_calculator
+    calc = make_calculator(args.ML_model, model=args.model, model_path=args.model_path,
+                           device=args.device, task_name=args.task_name)
 
     run_relaxation(ml_model=args.ML_model, calc=calc, fmax=args.fmax, max_steps=args.max_steps,
                    reaction=args.reaction, pathway=args.pathway)

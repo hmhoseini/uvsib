@@ -1,14 +1,14 @@
 import os
 import yaml
-import numpy as np
+# import numpy as np
 from ase.io import jsonio
 from aiida.engine import WorkChain
 from aiida.plugins import WorkflowFactory
-from aiida.orm import Str, List, Dict, load_code, StructureData
+from aiida.orm import Str, List, Dict, load_code # , StructureData
 from uvsib.db.tables import DBSurface
-from uvsib.db.utils import add_surface_adsorbate, add_surface_ml_adsorbate
-from uvsib.codes.vasp.workchains import construct_vasp_builder
-from uvsib.codes.utils import ase_to_pmg
+from uvsib.db.utils import add_surface_ml_adsorbate  # add_surface_adsorbate
+# from uvsib.codes.vasp.workchains import construct_vasp_builder
+# from uvsib.codes.utils import ase_to_pmg
 from uvsib.db.utils import get_structure_uuid_surface_id, query_by_columns
 from uvsib.workchains.utils import get_code, get_model_device
 from uvsib.workchains.oer import calculate_oer_overpotential
@@ -46,15 +46,8 @@ class AdsorbatesWorkChain(WorkChain):
             cls.final_report
         )
 
-        spec.exit_code(300,
-            "ERROR_CALCULATION_FAILED",
-            message="The calculation did not finish successfully"
-        )
-        spec.exit_code(
-            301,
-            "ERROR_NO_STRUCTURES_FOUND",
-            message="No structures were found for the given formula."
-        )
+        spec.exit_code(300,"ERROR_CALCULATION_FAILED", message="The calculation did not finish successfully")
+        spec.exit_code(301,"ERROR_NO_STRUCTURES_FOUND", message="No structures were found for the given formula.")
 
     def setup(self):
         """Setup and report"""
@@ -75,7 +68,8 @@ class AdsorbatesWorkChain(WorkChain):
         self.ctx.potential_mapping = potential_mapping["potential_mapping"]
         self.ctx.vasp_code = load_code(settings.configs["codes"]["VASP"]["code_string"])
 
-        self.report(f"Running Adsorbates WorkChain for {self.ctx.chemical_formula}. Reaction: {self.ctx.reaction}, reaction_path: {self.ctx.reaction_path}")
+        self.report(f"Running Adsorbates WorkChain for {self.ctx.chemical_formula}. "
+                    f"Reaction: {self.ctx.reaction}, reaction_path: {self.ctx.reaction_path}")
 
     def run_adsorbs(self):
         """Run Adsorbates WorkChain"""
@@ -89,11 +83,9 @@ class AdsorbatesWorkChain(WorkChain):
     def inspect_adsorbs(self):
         """Inspect Adsorbates WorkChain"""
         failed = []
-
         for structure_uuid, surface_id in self.ctx.structure_surface_rows:
             uuid_str = str(structure_uuid)
             ads_wch = self.ctx[f"ads_{uuid_str}_{surface_id}"]
-
             if not ads_wch.is_finished_ok:
                 failed.append(f"{uuid_str}_{surface_id} (exit status: {ads_wch.exit_status})")
                 continue
@@ -131,19 +123,16 @@ class AdsorbatesWorkChain(WorkChain):
                 slab_cache[surface_id] = query_by_columns(DBSurface, {"id": surface_id})[0]
             slab_row = slab_cache[surface_id]
             miller_index = slab_row.slab["miller_index"]
-            energy_set = {}
             for adsorb_set in adsorption_sets:
-                energy_set = {}
                 site_type = adsorb_set["site_type"]
                 ads_coord = adsorb_set["ads_coord"]
                 repeat = adsorb_set["repeat"]
+                energy_set = {}
                 for ads_json in adsorb_set["structures"]:
                     adsorbed = jsonio.decode(ads_json)
                     energy_set[adsorbed.info["adsorbate"]] = adsorbed.info['{}_energy'.format(str(self.ctx.ML_model).lower())]
 
-                eta, dG_steps, dG_cumulative = calc_method(
-                    energy_set, self.ctx.reaction_path, self.ctx.ML_model, settings.ML_FUNC
-                )
+                eta, dG_steps, dG_cumulative = calc_method(energy_set, self.ctx.reaction_path, self.ctx.ML_model, settings.ML_FUNC)
 
                 if eta > eta_threshold:
                     continue
@@ -156,75 +145,6 @@ class AdsorbatesWorkChain(WorkChain):
                                          e=eta, dG_steps=dG_steps, dG_cumulative=dG_cumulative,
                                          ad_set=adsorb_set)
 
-#   def scan_relax(self):
-#       """Run r2SCAN geometry optimization"""
-#       for parent_key, adsorption_set in self.ctx.candidates.items():
-#           for adsorb_json in adsorption_set:
-#               adsorb = jsonio.decode(adsorb_json)
-#               unique_idx = adsorb.info["adsorbate_collection"]
-#               site = adsorb.info["site"]
-#               ad = adsorb.info["adsorbate"]
-#               structure = ase_to_pmg(adsorb)
-#               struct = StructureData(pymatgen=structure)
-#               struct.base.attributes.set("site_properties", structure.site_properties)
-#               builder = construct_vasp_builder(struct, self.ctx.protocol["r2SCAN_adsorbates"],
-#                                                self.ctx.potential_family, self.ctx.potential_mapping,
-#                                                self.ctx.vasp_code)
-#               future = self.submit(builder)
-#               self.to_context(**{f"scan_relax_{parent_key}_{site}_{unique_idx}_{ad}": future})
-
-#   def inspect_relax(self):
-#       """Inspect r2SCAN geometry optimization"""
-#       failed_jobs = 0
-#       for parent_key, adsorption_set in self.ctx.candidates.items():
-#           for adsorb_json in adsorption_set:
-#               adsorbed = jsonio.decode(adsorb_json)
-#               unique_idx = adsorbed.info["adsorbate_collection"]
-#               site = adsorbed.info["site"]
-#               ad = adsorbed.info["adsorbate"]
-#               wch = self.ctx[f"scan_relax_{parent_key}_{site}_{unique_idx}_{ad}"]
-#               if not wch.is_finished_ok:
-#                   failed_jobs += 1
-#                   break
-#               outputs = wch.called[-1].outputs
-#               structure = outputs.structure.get_pymatgen()
-#               energy = outputs.misc["total_energies"]["energy_extrapolated"]
-#               self.ctx.relaxation_results[f"{parent_key}_{site}_{unique_idx}_{ad}"] = [structure, energy]
-#       if failed_jobs:
-#           self.report(f"{failed_jobs} r2SCAN relaxations failed")
-
-#   def store_scan_results(self):
-#       energy_sets = dict()
-#       for parent_key, entry in self.ctx.relaxation_results.items():
-#           uuid_str = parent_key.split("_")[0]
-#           surface_id = parent_key.split("_")[1]
-#           site = parent_key.split("_")[2]
-#           idx = parent_key.split("_")[3]
-#           adsorb = parent_key.split("_")[4]
-#           if f"{uuid_str}_{surface_id}_{site}_{idx}" not in self.ctx.adsorption_sets:
-#               energy_sets[f"{uuid_str}_{surface_id}_{site}_{idx}"] = dict()
-#               self.ctx.adsorption_sets[f"{uuid_str}_{surface_id}_{site}_{idx}"] = dict()
-
-#           energy_sets[f"{uuid_str}_{surface_id}_{site}_{idx}"].update({adsorb: entry[1]})
-#           self.ctx.adsorption_sets[f"{uuid_str}_{surface_id}_{site}_{idx}"].update(
-#               {adsorb: dict({'structure_dict': entry[0].as_dict(), 'dft_energy': entry[1]})})
-
-#           #TODO: Check if we have expected number of intermediates (varies by reaction)
-#           uuid_str = key.split("_")[0]
-#           surface_id = key.split("_")[1]
-#           site = key.split("_")[2]
-#           idx = key.split("_")[3]
-
-#           # Calculate overpotential based on reaction type
-#           if self.ctx.reaction == "OER":
-#               eta, dG = self.calculate_oer_overpotential(energy_sets[key])
-#           elif self.ctx.reaction == "CO2RR":
-#               eta, dG = self.calculate_co2rr_overpotential(energy_sets[key], self.ctx.reaction_path)
-#           elif self.ctx.reaction == "NOXRR":
-#               eta, dG = self.calculate_noxrr_overpotential(energy_sets[key], self.ctx.reaction_path)
-
-#           add_surface_adsorbate(existing_uuid=uuid_str, surf_id=surface_id, comp=self.ctx.chemical_formula,
-#                                 react=self.ctx.reaction, react_path=self.ctx.reaction_path, site_type=site, ads_coord=idx, e=eta, dg=dG, ad_set=self.ctx.adsorption_sets[key])
     def final_report(self):
         """Final report"""
         if not self.ctx.candidates:
@@ -252,17 +172,16 @@ class AdsorbatesWorkChain(WorkChain):
         job_info = {
             "job_type": "adsorbates",
             "ML_model": ML_model,
+            "model_name": model,
+            "model_path": model_path,
             "device": device,
             "slab_energy": slab_energy,
             "fmax": settings.inputs[relax_key]["fmax"],
             "max_steps": settings.inputs[relax_key]["max_steps"],
             "reaction": reaction,
-            "pathway": pathway
+            "pathway": pathway,
+            "task_name": settings.inputs[relax_key].get("task_name", "oc20"),
         }
-        if ML_model in ["uPET"]:
-            job_info.update({"model_name": model})
-        else:
-            job_info.update({"model_path": model_path})
 
         builder.job_info = Dict(job_info)
 

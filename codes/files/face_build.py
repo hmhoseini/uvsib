@@ -62,14 +62,8 @@ def process_slab(slab, target_vacuum=10.0, angle_tol=1.0):
     if abs(alpha - 90) > angle_tol or abs(beta - 90) > angle_tol:
         return None
 
-    new_lattice = Lattice.from_parameters(
-        a=a_len,
-        b=b_len,
-        c=c_len,
-        alpha=90,
-        beta=90,
-        gamma=gamma
-    )
+    new_lattice = Lattice.from_parameters(a=a_len, b=b_len, c=c_len,
+                                          alpha=90, beta=90, gamma=gamma)
 
     cart_coords = np.array(slab.cart_coords)
     z_coords = cart_coords[:, 2]
@@ -152,7 +146,6 @@ def run_surface_builder(bulk_energy, calc, fmax, max_steps, max_miller_idx, max_
         at = entry["atoms"]
         built_faces.append(ase_to_pmg(at).as_dict())
 
-
     to_dump = dict({'slabs': built_faces})
 
     with open('output.json', 'w') as f:
@@ -164,6 +157,7 @@ def run_surface_builder(bulk_energy, calc, fmax, max_steps, max_miller_idx, max_
     with open('failed.txt', 'w') as f:
         f.write(str(num_failed))
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--bulk_energy", type=float)
@@ -171,35 +165,16 @@ if __name__ == "__main__":
     parser.add_argument("--model", type=str)
     parser.add_argument("--model_path", type=str)
     parser.add_argument("--device", type=str)
+    parser.add_argument("--task_name", type=str, default=None)
     parser.add_argument("--fmax", type=float)
     parser.add_argument("--max_steps", type=int)
     parser.add_argument("--max_miller_idx", type=int)
     parser.add_argument("--max_num_surf", type=int)
     args = parser.parse_args()
 
-    if "MACE" in args.ML_model:
-        from mace.calculators import MACECalculator
-        calc = MACECalculator(
-                model_paths=args.model_path,
-                device=args.device
-        )
-    elif "PET" in args.ML_model:
-        from upet.calculator import UPETCalculator
-        calc = UPETCalculator(
-                model=args.model,
-                device=args.device
-        )
-    elif "MatterSim" in args.ML_model:
-        from mattersim.forcefield import MatterSimCalculator
-        calc = MatterSimCalculator(
-                load_path=args.model_path,
-                device=args.device
-        )
-    else:
-        raise ValueError(
-            f"Unknown ML_model '{args.ML_model}'. "
-            "Expected one of: MACE, PET, MatterSim."
-        )
+    from _calculators import make_calculator
+    calc = make_calculator(args.ML_model, model=args.model, model_path=args.model_path,
+                           device=args.device, task_name=args.task_name)
 
     run_surface_builder(args.bulk_energy, calc,
                         args.fmax, args.max_steps,

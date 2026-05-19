@@ -197,10 +197,9 @@ class PhaseDiagramMLWorkChain(WorkChain):
 
         update_row(DBComposition, row.uuid,{"stable_struct": {"ml_uuid_list": uuid_list}})
 
-#    def reformat_entries(self):
-#        for uuid, model, str_en_pair in self.local_list[:MAX_NUM_BULK]:
-#            print(uuid, model, str_en_pair['energy'])
-#            add_version_to_existing_structure(uuid, model,{"structure": str_en_pair['structure'], "energy": str_en_pair['energy']})
+    def reformat_entries(self):
+        for uuid, model, str_en_pair in self.local_list[:MAX_NUM_BULK]:
+            add_version_to_existing_structure(uuid, model,{"structure": str_en_pair['structure'], "energy": str_en_pair['energy']})
 
     def final_report(self):
         """Final report"""

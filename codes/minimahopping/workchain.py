@@ -36,6 +36,10 @@ def get_cmdline(job_info):
     if model_path:
         cmdline.append(f"--model_path={model_path}")
 
+    task_name = job_info.get("task_name")
+    if task_name:
+        cmdline.append(f"--task_name={task_name}")
+
     cmdline.extend([
         f"--mh_steps={job_info['mh_steps']}",
         f"--device={job_info['device']}"]
@@ -46,13 +50,10 @@ MinimaHoppingCalculation = CalculationFactory('mh')
 
 class MinimaHoppingWorkChain(BaseRestartWorkChain):
     """RestartWorkChain to run MinimaHoppingCalculation"""
-
     _process_class = MinimaHoppingCalculation
-
     @classmethod
     def define(cls, spec):
         super().define(spec)
-
         spec.input('structure', valid_type=StructureData)
         spec.input("code", valid_type=Code)
         spec.input('job_info', valid_type=Dict)
@@ -68,11 +69,7 @@ class MinimaHoppingWorkChain(BaseRestartWorkChain):
 
         spec.expose_outputs(MinimaHoppingCalculation)
 
-        spec.exit_code(
-            400,
-            'ERROR_MAX_RESTARTS_EXCEEDED',
-            message='Maximum number of restarts exceeded for MinimaHoppingWorkChain.'
-        )
+        spec.exit_code(400,'ERROR_MAX_RESTARTS_EXCEEDED', message='Maximum number of restarts exceeded for MinimaHoppingWorkChain.')
 
     def setup(self):
         """Initialize context before first calculation."""
@@ -84,9 +81,7 @@ class MinimaHoppingWorkChain(BaseRestartWorkChain):
         self.ctx.inputs = {
             'code': self.inputs.code,
             'structure': structure,
-            'parameters': Dict(dict={
-                'cmdline_params': get_cmdline(job_info)
-            }),
+            'parameters': Dict(dict={'cmdline_params': get_cmdline(job_info)}),
             'metadata': {
                 'options': get_options(),
                 'label': 'MinimaHopping on {}'.format(self.inputs.this_label.value)

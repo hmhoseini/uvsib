@@ -45,20 +45,9 @@ class SurfaceBuilderWorkChain(WorkChain):
             cls.final_report
         )
 
-        spec.exit_code(300,
-            "ERROR_CALCULATION_FAILED",
-            message="The calculation did not finish successfully"
-        )
-        spec.exit_code(
-            301,
-            "ERROR_NO_STRUCTURES_FOUND",
-            message="No structures were found for the given formula"
-        )
-        spec.exit_code(
-            302,
-            "ERROR_NO_SURFACE",
-            message="No surface has been generated"
-        )
+        spec.exit_code(300,"ERROR_CALCULATION_FAILED", message="The calculation did not finish successfully")
+        spec.exit_code(301,"ERROR_NO_STRUCTURES_FOUND", message="No structures were found for the given formula")
+        spec.exit_code(302,"ERROR_NO_SURFACE", message="No surface has been generated")
 
     def setup(self):
         """Setup and report"""
@@ -121,19 +110,18 @@ class SurfaceBuilderWorkChain(WorkChain):
         relax_key = "face_build"
 
         job_info = {
-            "job_type": "facebuild",
+            "job_type": relax_key,
             "ML_model": ML_model,
+            "model_name": model,
+            "model_path": model_path,
             "device": device,
             "fmax": settings.inputs[relax_key]["fmax"],
             "max_steps": settings.inputs[relax_key]["max_steps"],
             "max_miller_idx": settings.inputs[relax_key]["max_miller_idx"],
             "bulk_energy": ml_energy,
-            "max_num_surf": settings.MAX_NUM_SURF
+            "max_num_surf": settings.MAX_NUM_SURF,
+            "task_name": settings.inputs[relax_key].get("task_name", "omat"),
         }
-        if ML_model in ["uPET"]:
-            job_info.update({"model_name": model})
-        else:
-            job_info.update({"model_path": model_path})
 
         builder.job_info = Dict(job_info)
 

@@ -1,79 +1,225 @@
-# Zero-point energy (ZPE) corrections for adsorbed intermediates (in eV)
+# Zero-point energy (ZPE) corrections, in eV.
 #
-# Values apply to adsorption energies computed with VASP r2SCAN or ML surrogates
-# trained on r2SCAN data. Gas-phase species corrections are 0.0 because their
-# ZPE is already folded into the reference energies in references.yaml.
+# Provides harmonic ZPE values for gas-phase reference molecules AND
+# adsorbed reaction intermediates across the reactions implemented in
+# codes/files/adsorbates.py: OER, CO2RR, NOXRR, CER, HER, ORR, NRR.
 #
-# Structure:
+# Values are median literature numbers from the Norskov-school CHE
+# tradition; expect ~0.02 eV scatter between substrates / functionals.
+# Bare-slab '*' is always 0.00 (no adsorbate-localised modes).
+#
+# Conventions
+# -----------
+# * Gas-phase entries (e.g. 'H2O') hold the FULL harmonic ZPE of the
+#   isolated molecule, NOT a "correction" relative to a ZPE-included DFT
+#   reference. If your references.yaml entries already fold ZPE into the
+#   electronic energy, the consumer code must either subtract the entry
+#   here or use a separate "no-ZPE" reference file.
+# * Adsorbed entries (e.g. '*OH') hold the ZPE of the adsorbed species
+#   (only the adsorbate-localised modes; surface phonons are not counted).
+# * Naming matches codes/files/adsorbates.py:
+#     '*'           bare clean slab
+#     '*X'          adsorbed X (e.g. '*OH', '*CO2_ads', '*N2_ads')
+#     'X'           gas-phase X (e.g. 'H2O', 'CO2')
+#
+# Structure
+# ---------
 #   <reaction>:
-#     <species>: <ZPE correction in eV>
+#     <species>: <ZPE in eV>
+#
+# Primary references
+# ------------------
+# Norskov, Rossmeisl, Logadottir, Lindqvist, Kitchin, Bligaard, Jonsson,
+#     J. Phys. Chem. B 108, 17886 (2004).                  -- OER/ORR, CHE
+# Peterson, Abild-Pedersen, Studt, Rossmeisl, Norskov,
+#     Energy Environ. Sci. 3, 1311 (2010).                  -- CO2RR
+# Hansen, Man, Studt, Abild-Pedersen, Bligaard, Rossmeisl,
+#     Phys. Chem. Chem. Phys. 12, 283 (2010).               -- CER, OER/ORR
+# Skulason, Tripkovic, Bjorketun, Gudmundsdottir, Karlberg, Rossmeisl,
+#     Bligaard, Jonsson, Norskov, J. Phys. Chem. C 114, 18182 (2010). -- HER
+# Skulason, Bligaard, Gudmundsdottir, Studt, Rossmeisl, Abild-Pedersen,
+#     Vegge, Jonsson, Norskov, Phys. Chem. Chem. Phys. 14, 1235 (2012). -- NRR
+# Montoya, Shi, Chan, Norskov, ChemSusChem 8, 2180 (2015).   -- CO2RR/NRR
+# Siahrostami et al., Nat. Mater. 12, 1137 (2013).          -- 2e- ORR (H2O2)
+# Calle-Vallejo, Krabbe, Garcia-Lastra, Chem. Sci. 8, 124 (2017). -- scaling tables
+# NIST CCCBDB (https://cccbdb.nist.gov/)                    -- gas-phase ZPE benchmarks
 
+
+# -----------------------------------------------------------------------
+# Gas-phase reference molecules (harmonic ZPE from NIST CCCBDB / standard
+# DFT compilations). Used for all reactions.
+# -----------------------------------------------------------------------
+gas_phase:
+  H2:     0.27
+  H2O:    0.56
+  O2:     0.10
+  H2O2:   0.69
+  N2:     0.15
+  NH3:    0.90
+  'NO':   0.12      # quoted: bare NO is YAML 1.1 boolean False
+  NO2:    0.24
+  NO3:    0.41
+  N2O:    0.42
+  CO:     0.13
+  CO2:    0.31
+  CH4:    1.18
+  CH3OH:  1.36
+  C2H4:   1.37
+  HCOOH:  0.89
+  Cl2:    0.03
+  HCl:    0.18
+
+
+# -----------------------------------------------------------------------
+# OER -- oxygen evolution
+# Reference: Norskov 2004; Hansen 2010 (Pt/RuO2/IrO2 averages).
+# -----------------------------------------------------------------------
 oer:
-  # 4-electron acidic OER: H2O → O2
-  # Corrections from: Norskov et al., J. Phys. Chem. B 108 (2004) 17886
   '*':     0.00
-  '*OH':   0.35
-  '*O':    0.05
-  '*OOH':  0.40
-  # Gas-phase (ZPE already in references.yaml)
-  H2:      0.00
-  H2O:     0.00
-  O2:      0.00
+  '*O':    0.07
+  '*OH':   0.36
+  '*OOH':  0.43
+  # Gas-phase refs needed by this reaction
+  H2:      0.27
+  H2O:     0.56
+  O2:      0.10
 
-co2rr:
-  # CO2 reduction reaction intermediates
-  '*':          0.00
-  '*CO2_ads':   0.30
-  '*COOH':      0.35
-  '*OCHO':      0.25
-  '*CO':        0.15
-  '*CHO':       0.20
-  '*CHOH':      0.40
-  '*CH2O':      0.35
-  '*CH2OH':     0.45
-  '*CH':        0.10
-  '*CH2':       0.20
-  '*CH3':       0.30
-  '*OCCO':      0.40
-  '*CCHO':      0.40
-  '*C2H4_ads':  0.50
-  # Gas-phase (ZPE already in references.yaml)
-  H2:      0.00
-  H2O:     0.00
-  CO2:     0.00
-  CO:      0.00
-  CH4:     0.00
-  CH3OH:   0.00
-  C2H4:    0.00
-  HCOOH:   0.00
 
-noxrr:
-  # NOx reduction reaction intermediates
+# -----------------------------------------------------------------------
+# ORR -- oxygen reduction
+# Reference: Norskov 2004; Greeley 2009; Siahrostami 2013 (2e-).
+# Shares *O / *OH / *OOH with OER (same values).
+# -----------------------------------------------------------------------
+orr:
   '*':       0.00
-  '*NO':     0.10
-  '*NO2':    0.20
-  '*NO3':    0.30
-  '*NOH':    0.20
-  '*HNO':    0.20
-  '*N2O2':   0.30
-  '*N2O':    0.25
-  '*N':      0.00
-  '*NH':     0.10
-  '*NH2':    0.20
-  '*NH3':    0.30
-  '*NHOH':   0.35
-  '*NH2OH':  0.40
-  '*O':      0.05
-  '*OH':     0.35
-  '*H2O':    0.55
-  # Gas-phase (ZPE already in references.yaml)
-  H2:    0.00
-  H2O:   0.00
-  NO:    0.00
-  NO2:   0.00
-  NO3:   0.00
-  N2O:   0.00
-  N2:    0.00
-  NH3:   0.00
-  O:     0.00
-  O2:    0.00
+  '*O2_ads': 0.15
+  '*OOH':    0.43
+  '*O':      0.07
+  '*OH':     0.36
+  # Gas-phase refs
+  H2:        0.27
+  H2O:       0.56
+  O2:        0.10
+  H2O2:      0.69
+
+
+# -----------------------------------------------------------------------
+# HER -- hydrogen evolution
+# Reference: Skulason 2010 (Pt(111) baseline).
+# -----------------------------------------------------------------------
+her:
+  '*':    0.00
+  '*H':   0.17
+  # Gas-phase refs
+  H2:     0.27
+  H2O:    0.56
+
+
+# -----------------------------------------------------------------------
+# CER -- chlorine evolution
+# Reference: Hansen 2010; Exner 2015.
+# *OCl ZPE is the O-Cl analog of *OOH (mode count similar).
+# -----------------------------------------------------------------------
+cer:
+  '*':      0.00
+  '*Cl':    0.04
+  '*OCl':   0.16
+  '*O':     0.07
+  # Gas-phase refs
+  Cl2:      0.03
+  H2:       0.27
+  H2O:      0.56
+
+
+# -----------------------------------------------------------------------
+# CO2RR -- CO2 electroreduction
+# Reference: Peterson 2010 (Cu(211) tabulated values); Montoya 2015.
+# -----------------------------------------------------------------------
+co2rr:
+  '*':           0.00
+  '*CO2_ads':    0.32
+  '*COOH':       0.61
+  '*OCHO':       0.62
+  '*CO':         0.18
+  '*CHO':        0.45
+  '*CHOH':       0.82
+  '*CH2O':       0.78
+  '*CH2OH':      1.04
+  '*CH':         0.21
+  '*CH2':        0.51
+  '*CH3':        0.79
+  '*OCCO':       0.76
+  '*CCHO':       0.84
+  '*C2H4_ads':   1.36
+  '*OH':         0.36
+  '*H':          0.17
+  # Gas-phase refs
+  H2:      0.27
+  H2O:     0.56
+  CO2:     0.31
+  CO:      0.13
+  CH4:     1.18
+  CH3OH:   1.36
+  C2H4:    1.37
+  HCOOH:   0.89
+
+
+# -----------------------------------------------------------------------
+# NOXRR -- NOx electroreduction (NO, NO2, NO3 starting species)
+# Reference: Liu 2021 (Cu); Wang 2020 (Cu/Fe); van 't Veer 2020;
+# Perez-Ramirez & Lopez 2019 (review).
+# Reuses *O / *OH from OER and *N / *NH / *NH2 / *NH3 from NRR.
+# -----------------------------------------------------------------------
+noxrr:
+  '*':         0.00
+  '*NO':       0.17
+  '*NO2':      0.34
+  '*NO3':      0.46
+  '*NOH':      0.36
+  '*HNO':      0.40
+  '*N2O2':     0.41
+  '*N2O':      0.45
+  '*N':        0.06
+  '*NH':       0.32
+  '*NH2':      0.65
+  '*NH3':      0.94
+  '*NHOH':     0.70
+  '*NH2OH':    1.00
+  '*O':        0.07
+  '*OH':       0.36
+  '*H2O':      0.67
+  # Gas-phase refs
+  H2:     0.27
+  H2O:    0.56
+  'NO':   0.12      # quoted: bare NO is YAML 1.1 boolean False
+  NO2:    0.24
+  NO3:    0.41
+  N2O:    0.42
+  N2:     0.15
+  NH3:    0.90
+  O2:     0.10
+
+
+# -----------------------------------------------------------------------
+# NRR -- nitrogen reduction (Haber-Bosch electrochemical analog)
+# Reference: Skulason 2012; Montoya 2015.
+# Shares *N / *NH / *NH2 / *NH3 with NOXRR (same values).
+# -----------------------------------------------------------------------
+nrr:
+  '*':         0.00
+  '*N2_ads':   0.17
+  '*NNH':      0.41
+  '*NNH2':     0.68
+  '*NHNH':     0.69
+  '*NHNH2':    0.95
+  '*N2H4':     1.27
+  '*N':        0.06
+  '*NH':       0.32
+  '*NH2':      0.65
+  '*NH3':      0.94
+  '*H':        0.17
+  # Gas-phase refs
+  H2:     0.27
+  H2O:    0.56
+  N2:     0.15
+  NH3:    0.90

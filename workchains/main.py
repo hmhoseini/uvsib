@@ -345,13 +345,7 @@ class MainWorkChain(WorkChain):
         row = self.ctx.dbcomposition_row
         # update row status in DBComposition table
         row.step_status.update({"surface_builder": "Running"})
-        update_row(
-            DBComposition,
-            row.uuid,
-            {"status": "Running",
-             "step_status": row.step_status
-             }
-        )
+        update_row(DBComposition, row.uuid,{"status": "Running", "step_status": row.step_status})
         builder = self._construct_surface_builder()
         future = self.submit(builder)
         self.to_context(**{"surface_builder": future})
@@ -364,25 +358,13 @@ class MainWorkChain(WorkChain):
         if not s_b_wch.is_finished_ok:
             # update row status in DBComposition table
             row.step_status.update({"surface_builder": "Failed"})
-            update_row(
-                    DBComposition,
-                    row.uuid,
-                    {"status": "Failed",
-                     "step_status": row.step_status
-                    }
-            )
+            update_row(DBComposition, row.uuid,{"status": "Failed", "step_status": row.step_status})
             self.report("SurfaceBuilder WorkChain failed")
             return self.exit_codes.ERROR_CALCULATION_FAILED
 
         # update row status in DBComposition table
         row.step_status.update({"surface_builder": "Done"})
-        update_row(
-                DBComposition,
-                row.uuid,
-                {"status": "Running",
-                 "step_status": row.step_status
-                }
-        )
+        update_row(DBComposition, row.uuid,{"status": "Running", "step_status": row.step_status})
 
     def adsorbates(self):
         """Running AdsorbatesWorkChain"""

@@ -36,7 +36,7 @@ class NanoParticleGenerator(CalcJob):
 
         if job_type == 'relax':
             input_file = os.path.join(settings.upet_files_path, 'relax.py')
-        elif job_type == 'facebuild':
+        elif job_type == 'face_build':
             input_file = os.path.join(settings.upet_files_path, 'face_build.py')
         elif job_type == 'adsorbates':
             input_file = os.path.join(settings.upet_files_path, 'adsorbates.py')
@@ -48,6 +48,12 @@ class NanoParticleGenerator(CalcJob):
         with open(input_file, 'r', encoding='utf-8') as f:
             content = f.read()
         with folder.open('aiida.py', 'w', encoding='utf-8') as f:
+            f.write(content)
+
+        helper_file = os.path.join(settings.upet_files_path, '_calculators.py')
+        with open(helper_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+        with folder.open('_calculators.py', 'w', encoding='utf-8') as f:
             f.write(content)
 
         codeinfo = CodeInfo()

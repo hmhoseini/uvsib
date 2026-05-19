@@ -56,6 +56,12 @@ class uPETCalculation(CalcJob):
         with folder.open('aiida.py', 'w', encoding='utf-8') as f:
             f.write(content)
 
+        helper_file = os.path.join(settings.upet_files_path, '_calculators.py')
+        with open(helper_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+        with folder.open('_calculators.py', 'w', encoding='utf-8') as f:
+            f.write(content)
+
         # Code info
         codeinfo = CodeInfo()
         codeinfo.code_uuid = self.inputs.code.uuid

@@ -1,6 +1,5 @@
 import os
 import json
-import numpy as np
 from ase.constraints import FixAtoms
 from pymatgen.core import Lattice, Structure
 from pymatgen.entries.computed_entries import ComputedStructureEntry
@@ -8,11 +7,11 @@ from mp_api.client import MPRester
 from ase import Atoms
 from uvsib.workflows import settings
 
+
 def get_cmdline(job_info):
     """Construct command line"""
 
     cmdline = []
-
     cmdline.append(f"--ML_model={job_info['ML_model']}")
 
     model_name = job_info.get("model_name")
@@ -24,6 +23,10 @@ def get_cmdline(job_info):
     if model_path:
         cmdline.append(f"--model_path={model_path}")
 
+    task_name = job_info.get("task_name")
+    if task_name:
+        cmdline.append(f"--task_name={task_name}")
+
     cmdline.append(f"--device={job_info['device']}")
 
     job_type = job_info['job_type']
@@ -33,7 +36,7 @@ def get_cmdline(job_info):
             f"--fmax={job_info['fmax']}",
             f"--max_steps={job_info['max_steps']}"]
         )
-    elif job_type == 'facebuild':
+    elif job_type == 'face_build':
         cmdline.extend([
             f"--bulk_energy={job_info['bulk_energy']}",
             f"--fmax={job_info['fmax']}",
@@ -154,8 +157,8 @@ def get_energy_per_atom(functional):
                 "Na","Mg","Al","Si","P","S","Cl","Ar",
                 "K","Ca","Sc","Ti","V","Cr","Mn","Fe","Co","Ni","Cu","Zn","Ga","Ge","As","Se","Br","Kr",
                 "Rb","Sr","Y","Zr","Nb","Mo","Tc","Ru","Rh","Pd","Ag","Cd","In","Sn","Sb","Te","I","Xe",
-                "Cs","Ba","La","Ce","Pr","Nd","Pm","Sm","Eu","Gd","Tb","Dy","Ho","Er","Tm","Yb","Lu","Hf","Ta","W","Re","Os","Ir","Pt","Au","Hg","Tl","Pb","Bi",
-                          "Ac","Th","Pa","U","Np","Pu"]
+                "Cs","Ba","La","Ce","Pr","Nd","Pm","Sm","Eu","Gd","Tb","Dy","Ho","Er","Tm","Yb","Lu","Hf","Ta",
+                "W","Re","Os","Ir","Pt","Au","Hg","Tl","Pb","Bi","Ac","Th","Pa","U","Np","Pu"]
     with MPRester(settings.api_key) as mpr:
         entries = mpr.materials.thermo.search(
                 chemsys=elements,

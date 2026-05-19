@@ -10,6 +10,7 @@ from uvsib.workchains.utils import (
 from uvsib.db.utils import add_structures
 from uvsib.workflows import settings
 
+
 StructureData = DataFactory('core.structure')
 
 DFT_FUNC = settings.DFT_FUNC
@@ -17,11 +18,9 @@ EHULL_ML = settings.EHULL_ML
 
 class CSPWorkChain(WorkChain):
     """WorkChain for Crystal Structure Prediction (CSP)"""
-
     @classmethod
     def define(cls, spec):
         super().define(spec)
-
         spec.input("chemical_formula", valid_type=Str)
         spec.input("ML_model", valid_type=Str)
         spec.input("n_csp", valid_type=Int)
@@ -70,9 +69,7 @@ class CSPWorkChain(WorkChain):
                 continue
 
             try:
-                self.ctx.csp_structures.extend(
-                    csp_wch.outputs.output_dict["structures"]
-                )
+                self.ctx.csp_structures.extend(csp_wch.outputs.output_dict["structures"])
             except:
                 failed_jobs += 1
 
@@ -93,9 +90,6 @@ class CSPWorkChain(WorkChain):
     def collect_ml_energies(self):
         """ML energies"""
         wch = self.ctx.ml_e
-
-        if not wch.is_finished_ok:
-            return self.exit_codes.ERROR_ML_RELAX_FAILED
         try:
             new_entries = get_output_as_entry(wch)
         except:
@@ -106,8 +100,7 @@ class CSPWorkChain(WorkChain):
                 new_entries,
                 DFT_FUNC,
                 EHULL_ML,
-                min_n_return=self.ctx.n_mh
-        )
+                min_n_return=self.ctx.n_mh)
 
     def minimahopping(self):
         """Run MinimaHopping"""
@@ -127,7 +120,6 @@ class CSPWorkChain(WorkChain):
         failed_jobs = 0
         for i in range(n_mh):
             wch = self.ctx[f"mh_{i}"]
-
             if not wch.is_finished_ok:
                 failed_jobs += 1
                 continue
@@ -150,7 +142,6 @@ class CSPWorkChain(WorkChain):
     def final_step(self):
         """Store structures"""
         all_entries = self.ctx.low_energy_entries_csp + self.ctx.low_energy_entries_mh
-
         low_energy_entries, _ = unique_low_energy_comp(
                 self.ctx.chemical_formula,
                 all_entries,
@@ -162,11 +153,7 @@ class CSPWorkChain(WorkChain):
         for entry in low_energy_entries:
             structure_energy_pairs.append((entry.structure.as_dict(), entry.energy))
 
-        add_structures(
-                "csp",
-                self.ctx.ML_model,
-                structure_energy_pairs
-        )
+        add_structures("csp", self.ctx.ML_model, structure_energy_pairs)
 
     def final_report(self):
         """Final report"""
@@ -177,8 +164,8 @@ class CSPWorkChain(WorkChain):
         Workflow = WorkflowFactory("mattergen.csp")
         builder = Workflow.get_builder()
         builder.chemical_formula = Str(self.ctx.chemical_formula)
-        builder.code = get_code("MatterGen")
-        _, model_path, _ = get_model_device("MatterGenCSP")
+        builder.code = get_code("MatterGen_CSP")
+        _, model_path, _ = get_model_device("MatterGen_CSP")
         builder.job_info = Dict(
             {
                 "job_type": "csp",
@@ -192,34 +179,35 @@ class CSPWorkChain(WorkChain):
 
     def _construct_ML_relax_builder(self):
         """
-        General builder for structure opimization with an ML model
+        General builder for structure optimization with an ML model
         """
         ML_model = self.ctx.ML_model
         structures = self.ctx.csp_structures
 
-        Workflow = WorkflowFactory(ML_model.lower())
+        local_model = settings.inputs['bulk_relax']['model']
+        Workflow = WorkflowFactory(local_model.lower())
 
         builder = Workflow.get_builder()
-
         builder.input_structures = List(structures)
-        builder.code = get_code(ML_model)
+        builder.code = get_code(local_model)
         builder.local_label = Str("relax {}".format(self.ctx.chemical_formula))
 
-        model, model_path, device = get_model_device(ML_model)
+        model, model_path, device = get_model_device(local_model)
 
         relax_key = "bulk_relax"
 
         job_info = {
             "job_type": "relax",
-            "ML_model": ML_model,
+            "ML_model": local_model,
+            "model_name": model,
+            "model_path": model_path,
             "device": device,
             "fmax": settings.inputs[relax_key]["fmax"],
             "max_steps": settings.inputs[relax_key]["max_steps"],
+            "task_name": settings.inputs[relax_key].get("task_name", "omat"),
         }
 
-        job_info.update({"model_name": model, "model_path": model_path, "device": device})
-
-        # if ML_model in ["uPET"]:
+        # if ML_model in ["uPET", "UMA"]:
         #     job_info.update({"model_name": model})
         # else:
         #     job_info.update({"model_path": model_path})
@@ -234,18 +222,25 @@ class CSPWorkChain(WorkChain):
         builder.code = get_code("MinimaHopping")
         builder.this_label = '{}'.format(self.ctx.chemical_formula)
 
-        model, model_path, device = get_model_device(ML_model)
+        local_model = settings.inputs['MinimaHopping']['model']
+        model, model_path, device = get_model_device(local_model)
 
         job_info = {
-             "ML_model": ML_model,
+             "ML_model": local_model,
+             "model_name": model,
+             "model_path": model_path,
              "device": device,
              "mh_steps": settings.inputs["MinimaHopping"]["mh_steps"],
              "fmax": settings.inputs["MinimaHopping"]["fmax"],
+             "task_name": settings.inputs["MinimaHopping"].get("task_name", "omat"),
             }
-        if ML_model in ["uPET"]:
-            job_info.update({"model_name": model})
-        else:
-            job_info.update({"model_path": model_path})
+
+        # print('csp / minhop / job_info: ', job_info)
+
+        # if ML_model in ["uPET", "UMA"]:
+        #     job_info.update({})
+        # else:
+        #     job_info.update({"model_path": model_path})
 
         builder.job_info = Dict(job_info)
 

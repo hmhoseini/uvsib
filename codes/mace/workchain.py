@@ -38,9 +38,7 @@ MACECalculation = CalculationFactory('mace')
 
 class MACEWorkChain(BaseRestartWorkChain):
     """BaseRestartWorkChain to run MACECalculation with automatic restarts"""
-
     _process_class = MACECalculation
-
     @classmethod
     def define(cls, spec):
         super().define(spec)
@@ -56,16 +54,12 @@ class MACEWorkChain(BaseRestartWorkChain):
                 cls.run_process,
                 cls.inspect_process,
             ),
-            cls.results,
+            cls.results
         )
 
         spec.expose_outputs(MACECalculation)
 
-        spec.exit_code(
-            400,
-            'ERROR_MAX_RESTARTS_EXCEEDED',
-            message='Maximum number of restarts exceeded for MACEWorkChain.'
-        )
+        spec.exit_code(400, 'ERROR_MAX_RESTARTS_EXCEEDED', message='Maximum number of restarts exceeded for MACEWorkChain.')
 
     def setup(self):
         """Initialize context before first calculation."""
@@ -85,6 +79,6 @@ class MACEWorkChain(BaseRestartWorkChain):
             }),
             'metadata': {
                 'options': get_options(),
-                'label': 'MACE calculation'
+                'label': 'MACE: {}'.format(self.inputs.local_label.value)
             }
         }
