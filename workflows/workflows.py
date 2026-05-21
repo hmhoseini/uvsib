@@ -2,25 +2,26 @@ from pymatgen.core.structure import Composition
 from uvsib.db.tables import DBFrontend, DBChemsys, DBComposition, DBSurfaceMLAdsorbate, DBNanoParticles
 from uvsib.db.utils import update_row, add_row, get_chemical_systems, query_by_columns
 from uvsib.workchains.submit import submit_mainworkchain
-
+from uvsib.workflows import settings
 
 def add_from_frontend(dict_from_frontend_list):
     """Process frontend submissions and update the database accordingly."""
     for entry in dict_from_frontend_list:
         chemical_formula = Composition(entry["chemical_formula"]).reduced_formula
         user = entry["user"]
-        model = entry["model"]
         reaction = entry["reaction"]
         reaction_path = entry["reaction_path"]
-        retry = entry["retry"]
+        mdata = entry["mdata"]
 
-        if "nano_particles" in entry:
-            nano = entry['nano_particles']
+        retry = mdata["retry"]
+
+        if "nano_particles" in mdata:
+            nano = mdata['nano_particles']
         else:
             nano = False
 
-        if "similarities" in entry:
-            similars = entry['similarities']
+        if "similarities" in mdata:
+            similars = mdata['similarities']
         else:
             similars = {}
 
@@ -33,7 +34,6 @@ def add_from_frontend(dict_from_frontend_list):
                 "composition": chemical_formula,
                 "reaction": reaction,
                 "reaction_path": reaction_path,
-                "model": model,
                 "nano_particles": nano}
             )
 
@@ -64,9 +64,11 @@ def add_from_frontend(dict_from_frontend_list):
                                                       "reaction_path": reaction_path})
         if row:
             continue
+        model_bulk = settings.configs["model_bulk"] 
+        model_surface = settings.configs["model_surface"]
 
         submit_mainworkchain(chemical_formula=chemical_formula, chemical_systems=new_chemsys,
-                             model=model, reaction=reaction, reaction_path=reaction_path,
+                             model_bulk=model_bulk, model_surface=model_surface, reaction=reaction, reaction_path=reaction_path,
                              nano=nano, similarities=similars)
         update_dbfrontend()
 

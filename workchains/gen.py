@@ -133,18 +133,17 @@ class GeneratorWorkChain(WorkChain):
         """
         General builder for MatterSim or MACE for structure opimization
         """
-        local_model = settings.inputs['bulk_relax']['model']
-        Workflow = WorkflowFactory(local_model.lower())
+        Workflow = WorkflowFactory(ML_model.lower())
         builder = Workflow.get_builder()
         builder.input_structures = List(structures)
-        builder.code = get_code(local_model)
-        model , model_path, device = get_model_device(local_model)
+        builder.code = get_code(ML_model)
+        model , model_path, device = get_model_device(ML_model)
 
         relax_key = "bulk_relax"
 
         job_info = {
             "job_type": "relax",
-            "ML_model": local_model,
+            "ML_model": ML_model,
             "model_name": model,
             "model_path": model_path,
             "device": device,

@@ -13,14 +13,14 @@ def get_struct_uuid(chemical_formula, ml_model): #TODO: will remove after test
     if _SKIP_PD_VERIFICATION:
         results = query_structure({"composition": chemical_formula}, method=ml_model)
         filtered_results = list()
-        for s, e, u in sorted([(row.structure, row.energy, str(row.structure_uuid)) for row in results], key=lambda x: x[1]):
-            filtered_results.append([s, e, u])
+        for s, u in sorted([(row.structure, str(row.structure_uuid)) for row in results], key=lambda x: x[1]):
+            filtered_results.append([s, u])
             if len(filtered_results) == 10:
                 break
         return filtered_results
     else:
         results = query_structure({"composition": chemical_formula}, method = "r2SCAN") or []
-        return [(row.structure, row.energy, str(row.structure_uuid)) for row in results]
+        return [(row.structure, str(row.structure_uuid)) for row in results]
 
 def read_yaml(file_path):
     """Read a yaml file"""
