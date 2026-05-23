@@ -42,14 +42,14 @@ class uPETCalculation(CalcJob):
 
         if job_type == 'relax':
             input_file = os.path.join(settings.upet_files_path, 'relax.py')
-        elif job_type == 'facebuild':
+        elif job_type == 'face_build':
             input_file = os.path.join(settings.upet_files_path, 'face_build.py')
         elif job_type == 'adsorbates':
             input_file = os.path.join(settings.upet_files_path, 'adsorbates.py')
         elif job_type == 'nano_particles':
             input_file = os.path.join(settings.upet_files_path, 'nano_particles.py')
         else:
-            input_file = os.path.join(settings.upet_path, 'energy_forces.py')
+            input_file = os.path.join(settings.upet_files_path, 'energy_forces.py')
 
         with open(input_file, 'r', encoding='utf-8') as f:
             content = f.read()

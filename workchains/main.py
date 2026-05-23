@@ -465,6 +465,7 @@ class MainWorkChain(WorkChain):
         builder = SurfaceBuilderWorkChain.get_builder()
         builder.chemical_formula = Str(self.ctx.chemical_formula)
         builder.ML_model = self.ctx.model_surface
+        builder.model_bulk = self.ctx.model_bulk        
         return builder
 
     def _construct_adsorbates_builder(self):

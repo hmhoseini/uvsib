@@ -148,9 +148,7 @@ class AdsorbatesWorkChain(WorkChain):
     def final_report(self):
         """Final report"""
         if not self.ctx.candidates:
-            self.report(f"AdsorbatesWorkChain for {self.ctx.chemical_formula}: no candidates below eta threshold.")
-            return self.exit_codes.ERROR_CALCULATION_FAILED
-        self.report(f"AdsorbatesWorkChain for {self.ctx.chemical_formula} finished successfully.")
+            self.report(f"Warning: AdsorbatesWorkChain for {self.ctx.chemical_formula}: no candidates below eta threshold.")
 
     def _construct_adsorbate_builder(self, slab, ML_model, reaction, pathway):
         """

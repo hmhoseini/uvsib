@@ -2,6 +2,7 @@ from __future__ import annotations
 import json
 import argparse
 import numpy as np
+from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Dict, List, Callable
 from ase.data import covalent_radii
@@ -15,153 +16,20 @@ from pymatgen.core.surface import Slab
 from pymatgen.analysis.adsorption import AdsorbateSiteFinder
 from scipy.spatial.distance import pdist, squareform
 
-def ase_to_pmg(atoms):
-    """Convert an ASE Atoms object to a pymatgen Structure"""
-    lattice = atoms.cell.array.tolist()
-    symbols = atoms.get_chemical_symbols()
-    frac_coords = atoms.get_scaled_positions().tolist()
-    lattice_obj = Lattice(lattice)
-    return Structure(lattice_obj,
-                          symbols,
-                          frac_coords,
-                          coords_are_cartesian=False)
 
-def pmg_to_ase(pmg_structure):
-    """Convert a pymatgen Structure to an ASE Atoms object"""
-    scaled_positions = pmg_structure.frac_coords
-    symbols = [str(site.specie) for site in pmg_structure.sites]
-    cell = pmg_structure.lattice.matrix
+_REF_DIR = Path(__file__).parent / "molecular_references"
 
-    atoms = Atoms(
-        symbols=symbols,
-        scaled_positions=scaled_positions,
-        cell=cell,
-        pbc=True
-    )
-
-    if "selective_dynamics" in pmg_structure.site_properties:
-        sd = pmg_structure.site_properties["selective_dynamics"]
-        mask = [not any(flags) for flags in sd]
-        if any(mask):
-            atoms.set_constraint(FixAtoms(mask=mask))
-    return atoms
-
-def _create_gas_phase_references() -> Dict[str, Structure]:
-    """Create gas-phase reference molecules using ASE and convert to pymatgen.
-    
-    Generates isolated molecules in a large cell with typical equilibrium
-    geometries. All structures are converted from ASE to pymatgen format.
-    
-    Returns
-    -------
-    dict[str, Structure]
-        Dictionary mapping molecule names to pymatgen Structure objects.
-    """
-    # H2: bond length ~0.74 Å
-    h2_atoms = Atoms('H2', positions=[[0, 0, 0], [0.74, 0, 0]])
-
-    # O2: bond length ~1.21 Å
-    o2_atoms = Atoms('O2', positions=[[0, 0, 0], [1.21, 0, 0]])
-
-    # N2: bond length ~1.10 Å
-    n2_atoms = Atoms('N2', positions=[[0, 0, 0], [1.10, 0, 0]])
-
-    # Cl2: bond length ~1.99 Å
-    cl2_atoms = Atoms('Cl2', positions=[[0, 0, 0], [1.99, 0, 0]])
-
-    # H2O: O at origin, H-O-H angle ~104.5°
-    h2o_atoms = Atoms('H2O', positions=[
-        [0.0, 0.0, 0.0],      # O
-        [0.96, 0.0, 0.0],     # H
-        [-0.24, 0.93, 0.0]    # H
-    ])
-
-    # H2O2: Hydrogen peroxide
-    h2o2_atoms = Atoms('H2O2', positions=[
-        [0.0, 0.0, 0.0],      # O
-        [1.47, 0.0, 0.0],     # O
-        [-0.38, 0.38, 0.38],  # H
-        [1.85, 0.38, 0.38]    # H
-    ])
-
-    # NH3: Ammonia, trigonal pyramidal
-    nh3_atoms = Atoms('NH3', positions=[
-        [0.0, 0.0, 0.0],       # N
-        [0.94, 0.0, 0.0],      # H
-        [-0.47, 0.82, 0.0],    # H
-        [-0.47, -0.41, 0.71]   # H
-    ])
- 
-    # CH4: Methane, tetrahedral
-    ch4_atoms = Atoms('CH4', positions=[
-        [0.0, 0.0, 0.0],       # C
-        [0.63, 0.63, 0.63],    # H
-        [-0.63, -0.63, 0.63],  # H
-        [-0.63, 0.63, -0.63],  # H
-        [0.63, -0.63, -0.63]   # H
-    ])
-
-    # CO2: Carbon dioxide, linear
-    co2_atoms = Atoms('CO2', positions=[
-        [0.0, 0.0, 0.0],       # C
-        [-1.16, 0.0, 0.0],     # O
-        [1.16, 0.0, 0.0]       # O
-    ])
-
-    # N2O: Nitrous oxide, linear
-    n2o_atoms = Atoms('N2O', positions=[
-        [0.0, 0.0, 0.0],       # N
-        [1.13, 0.0, 0.0],      # N
-        [2.28, 0.0, 0.0]       # O
-    ])
-
-    # CH3OH: Methanol (C-H bond ~0.94 Å, C-O bond ~1.42 Å, O-H bond ~0.96 Å)
-    ch3oh_atoms = Atoms('CH3OH', positions=[
-        [0.0, 0.0, 0.0],        # C
-        [0.94, 0.0, 0.0],       # H (on C)
-        [-0.47, 0.82, 0.0],     # H (on C)
-        [-0.47, -0.41, 0.71],   # H (on C)
-        [0.0, -1.42, 0.0],      # O
-        [0.76, -1.95, 0.96]     # H (on O)
-    ])
-
-    # Set large cell for isolated molecules to avoid periodic interactions
-    molecules_ase = {
-        'h2': h2_atoms,
-        'o2': o2_atoms,
-        'n2': n2_atoms,
-        'cl2': cl2_atoms,
-        'h2o': h2o_atoms,
-        'h2o2': h2o2_atoms,
-        'nh3': nh3_atoms,
-        'ch4': ch4_atoms,
-        'co2': co2_atoms,
-        'n2o': n2o_atoms,
-        'ch3oh': ch3oh_atoms,
-    }
-
-    # Convert ASE to pymatgen and center molecules in 10x10x10 Å cells
-    structures = {}
-    for name, atoms in molecules_ase.items():
-        atoms.set_cell([[10, 0, 0], [0, 10, 0], [0, 0, 10]], scale_atoms=False)
-        atoms.center()
-        structures[name] = ase_to_pmg(atoms)
-
-    return structures
-
-# Create gas-phase reference structures
-_gas_refs = _create_gas_phase_references()
-h2_ref    = _gas_refs['h2']
-o2_ref    = _gas_refs['o2']
-n2_ref    = _gas_refs['n2']
-cl2_ref   = _gas_refs['cl2']
-h2o_ref   = _gas_refs['h2o']
-h2o2_ref  = _gas_refs['h2o2']
-nh3_ref   = _gas_refs['nh3']
-ch4_ref   = _gas_refs['ch4']
-co2_ref   = _gas_refs['co2']
-n2o_ref   = _gas_refs['n2o']
-ch3oh_ref = _gas_refs['ch3oh']
+ch3oh_ref = Structure.from_file(_REF_DIR / "ch3oh.vasp")
+ch4_ref   = Structure.from_file(_REF_DIR / "ch4.vasp")
+co2_ref   = Structure.from_file(_REF_DIR / "co2.vasp")
+n2o_ref   = Structure.from_file(_REF_DIR / "n2o.vasp")
+nh3_ref   = Structure.from_file(_REF_DIR / "nh3.vasp")
+n2_ref    = Structure.from_file(_REF_DIR / "n2.vasp")
+h2_ref    = Structure.from_file(_REF_DIR / "h2.vasp")
+h2o_ref   = Structure.from_file(_REF_DIR / "h2o.vasp")
+cl2_ref   = Structure.from_file(_REF_DIR / "cl2.vasp")
+o2_ref    = Structure.from_file(_REF_DIR / "o2.vasp")
+h2o2_ref  = Structure.from_file(_REF_DIR / "h2o2.vasp")
 
 # Registry of gas-phase reference structures, keyed by the same name used
 # in `ReactionStep.released` and (after `_ADS_TO_GAS` translation) by the
@@ -217,7 +85,7 @@ def _pathway_required_refs(reaction: str, pathway_obj) -> List[str]:
 
     if reaction == "OER":
         # 4 H+/e- transfers; product is O2 from 2 H2O.
-        return sorted(["H2", "H2O", "O2"])
+        return sorted({"H2", "H2O", "O2"})
 
     if pathway_obj is None:
         return ["H2", "H2O"]
@@ -304,6 +172,37 @@ def has_reasonable_distances(atoms: Atoms, scale: float = 0.5) -> bool:
             if d < r_min:
                 return False
     return True
+
+def ase_to_pmg(atoms):
+    """Convert an ASE Atoms object to a pymatgen Structure"""
+    lattice = atoms.cell.array.tolist()
+    symbols = atoms.get_chemical_symbols()
+    frac_coords = atoms.get_scaled_positions().tolist()
+    lattice_obj = Lattice(lattice)
+    return Structure(lattice_obj,
+                          symbols,
+                          frac_coords,
+                          coords_are_cartesian=False)
+
+def pmg_to_ase(pmg_structure):
+    """Convert a pymatgen Structure to an ASE Atoms object"""
+    scaled_positions = pmg_structure.frac_coords
+    symbols = [str(site.specie) for site in pmg_structure.sites]
+    cell = pmg_structure.lattice.matrix
+
+    atoms = Atoms(
+        symbols=symbols,
+        scaled_positions=scaled_positions,
+        cell=cell,
+        pbc=True
+    )
+
+    if "selective_dynamics" in pmg_structure.site_properties:
+        sd = pmg_structure.site_properties["selective_dynamics"]
+        mask = [not any(flags) for flags in sd]
+        if any(mask):
+            atoms.set_constraint(FixAtoms(mask=mask))
+    return atoms
 
 def average_minimum_distance_structure(structure):
     """"Compute the average nearest-neighbor distance"""
@@ -2383,7 +2282,7 @@ def generate_adsorbed_structures(reaction: str, pathway_name: str = "") -> dict:
     return {"sets": adsorption_sets, "gas_refs": gas_refs}
 
 def run_relaxation(ml_model: str, calc, fmax: float, max_steps: int,
-                   reaction: str, pathway: str) -> dict:
+                   reaction: str, pathway: str, **relaxation_kwargs) -> dict:
     """Run geometry relaxation on adsorbate structures.
     
     Parameters
@@ -2443,7 +2342,7 @@ def run_relaxation(ml_model: str, calc, fmax: float, max_steps: int,
         # Relax clean slab once per repeat configuration
         clean_slab = set_data['clean_slab']
         clean_slab.calc = calc
-        relax_clean = BFGSLineSearch(clean_slab, maxstep=0.1, logfile='opt.log')
+        relax_clean = BFGSLineSearch(clean_slab, **relaxation_kwargs)
 
         try:
             relax_clean.run(fmax=fmax, steps=max_steps)

@@ -89,7 +89,9 @@ def process_slab(slab, target_vacuum=10.0, angle_tol=1.0):
         site_properties=slab.site_properties
     )
 
-def run_surface_builder(bulk_energy, calc, fmax, max_steps, max_miller_idx, max_num_surf):
+
+
+def run_surface_builder(calc, fmax, max_steps, max_miller_idx, max_num_surf):
     """Build and relax surfaces with given parameters """
 
     with open('input_structures.json', 'r') as f:
@@ -97,7 +99,12 @@ def run_surface_builder(bulk_energy, calc, fmax, max_steps, max_miller_idx, max_
 
     structure = Structure.from_dict(structure_list[0])
     nat = structure.num_sites
-    epa = bulk_energy/nat
+
+    # Calculate bulk energy
+    atoms_bulk = AseAtomsAdaptor.get_atoms(structure)
+    atoms_bulk.calc = calc
+    bulk_energy = atoms_bulk.get_potential_energy()
+    epa = bulk_energy / nat
 
     sga = SpacegroupAnalyzer(structure, symprec=0.01, angle_tolerance=5)
     conv_struct = sga.get_conventional_standard_structure()
@@ -109,42 +116,54 @@ def run_surface_builder(bulk_energy, calc, fmax, max_steps, max_miller_idx, max_
                                max_normal_search=max_miller_idx,
                                in_unit_planes=True)
 
-    orth_slabs = list()
-    for s in slabs:
-        orth_slab = process_slab(s)
-        if not orth_slab:
-            continue
-        orth_slabs.append(orth_slab)
+    # Only keep orthogonal slabs before relaxation
+    orth_slabs = [process_slab(s) for s in slabs]
+    orth_slabs = [s for s in orth_slabs if s is not None]
+
+    print(f"Total slabs generated: {len(slabs)}")
+    print(f"Orthogonal slabs after filtering: {len(orth_slabs)}")
 
     num_failed = 0
-    tmp_atoms = list()
-    for slab in orth_slabs:
-        atoms = pmg_to_ase(slab)
-        atoms.info['miller_index'] = slab.as_dict()['miller_index']
-        atoms.calc = calc
-        relax = BFGSLineSearch(atoms, maxstep=0.1, logfile='opt.log')
-        relax.run(fmax=fmax, steps=max_steps)
-        if relax.converged:
-            tmp_atoms.append(atoms)
-        else:
-            num_failed += 1
-
     slab_data = list()
-    for atoms in tmp_atoms:
-        n_slab = len(atoms)
-        area = atoms.cell.areas()[2] * 2.0
-        surface_energy = (atoms.get_potential_energy() - (n_slab * epa)) / area
-        atoms.info['energy'] = atoms.get_potential_energy()
-        atoms.info['surface_formation_energy'] = surface_energy
-        slab_data.append({"atoms": atoms, "surface_formation_energy": surface_energy})
+
+    for idx, slab in enumerate(orth_slabs):
+        try:
+            atoms = pmg_to_ase(slab)
+            atoms.calc = calc
+            relax = BFGSLineSearch(atoms, maxstep=0.1, logfile="log.opt")
+            relax.run(fmax=fmax, steps=max_steps)
+
+            if relax.converged():
+                n_slab = len(atoms)
+                area = atoms.cell.areas()[2]
+                surface_energy = (atoms.get_potential_energy() - (n_slab * epa)) / (2.0 * area)
+                atoms.info['energy'] = atoms.get_potential_energy()
+                atoms.info['surface_formation_energy'] = surface_energy
+                slab_data.append({"atoms": atoms, "surface_formation_energy": surface_energy})
+            else:
+                num_failed += 1
+                print(f"Warning: Slab {idx} (miller index {slab.miller_index}) did not converge")
+        except Exception as e:
+            num_failed += 1
+            print(f"Error relaxing slab {idx}: {str(e)}")
+
+    if not slab_data:
+        print("Error: No slabs converged. Exiting.")
+        return
 
     slab_data.sort(key=lambda x: x["surface_formation_energy"])
-    selected_faces = slab_data[:max_num_surf]
+
+    num_to_select = min(max_num_surf, len(slab_data))
+    selected_faces = slab_data[:num_to_select]
+
+    if num_to_select < max_num_surf:
+        print(f"Warning: Only {num_to_select} slabs converged, requested {max_num_surf}")
 
     built_faces = []
     for entry in selected_faces:
         at = entry["atoms"]
         built_faces.append(ase_to_pmg(at).as_dict())
+
 
     to_dump = dict({'slabs': built_faces})
 
@@ -157,10 +176,8 @@ def run_surface_builder(bulk_energy, calc, fmax, max_steps, max_miller_idx, max_
     with open('failed.txt', 'w') as f:
         f.write(str(num_failed))
 
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--bulk_energy", type=float)
     parser.add_argument("--ML_model", type=str)
     parser.add_argument("--model", type=str)
     parser.add_argument("--model_path", type=str)
@@ -176,7 +193,7 @@ if __name__ == "__main__":
     calc = make_calculator(args.ML_model, model=args.model, model_path=args.model_path,
                            device=args.device, task_name=args.task_name)
 
-    run_surface_builder(args.bulk_energy, calc,
+    run_surface_builder(calc,
                         args.fmax, args.max_steps,
                         args.max_miller_idx,
                         args.max_num_surf)
