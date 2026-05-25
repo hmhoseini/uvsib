@@ -148,7 +148,15 @@ def run_surface_builder(calc, fmax, max_steps, max_miller_idx, max_num_surf):
             print(f"Error relaxing slab {idx}: {str(e)}")
 
     if not slab_data:
-        print("Error: No slabs converged. Exiting.")
+        print("Warning: No slabs converged. Exiting.")
+        with open('output.json', 'w') as f:
+            json.dump({'slabs': []}, f)
+
+        with open('total.txt', 'w') as f:
+            f.write(str(0))
+
+        with open('failed.txt', 'w') as f:
+            f.write(str(0))
         return
 
     slab_data.sort(key=lambda x: x["surface_formation_energy"])
