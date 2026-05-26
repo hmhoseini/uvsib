@@ -15,7 +15,7 @@ dissociative : N2 → 2 *N → 2 *NH → 2 *NH2 → 2 NH3
 """
 
 import numpy as np
-from uvsib.workchains.utils import load_references, load_zpe
+from uvsib.workchains.utils import load_zpe
 
 _ZPE = load_zpe("nrr")
 
@@ -64,7 +64,7 @@ NRR_PATHWAYS = {
 }
 
 
-def calculate_nrr_overpotential(adsorption_energies, pathway_name, method, func):
+def calculate_nrr_overpotential(adsorption_energies, pathway_name):
     """Calculate NRR overpotential using the CHE model.
 
     Parameters
@@ -76,10 +76,6 @@ def calculate_nrr_overpotential(adsorption_energies, pathway_name, method, func)
         'alternating'; just '*N', '*NH', '*NH2' for 'dissociative'.
     pathway_name : str
         One of: 'distal', 'alternating', 'dissociative'.
-    method : str
-        'dft' or ML model name (e.g. 'uPET', 'mace', 'mattersim').
-    func : str
-        Functional / reference set, e.g. 'r2SCAN'.
 
     Returns
     -------
@@ -94,10 +90,9 @@ def calculate_nrr_overpotential(adsorption_energies, pathway_name, method, func)
     ------
     ValueError
         If pathway_name is not supported.
-    NotImplementedError
-        If the method/func combination has no defined references.
     KeyError
-        If a required adsorbate key is missing from adsorption_energies.
+        If a required adsorbate or gas-phase reference key is missing from
+        adsorption_energies (e.g. '*N2_ads', '*N', 'N2', 'NH3').
     """
     if pathway_name not in NRR_PATHWAYS:
         raise ValueError(
@@ -105,9 +100,11 @@ def calculate_nrr_overpotential(adsorption_energies, pathway_name, method, func)
             f"Supported: {list(NRR_PATHWAYS.keys())}"
         )
 
-    refs = load_references(method, func)
-    local_energy = adsorption_energies.copy()
-    local_energy.update(refs)
+    # Gas-phase references (N2, NH3, H2, H2O) are computed per-molecule from
+    # molecular_references/*.vasp and arrive inside adsorption_energies
+    # alongside the surface intermediates and the clean slab. ZPE is added
+    # uniformly below via _ZPE, so the stored energies are raw electronic.
+    local_energy = adsorption_energies
 
     pathway = NRR_PATHWAYS[pathway_name]
     reaction_path = pathway["steps"]

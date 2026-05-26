@@ -6,11 +6,13 @@ co2_to_co     : CO2 → CO  (2e-)
 co2_to_hcooh  : CO2 → HCOOH  (2e-)
 co_to_ch4     : CO → CH4  (6e-, requires '*CO' in adsorption_energies)
 co_to_ch3oh   : CO → CH3OH  (4e-, requires '*CO' in adsorption_energies)
+co2_to_ch4    : CO2 → CH4  (8e-, full chain = co2_to_co + co_to_ch4)
+co2_to_ch3oh  : CO2 → CH3OH  (6e-, full chain = co2_to_co + co_to_ch3oh)
 co2_to_c2h4   : CO2 → C2H4  (8e-, C-C coupling via *OCCO)
 """
 
 import numpy as np
-from uvsib.workchains.utils import load_references, load_zpe
+from uvsib.workchains.utils import load_zpe
 
 _ZPE = load_zpe("co2rr")
 
@@ -61,6 +63,44 @@ CO2RR_PATHWAYS = {
             {'*':      +1, 'CH3OH':  -1, '*CH2OH': -1, 'H2': 1/2},
         ],
     },
+    # Full CO2 -> CH4 chain: co2_to_co (CO2 -> *COOH -> *CO) spliced onto
+    # co_to_ch4 (*CO -> ... -> CH4). Mirrors the 'co2_to_ch4' ReactionPathway
+    # in codes/files/adsorbates.py. Starts from CO2(g), so '*CO' need NOT be
+    # supplied by the caller (unlike co_to_ch4); the *CO state is produced
+    # internally at step 2.
+    # U_eq is the electron-weighted average of the two sub-pathways:
+    #   (2 * 0.11 + 6 * 0.24) / 8 = 0.2075 V  (DG_total = -e * sum(n_i * U_i)).
+    "co2_to_ch4": {
+        "equilibrium_potential": 0.2075,  # V vs RHE
+        "n_electrons": 8,
+        "steps": [
+            {},
+            {'*COOH': +1, '*':    -1, 'CO2':  -1, 'H2': 1/2},  # CO2 + H+ + e- → *COOH
+            {'*CO':   +1, '*':    -1, 'H2O':  -1, 'H2': 1/2},  # *COOH + H+ + e- → *CO + H2O
+            {'*CHO':  +1, '*CO':   -1, 'H2': 1/2},               # *CO + H+ + e- → *CHO
+            {'*CHOH': +1, '*CHO':  -1, 'H2': 1/2},               # *CHO + H+ + e- → *CHOH
+            {'*CH':   +1, '*CHOH': -1, 'H2O': -1, 'H2': 1/2},   # *CHOH → *CH + H2O + H+ + e-
+            {'*CH2':  +1, '*CH':   -1, 'H2': 1/2},               # *CH + H+ + e- → *CH2
+            {'*CH3':  +1, '*CH2':  -1, 'H2': 1/2},               # *CH2 + H+ + e- → *CH3
+            {'*':     +1, 'CH4':   -1, '*CH3': -1, 'H2': 1/2},   # *CH3 + H+ + e- → CH4(g)
+        ],
+    },
+    # Full CO2 -> CH3OH chain: co2_to_co spliced onto co_to_ch3oh. Mirrors the
+    # 'co2_to_ch3oh' ReactionPathway in codes/files/adsorbates.py.
+    # U_eq = (2 * 0.11 + 4 * 0.38) / 6 = 0.29 V.
+    "co2_to_ch3oh": {
+        "equilibrium_potential": 0.29,  # V vs RHE
+        "n_electrons": 6,
+        "steps": [
+            {},
+            {'*COOH':  +1, '*':     -1, 'CO2':   -1, 'H2': 1/2},  # CO2 + H+ + e- → *COOH
+            {'*CO':    +1, '*':     -1, 'H2O':   -1, 'H2': 1/2},  # *COOH + H+ + e- → *CO + H2O
+            {'*CHO':   +1, '*CO':    -1, 'H2': 1/2},
+            {'*CHOH':  +1, '*CHO':   -1, 'H2': 1/2},
+            {'*CH2OH': +1, '*CHOH':  -1, 'H2': 1/2},
+            {'*':      +1, 'CH3OH':  -1, '*CH2OH': -1, 'H2': 1/2},  # *CH2OH + H+ + e- → CH3OH(g)
+        ],
+    },
     "co2_to_c2h4": {
         "equilibrium_potential": 0.34,
         "n_electrons": 8,
@@ -76,7 +116,7 @@ CO2RR_PATHWAYS = {
 }
 
 
-def calculate_co2rr_overpotential(adsorption_energies, pathway_name, method, func):
+def calculate_co2rr_overpotential(adsorption_energies, pathway_name):
     """Calculate CO2RR overpotential using the CHE model.
 
     Parameters
@@ -87,11 +127,7 @@ def calculate_co2rr_overpotential(adsorption_energies, pathway_name, method, fun
         'co_to_ch3oh'), '*CO' must be supplied by the caller.
     pathway_name : str
         One of: 'co2_to_co', 'co2_to_hcooh', 'co_to_ch4',
-                'co_to_ch3oh', 'co2_to_c2h4'.
-    method : str
-        'dft' or ML model name (e.g. 'uPET', 'mace', 'mattersim').
-    func : str
-        Functional / reference set, e.g. 'r2SCAN'.
+                'co_to_ch3oh', 'co2_to_ch4', 'co2_to_ch3oh', 'co2_to_c2h4'.
 
     Returns
     -------
@@ -107,10 +143,9 @@ def calculate_co2rr_overpotential(adsorption_energies, pathway_name, method, fun
     ------
     ValueError
         If pathway_name is not supported.
-    NotImplementedError
-        If the method/func combination has no defined references.
     KeyError
-        If a required adsorbate key is missing from adsorption_energies.
+        If a required adsorbate or gas-phase reference key is missing from
+        adsorption_energies.
     """
     if pathway_name not in CO2RR_PATHWAYS:
         raise ValueError(
@@ -118,9 +153,11 @@ def calculate_co2rr_overpotential(adsorption_energies, pathway_name, method, fun
             f"Supported: {list(CO2RR_PATHWAYS.keys())}"
         )
 
-    refs = load_references(method, func)
-    local_energy = adsorption_energies.copy()
-    local_energy.update(refs)
+    # Gas-phase references (CO2, H2, H2O, CH4, ...) are computed per-molecule
+    # from molecular_references/*.vasp and arrive inside adsorption_energies
+    # alongside the surface intermediates and the clean slab. ZPE is added
+    # uniformly below via _ZPE, so the stored energies are raw electronic.
+    local_energy = adsorption_energies
 
     pathway = CO2RR_PATHWAYS[pathway_name]
     reaction_path = pathway["steps"]

@@ -25,7 +25,7 @@ MAX_NUM_SURF = 10
 EHULL_ML = 0.05
 EHULL_SCAN = 0.1
 DFT_FUNC = "r2SCAN"
-ML_FUNC = "r2SCAN"
+# ML_FUNC = "r2SCAN"
 
 _SKIP_PD_VERIFICATION = True
 
@@ -37,3 +37,4 @@ upet_files_path = os.path.join(code_folder_path, 'files')
 minimahopping_files_path = os.path.join(code_folder_path, 'files')
 vasp_files_path = os.path.join(code_folder_path, 'files')
 uma_files_path = os.path.join(code_folder_path, 'files')
+molecular_reference_files = os.path.join(code_folder_path, 'files', 'molecular_references')

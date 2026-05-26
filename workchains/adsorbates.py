@@ -66,7 +66,7 @@ class AdsorbatesWorkChain(WorkChain):
         self.ctx.potential_family = settings.configs["codes"]["VASP"]["potential_family"]
         potential_mapping = read_yaml(os.path.join(settings.vasp_files_path, "potential_mapping.yaml"))
         self.ctx.potential_mapping = potential_mapping["potential_mapping"]
-        self.ctx.vasp_code = load_code(settings.configs["codes"]["VASP"]["code_string"])
+        # self.ctx.vasp_code = load_code(settings.configs["codes"]["VASP"]["code_string"])
 
         self.report(f"Running Adsorbates WorkChain for {self.ctx.chemical_formula}. "
                     f"Reaction: {self.ctx.reaction}, reaction_path: {self.ctx.reaction_path}")
@@ -132,7 +132,7 @@ class AdsorbatesWorkChain(WorkChain):
                     adsorbed = jsonio.decode(ads_json)
                     energy_set[adsorbed.info["adsorbate"]] = adsorbed.info['{}_energy'.format(str(self.ctx.ML_model).lower())]
 
-                eta, dG_steps, dG_cumulative = calc_method(energy_set, self.ctx.reaction_path, self.ctx.ML_model, settings.ML_FUNC)
+                eta, dG_steps, dG_cumulative = calc_method(energy_set, self.ctx.reaction_path)
 
                 if eta > eta_threshold:
                     continue

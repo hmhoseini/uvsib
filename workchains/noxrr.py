@@ -3,8 +3,8 @@ NOXRR (NOx Reduction Reaction) overpotential calculator.
 Supported pathways
 ------------------
 no_dissociative  : NO → N2  via dissociative N coupling
-no_to_nh3_noh    : NO → NH3 via *NOH intermediate
-no_to_nh3_nhoh   : NO → NH3 via *NHOH intermediate
+no_to_nh3_noh    : NO → NH3 via *NOH (early N-O cleavage)
+no_to_nh3_nhoh   : NO → NH3 via *NHOH → *NH2OH hydroxylamine (late N-O cleavage)
 no_to_n2o        : NO → N2O via *N2O2 coupling
 no2_to_no        : NO2 → NO  (deoxygenation)
 no3_to_nh3       : NO3- → NH3
@@ -12,7 +12,7 @@ no3_to_n2        : NO3- → N2
 """
 
 import numpy as np
-from uvsib.workchains.utils import load_references, load_zpe
+from uvsib.workchains.utils import load_zpe
 
 _ZPE = load_zpe("noxrr")
 
@@ -30,7 +30,7 @@ NOXRR_PATHWAYS = {
     },
     "no_to_nh3_noh": {
         "equilibrium_potential": 0.27,
-        "n_electrons": 6,
+        "n_electrons": 5,                # NO + 5(H+ + e-) → NH3 + H2O
         "steps": [
             {},
             {'*NOH':  +1, '*':    -1, 'NO':    -1, 'H2': 1/2},  # NO + H+ + e- → *NOH
@@ -43,14 +43,15 @@ NOXRR_PATHWAYS = {
     },
     "no_to_nh3_nhoh": {
         "equilibrium_potential": 0.27,
-        "n_electrons": 6,
+        "n_electrons": 5,                # NO + 5(H+ + e-) → NH3 + H2O
         "steps": [
             {},
-            {'*NOH':  +1, '*':    -1, 'NO':    -1, 'H2': 1/2},
-            {'*NHOH': +1, '*NOH': -1, 'H2': 1/2},               # *NOH + H+ + e- → *NHOH
-            {'*NH2':  +1, '*NHOH':-1, 'H2O':   -1, 'H2': 1/2},  # *NHOH → *NH2 + H2O + H+ + e-
-            {'*NH3':  +1, '*NH2': -1, 'H2': 1/2},
-            {'*':     +1, 'NH3':  -1, '*NH3':  -1},
+            {'*NOH':   +1, '*':      -1, 'NO':  -1, 'H2': 1/2},  # NO + H+ + e- → *NOH
+            {'*NHOH':  +1, '*NOH':   -1, 'H2': 1/2},               # *NOH + H+ + e- → *NHOH
+            {'*NH2OH': +1, '*NHOH':  -1, 'H2': 1/2},               # *NHOH + H+ + e- → *NH2OH (hydroxylamine)
+            {'*NH2':   +1, '*NH2OH': -1, 'H2O': -1, 'H2': 1/2},   # *NH2OH + H+ + e- → *NH2 + H2O (late N-O cleavage)
+            {'*NH3':   +1, '*NH2':   -1, 'H2': 1/2},               # *NH2 + H+ + e- → *NH3
+            {'*':      +1, 'NH3':    -1, '*NH3':  -1},             # *NH3 → NH3(g) + * (chemical desorption)
         ],
     },
     "no_to_n2o": {
@@ -103,7 +104,7 @@ NOXRR_PATHWAYS = {
 }
 
 
-def calculate_noxrr_overpotential(adsorption_energies, pathway_name, method, func):
+def calculate_noxrr_overpotential(adsorption_energies, pathway_name):
     """Calculate NOXRR overpotential using the CHE model.
 
     Parameters
@@ -114,10 +115,6 @@ def calculate_noxrr_overpotential(adsorption_energies, pathway_name, method, fun
     pathway_name : str
         One of: 'no_dissociative', 'no_to_nh3_noh', 'no_to_nh3_nhoh',
                 'no_to_n2o', 'no2_to_no', 'no3_to_nh3', 'no3_to_n2'.
-    method : str
-        'dft' or ML model name (e.g. 'uPET', 'mace', 'mattersim').
-    func : str
-        Functional / reference set, e.g. 'r2SCAN'.
 
     Returns
     -------
@@ -135,10 +132,9 @@ def calculate_noxrr_overpotential(adsorption_energies, pathway_name, method, fun
     ------
     ValueError
         If pathway_name is not supported.
-    NotImplementedError
-        If the method/func combination has no defined references.
     KeyError
-        If a required adsorbate key is missing from adsorption_energies.
+        If a required adsorbate or gas-phase reference key is missing from
+        adsorption_energies.
     """
     if pathway_name not in NOXRR_PATHWAYS:
         raise ValueError(
@@ -146,11 +142,17 @@ def calculate_noxrr_overpotential(adsorption_energies, pathway_name, method, fun
             f"Supported: {list(NOXRR_PATHWAYS.keys())}"
         )
 
-    refs = load_references(method, func)
+    # Gas-phase references (NO, NO2, NO3, N2, N2O, NH3, O2, H2, H2O) are
+    # computed per-molecule from molecular_references/*.vasp and arrive inside
+    # adsorption_energies alongside the surface intermediates and clean slab.
+    # ZPE is added uniformly below via _ZPE, so the stored energies are raw
+    # electronic.
     local_energy = adsorption_energies.copy()
-    local_energy.update(refs)
-    # Derive atomic O from O2 reference (O2 → 2O, half-reaction reference)
-    local_energy['O'] = local_energy['O2'] / 2
+    # Derive atomic O from the O2 reference (O2 → 2O half-reaction). Only the
+    # O-releasing pathways need it, and _pathway_required_refs requests O2 for
+    # exactly those, so guard the derivation when O2 was not computed.
+    if 'O2' in local_energy:
+        local_energy['O'] = local_energy['O2'] / 2
 
     pathway = NOXRR_PATHWAYS[pathway_name]
     reaction_path = pathway["steps"]

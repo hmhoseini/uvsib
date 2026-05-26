@@ -15,21 +15,31 @@ from pymatgen.core import Lattice, Molecule, Structure
 from pymatgen.core.surface import Slab
 from pymatgen.analysis.adsorption import AdsorbateSiteFinder
 from scipy.spatial.distance import pdist, squareform
+# from uvsib.workflows import settings
 
 
-_REF_DIR = Path(__file__).parent / "molecular_references"
+# _REF_DIR = Path(__file__).parent / "molecular_references"
+# _REF_DIR = Path(settings.molecular_reference_files)
 
-ch3oh_ref = Structure.from_file(_REF_DIR / "ch3oh.vasp")
-ch4_ref   = Structure.from_file(_REF_DIR / "ch4.vasp")
-co2_ref   = Structure.from_file(_REF_DIR / "co2.vasp")
-n2o_ref   = Structure.from_file(_REF_DIR / "n2o.vasp")
-nh3_ref   = Structure.from_file(_REF_DIR / "nh3.vasp")
-n2_ref    = Structure.from_file(_REF_DIR / "n2.vasp")
-h2_ref    = Structure.from_file(_REF_DIR / "h2.vasp")
-h2o_ref   = Structure.from_file(_REF_DIR / "h2o.vasp")
-cl2_ref   = Structure.from_file(_REF_DIR / "cl2.vasp")
-o2_ref    = Structure.from_file(_REF_DIR / "o2.vasp")
-h2o2_ref  = Structure.from_file(_REF_DIR / "h2o2.vasp")
+ch3oh_ref = Structure.from_file("ch3oh.vasp")
+ch4_ref   = Structure.from_file("ch4.vasp")
+co2_ref   = Structure.from_file("co2.vasp")
+n2o_ref   = Structure.from_file("n2o.vasp")
+nh3_ref   = Structure.from_file("nh3.vasp")
+n2_ref    = Structure.from_file("n2.vasp")
+h2_ref    = Structure.from_file("h2.vasp")
+h2o_ref   = Structure.from_file("h2o.vasp")
+cl2_ref   = Structure.from_file("cl2.vasp")
+o2_ref    = Structure.from_file("o2.vasp")
+h2o2_ref  = Structure.from_file("h2o2.vasp")
+hcooh_ref = Structure.from_file("hcooh.vasp")
+c2h4_ref  = Structure.from_file("c2h4.vasp")
+no_ref    = Structure.from_file("no.vasp")
+no2_ref   = Structure.from_file("no2.vasp")
+# NO3 is built as a neutral planar (D3h) radical. As a stand-in for the NO3-
+# reactant it carries no charge/solvation correction -- the same approximation
+# the former hard-coded references.yaml value used.
+no3_ref   = Structure.from_file("no3.vasp")
 
 # Registry of gas-phase reference structures, keyed by the same name used
 # in `ReactionStep.released` and (after `_ADS_TO_GAS` translation) by the
@@ -47,6 +57,11 @@ _GAS_REF_REGISTRY: Dict[str, Structure] = {
     "Cl2":   cl2_ref,
     "O2":    o2_ref,
     "H2O2":  h2o2_ref,
+    "HCOOH": hcooh_ref,
+    "C2H4":  c2h4_ref,
+    "NO":    no_ref,
+    "NO2":   no2_ref,
+    "NO3":   no3_ref,
 }
 
 # Map *_ads adsorbate names (which appear as the first ReactionStep.reactant
@@ -103,8 +118,26 @@ def _pathway_required_refs(reaction: str, pathway_obj) -> List[str]:
         for sp in step.released:
             if sp in _GAS_REF_REGISTRY:
                 needed.add(sp)
+            elif sp == "O":
+                # Released atomic O is referenced to 1/2 O2 downstream
+                # (calculate_noxrr_overpotential sets E[O] = E[O2] / 2), so the
+                # O2 reference must be computed for any O-releasing pathway.
+                needed.add("O2")
 
     return sorted(needed)
+
+
+def _reference_molecule_count(atoms: Atoms, ref_name: str) -> int:
+    """Number of whole `ref_name` molecules packed into a reference cell.
+
+    The molecular_references/*.vasp cells hold several copies of a molecule
+    (e.g. h2o.vasp = 8 H2O, co2.vasp = 4 CO2, ch3oh.vasp = 1 CH3OH). The CHE
+    bookkeeping in the workchains expects *per-molecule* gas-phase energies, so
+    the relaxed cell energy is divided by this count before it is stored.
+    """
+    from ase.formula import Formula
+    atoms_per_molecule = len(Formula(ref_name))
+    return max(1, round(len(atoms) / atoms_per_molecule))
 
 
 def _create_adsorbate_with_dummy(species: List[str],
@@ -2334,7 +2367,11 @@ def run_relaxation(ml_model: str, calc, fmax: float, max_steps: int,
         if not relax.converged:
             raise RuntimeError(f"Gas-phase reference '{name}' did not converge in {max_steps} steps")
 
-        atoms.info[model_key] = atoms.get_potential_energy()
+        # Store the PER-MOLECULE energy: the reference cells pack several
+        # molecules (e.g. 8 H2O, 4 CO2), but the CHE bookkeeping downstream
+        # consumes one molecule per stoichiometric unit.
+        n_molecules = _reference_molecule_count(atoms, name)
+        atoms.info[model_key] = atoms.get_potential_energy() / n_molecules
         relaxed_refs_json.append(jsonio.encode(atoms))
         total_number += 1
 

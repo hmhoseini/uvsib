@@ -1,4 +1,5 @@
 import os
+import pathlib
 from aiida.engine import CalcJob
 from aiida.orm import Dict, SinglefileData
 from aiida.common.datastructures import CalcInfo, CodeInfo
@@ -6,7 +7,6 @@ from uvsib.workflows import settings
 
 class MACECalculation(CalcJob):
     """AiiDA plugin for MACE"""
-
     @classmethod
     def define(cls, spec):
         super().define(spec)
@@ -19,7 +19,7 @@ class MACECalculation(CalcJob):
         spec.exit_code(303, "ERROR_OUTPUT_INCOMPLETE", message="The output file is incomplete.")
 
     def prepare_for_submission(self, folder):
-        """Create input files for MatterGen. Here, adding to the command line"""
+        """Create input files, adding to the command line"""
         parameters = self.inputs.parameters.get_dict()
         job_type = parameters['job_type']
         cmdline = parameters['cmdline_params']
@@ -45,6 +45,13 @@ class MACECalculation(CalcJob):
             content = f.read()
         with folder.open('_calculators.py', 'w', encoding='utf-8') as f:
             f.write(content)
+
+        # transfer the molecular reference files for computation
+        for mol_file in os.listdir(settings.molecular_reference_files):
+            with open(os.path.join(settings.molecular_reference_files, mol_file), 'r', encoding='utf-8') as f:
+                content = f.read()
+            with folder.open(mol_file, 'w', encoding='utf-8') as f:
+                f.write(content)
 
         # Code info
         codeinfo = CodeInfo()

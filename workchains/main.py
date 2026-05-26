@@ -89,7 +89,7 @@ class MainWorkChain(WorkChain):
             self.ctx.nano_row = query_by_columns(DBNanoParticles,{'elements': elements})[0]
             self.report('Running NanoParticleGenerator for elements {}'.format(elements))
         else:
-            self.report(f"Running MainWorkChain for {self.ctx.chemical_formula}, reaction {self.ctx.reaction.value}, reaction path {self.ctx.reaction_path.value}")
+            self.report(f"Running MainWorkChain for {self.ctx.chemical_formula}: reaction {self.ctx.reaction.value} path {self.ctx.reaction_path.value}")
 
     def should_run_pd_ml(self):
         """Check whether should run PhaseDiagramML"""

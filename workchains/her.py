@@ -14,7 +14,7 @@ CHE); they differ in the kinetic split between the two electron transfers.
 """
 
 import numpy as np
-from uvsib.workchains.utils import load_references, load_zpe
+from uvsib.workchains.utils import load_zpe
 
 _ZPE = load_zpe("her")
 
@@ -41,7 +41,7 @@ HER_PATHWAYS = {
 }
 
 
-def calculate_her_overpotential(adsorption_energies, pathway_name, method, func):
+def calculate_her_overpotential(adsorption_energies, pathway_name):
     """Calculate HER overpotential using the CHE model.
 
     Parameters
@@ -50,10 +50,6 @@ def calculate_her_overpotential(adsorption_energies, pathway_name, method, func)
         DFT or ML energies of surface intermediates. Required key: '*H'.
     pathway_name : str
         One of: 'volmer_tafel', 'volmer_heyrovsky'.
-    method : str
-        'dft' or ML model name (e.g. 'uPET', 'mace', 'mattersim').
-    func : str
-        Functional / reference set, e.g. 'r2SCAN'.
 
     Returns
     -------
@@ -68,10 +64,9 @@ def calculate_her_overpotential(adsorption_energies, pathway_name, method, func)
     ------
     ValueError
         If pathway_name is not supported.
-    NotImplementedError
-        If the method/func combination has no defined references.
     KeyError
-        If '*H' is missing from adsorption_energies.
+        If a required adsorbate or gas-phase reference key is missing from
+        adsorption_energies (e.g. '*H' or 'H2').
     """
     if pathway_name not in HER_PATHWAYS:
         raise ValueError(
@@ -79,9 +74,11 @@ def calculate_her_overpotential(adsorption_energies, pathway_name, method, func)
             f"Supported: {list(HER_PATHWAYS.keys())}"
         )
 
-    refs = load_references(method, func)
-    local_energy = adsorption_energies.copy()
-    local_energy.update(refs)
+    # Gas-phase references (H2, ...) are computed per-molecule from
+    # molecular_references/*.vasp and arrive inside adsorption_energies
+    # alongside the surface intermediates and the clean slab. ZPE is added
+    # uniformly below via _ZPE, so the stored energies are raw electronic.
+    local_energy = adsorption_energies
 
     pathway = HER_PATHWAYS[pathway_name]
     reaction_path = pathway["steps"]

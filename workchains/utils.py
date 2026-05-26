@@ -27,15 +27,7 @@ def _read_yaml(path):
         return yaml.safe_load(fh)
 
 _workchains_dir = os.path.join(settings.uvsib_directory,"workchains")
-_REFERENCES: dict = _read_yaml(os.path.join(_workchains_dir, "references.yaml"))
 _ZPE_ALL: dict    = _read_yaml(os.path.join(_workchains_dir, "zpe_corrections.yaml"))
-
-def load_references(method, func):
-    """Return the reference energy dict (species name → energy (eV)) for the given method and functional"""
-    try:
-        return dict(_REFERENCES[method][func])
-    except:
-        return None
 
 def load_zpe(reaction):
     """Return the ZPE correction dict (species name → ZPE correction (eV)) for the given reaction type ('oer', 'co2rr', 'noxrr')"""

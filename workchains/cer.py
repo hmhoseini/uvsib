@@ -12,13 +12,13 @@ volmer_heyrovsky : * + Cl- → *Cl,   then *Cl + Cl- → Cl2(g) + *
 krishtalik       : *O + Cl- → *OCl, then *OCl + Cl- → Cl2(g) + *O
                    (O-covered oxide route on RuO2(110), IrO2(110), Co3O4)
 
-CER electrochemical steps consume Cl- (not H+); the Cl2 reference must
-exist in references.yaml under the chosen method/functional for the
-calculation to succeed.
+CER electrochemical steps consume Cl- (not H+); the Cl2 gas-phase reference
+must be present in adsorption_energies (computed per-molecule from
+molecular_references/cl2.vasp) for the calculation to succeed.
 """
 
 import numpy as np
-from uvsib.workchains.utils import load_references, load_zpe
+from uvsib.workchains.utils import load_zpe
 
 _ZPE = load_zpe("cer")
 
@@ -56,7 +56,7 @@ CER_PATHWAYS = {
 }
 
 
-def calculate_cer_overpotential(adsorption_energies, pathway_name, method, func):
+def calculate_cer_overpotential(adsorption_energies, pathway_name):
     """Calculate CER overpotential using the CHE-equivalent model.
 
     Parameters
@@ -67,10 +67,6 @@ def calculate_cer_overpotential(adsorption_energies, pathway_name, method, func)
         '*OCl' and '*O' for 'krishtalik'.
     pathway_name : str
         One of: 'volmer_tafel', 'volmer_heyrovsky', 'krishtalik'.
-    method : str
-        'dft' or ML model name (e.g. 'uPET', 'mace', 'mattersim').
-    func : str
-        Functional / reference set, e.g. 'r2SCAN'.
 
     Returns
     -------
@@ -85,11 +81,9 @@ def calculate_cer_overpotential(adsorption_energies, pathway_name, method, func)
     ------
     ValueError
         If pathway_name is not supported.
-    NotImplementedError
-        If the method/func combination has no defined references.
     KeyError
-        If a required adsorbate key is missing from adsorption_energies
-        or 'Cl2' is missing from references.yaml.
+        If a required adsorbate or gas-phase reference key is missing from
+        adsorption_energies (e.g. '*Cl', '*OCl', '*O', or 'Cl2').
     """
     if pathway_name not in CER_PATHWAYS:
         raise ValueError(
@@ -97,9 +91,11 @@ def calculate_cer_overpotential(adsorption_energies, pathway_name, method, func)
             f"Supported: {list(CER_PATHWAYS.keys())}"
         )
 
-    refs = load_references(method, func)
-    local_energy = adsorption_energies.copy()
-    local_energy.update(refs)
+    # Gas-phase references (Cl2, ...) are computed per-molecule from
+    # molecular_references/*.vasp and arrive inside adsorption_energies
+    # alongside the surface intermediates and the clean slab. ZPE is added
+    # uniformly below via _ZPE, so the stored energies are raw electronic.
+    local_energy = adsorption_energies
 
     pathway = CER_PATHWAYS[pathway_name]
     reaction_path = pathway["steps"]

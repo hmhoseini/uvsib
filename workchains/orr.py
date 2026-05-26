@@ -10,11 +10,12 @@ Supported pathways
 4e_dissociative  : O2 → 2 *O, then 2*O → 2 *OH → 2 H2O
 2e_to_h2o2       : O2 + 2(H+ + e-) → H2O2 via *O2 → *OOH (no O-O cleavage)
 
-The 2e- pathway requires 'H2O2' in references.yaml; add it before use.
+Gas-phase references (O2, H2, H2O, and H2O2 for the 2e- route) arrive inside
+adsorption_energies, computed per-molecule from molecular_references/*.vasp.
 """
 
 import numpy as np
-from uvsib.workchains.utils import load_references, load_zpe
+from uvsib.workchains.utils import load_zpe
 
 _ZPE = load_zpe("orr")
 
@@ -55,7 +56,7 @@ ORR_PATHWAYS = {
 }
 
 
-def calculate_orr_overpotential(adsorption_energies, pathway_name, method, func):
+def calculate_orr_overpotential(adsorption_energies, pathway_name):
     """Calculate ORR overpotential using the CHE model.
 
     Parameters
@@ -66,10 +67,6 @@ def calculate_orr_overpotential(adsorption_energies, pathway_name, method, func)
         '*O2_ads', '*OOH' only for the 2e- route.
     pathway_name : str
         One of: '4e_associative', '4e_dissociative', '2e_to_h2o2'.
-    method : str
-        'dft' or ML model name (e.g. 'uPET', 'mace', 'mattersim').
-    func : str
-        Functional / reference set, e.g. 'r2SCAN'.
 
     Returns
     -------
@@ -84,11 +81,9 @@ def calculate_orr_overpotential(adsorption_energies, pathway_name, method, func)
     ------
     ValueError
         If pathway_name is not supported.
-    NotImplementedError
-        If the method/func combination has no defined references.
     KeyError
-        If a required adsorbate / gas reference is missing
-        (H2O2 must be added to references.yaml for '2e_to_h2o2').
+        If a required adsorbate or gas-phase reference key is missing from
+        adsorption_energies (the '2e_to_h2o2' route additionally needs 'H2O2').
     """
     if pathway_name not in ORR_PATHWAYS:
         raise ValueError(
@@ -96,9 +91,11 @@ def calculate_orr_overpotential(adsorption_energies, pathway_name, method, func)
             f"Supported: {list(ORR_PATHWAYS.keys())}"
         )
 
-    refs = load_references(method, func)
-    local_energy = adsorption_energies.copy()
-    local_energy.update(refs)
+    # Gas-phase references (O2, H2, H2O, H2O2) are computed per-molecule from
+    # molecular_references/*.vasp and arrive inside adsorption_energies
+    # alongside the surface intermediates and the clean slab. ZPE is added
+    # uniformly below via _ZPE, so the stored energies are raw electronic.
+    local_energy = adsorption_energies
 
     pathway = ORR_PATHWAYS[pathway_name]
     reaction_path = pathway["steps"]
