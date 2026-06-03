@@ -16,11 +16,6 @@ from uvsib.workchains.orr import calculate_orr_overpotential
 from uvsib.workflows import settings
 
 
-from pymatgen.core.structure import Structure
-
-
-
-
 class AdsorbatesWorkChain(WorkChain):
     """Adsorbates WorkChain"""
     @classmethod
@@ -61,27 +56,18 @@ class AdsorbatesWorkChain(WorkChain):
     def run_adsorbs(self):
         """Run Adsorbates WorkChain"""
         selected = list()
-
-        count = 0
         for structure_uuid, surface_id in self.ctx.structure_surface_rows:
-            count += 1
-
             slab_row = query_by_columns(DBSurface, {"id": surface_id})[0]
-
-            print('KAUNT IN: ', count, slab_row.slab['energy'])
-
             selected.append((slab_row.slab['energy'], slab_row, str(structure_uuid), surface_id))
 
         selected.sort(key=lambda x: x[0])
-
         for count, (en, row, uid, fid) in enumerate(selected):
-            print('EN SORT: ', count, en)
             self.ctx.selected_surfaces.append((f"{uid}", f"{fid}"))
             builder = self._construct_adsorbate_builder(row.slab, self.ctx.reaction, self.ctx.reaction_path)
             future = self.submit(builder)
             self.to_context(**{f"{uid}_{fid}": future})
-            if count == 4:
-                print('stop nau')
+            if count == 9:
+                print('workchains/adsorbates.py: in run_adsorbs(): reached limit of 10 to process')
                 return
 
     def inspect_adsorbs(self):
