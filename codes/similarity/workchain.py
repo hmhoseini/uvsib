@@ -4,8 +4,8 @@ import tempfile
 from aiida.engine import BaseRestartWorkChain, while_
 from aiida.orm import List, Dict, SinglefileData, Code
 from aiida.plugins import CalculationFactory
-from matseran.workflows import settings
-from matseran.codes.utils import get_cmdline
+from uvsib.workflows import settings
+from uvsib.codes.utils import get_cmdline
 
 
 def get_options():

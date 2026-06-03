@@ -10,23 +10,11 @@ from uvsib.workflows import settings
 
 def get_cmdline(job_info):
     """Construct command line"""
-
     cmdline = []
     cmdline.append(f"--ML_model={job_info['ML_model']}")
-
-    model_name = job_info.get("model_name")
-    model_path = job_info.get("model_path")
-    # device = job_info.get("device")
-
-    if model_name:
-        cmdline.append(f"--model={model_name}")
-    if model_path:
-        cmdline.append(f"--model_path={model_path}")
-
-    task_name = job_info.get("task_name")
-    if task_name:
-        cmdline.append(f"--task_name={task_name}")
-
+    cmdline.append(f"--model={job_info['model_name']}")
+    cmdline.append(f"--model_path={job_info['model_path']}")
+    cmdline.append(f"--task_name={job_info['model_head']}")
     cmdline.append(f"--device={job_info['device']}")
 
     job_type = job_info['job_type']
@@ -60,6 +48,7 @@ def get_cmdline(job_info):
             '--max_natoms={}'.format(job_info['particles_range'].split('-')[1]),
             '--generator={}'.format(job_info['generator'])]
         )
+    print('codes/utils: ', cmdline)
     return cmdline
 
 def get_element_entries(chemsys_list, functional):

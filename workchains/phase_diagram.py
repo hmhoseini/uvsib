@@ -58,14 +58,11 @@ def get_entries_from_db(chemical_formula, method):
 
 class PhaseDiagramMLWorkChain(WorkChain):
     """Work chain for ML Phase Diagram calculations"""
-
     @classmethod
     def define(cls, spec):
         super().define(spec)
-
         spec.input("chemical_formula", valid_type=Str)
         spec.input("chemical_systems", valid_type=List)
-        spec.input("ML_model", valid_type=Str)
 
         spec.outline(
             cls.setup,
@@ -84,17 +81,12 @@ class PhaseDiagramMLWorkChain(WorkChain):
             cls.final_report
         )
 
-        spec.exit_code(300,
-            "ERROR_CALCULATION_FAILED",
-            message="The WorkChain did not finish successfully"
-        )
+        spec.exit_code(300,"ERROR_CALCULATION_FAILED", message="The WorkChain did not finish successfully")
 
     def setup(self):
         """Setup and report"""
         self.ctx.chemical_formula = self.inputs.chemical_formula.value
         self.ctx.chemical_systems = self.inputs.chemical_systems.get_list()
-        self.ctx.ML_model = self.inputs.ML_model.value
-#        self.local_list = list()
         self.report(f"Running PhaseDiagramML WorkChain for {self.ctx.chemical_formula}")
 
     def should_run_csp(self):
@@ -210,7 +202,6 @@ class PhaseDiagramMLWorkChain(WorkChain):
         Workflow = WorkflowFactory("csp")
         builder = Workflow.get_builder()
         builder.chemical_formula = Str(self.ctx.chemical_formula)
-        builder.ML_model = Str(self.ctx.ML_model)
         builder.n_csp = settings.inputs["MatterGen_CSP"]["num_runs"]
         builder.n_mh = settings.inputs["MinimaHopping"]["num_runs"]
         return builder
@@ -219,5 +210,4 @@ class PhaseDiagramMLWorkChain(WorkChain):
         Workflow = WorkflowFactory("gen")
         builder = Workflow.get_builder()
         builder.chemical_systems = List(self.ctx.chemical_systems)
-        builder.ML_model = Str(self.ctx.ML_model)
         return builder

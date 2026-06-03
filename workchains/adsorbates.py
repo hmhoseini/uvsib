@@ -18,7 +18,6 @@ from uvsib.workflows import settings
 
 
 def read_yaml(file_path):
-    """Read yaml file"""
     with open(file_path, "r", encoding="utf8") as fhandle:
         data = yaml.safe_load(fhandle)
     return data
@@ -29,9 +28,7 @@ class AdsorbatesWorkChain(WorkChain):
     @classmethod
     def define(cls, spec):
         super().define(spec)
-
         spec.input("chemical_formula", valid_type=Str)
-        spec.input("ML_model", valid_type=Str)
         spec.input("reaction", valid_type=Str)
         spec.input("reaction_path", valid_type=Str)
 
@@ -50,7 +47,6 @@ class AdsorbatesWorkChain(WorkChain):
     def setup(self):
         """Setup and report"""
         self.ctx.chemical_formula = self.inputs.chemical_formula.value
-        self.ctx.ML_model = self.inputs.ML_model.value
         self.ctx.reaction = self.inputs.reaction.value
         self.ctx.reaction_path = self.inputs.reaction_path.value
         self.ctx.structure_surface_rows = get_structure_uuid_surface_id(self.ctx.chemical_formula)
@@ -60,7 +56,6 @@ class AdsorbatesWorkChain(WorkChain):
         self.ctx.candidates = 0
         self.ctx.relaxation_results = {}
         self.ctx.adsorption_sets = {}
-
         self.report(f"Running Adsorbates WorkChain for {self.ctx.chemical_formula}. "
                     f"Reaction: {self.ctx.reaction}, reaction_path: {self.ctx.reaction_path}")
 
@@ -70,7 +65,7 @@ class AdsorbatesWorkChain(WorkChain):
             slab_row = query_by_columns(DBSurface, {"id":surface_id})[0]
             uuid_str = str(structure_uuid)
             parent_key = f"{uuid_str}_{surface_id}"
-            builder = self._construct_adsorbate_builder(slab_row.slab, self.ctx.ML_model, self.ctx.reaction, self.ctx.reaction_path)
+            builder = self._construct_adsorbate_builder(slab_row.slab, self.ctx.reaction, self.ctx.reaction_path)
             future = self.submit(builder)
             self.to_context(**{parent_key: future})
 
@@ -97,13 +92,13 @@ class AdsorbatesWorkChain(WorkChain):
     def store_results_ml(self):
         """Store ML results """
         reaction_map = {
-            "OER": (calculate_oer_overpotential, 12.0),
-            "CO2RR": (calculate_co2rr_overpotential, 12.5),
-            "CER": (calculate_cer_overpotential, 12.5),
-            "NRR": (calculate_nrr_overpotential, 12.5),
-            "NOXRR": (calculate_noxrr_overpotential, 12.5),
-            "HER": (calculate_her_overpotential, 12.5),
-            "ORR": (calculate_orr_overpotential, 12.5)
+            "OER": (calculate_oer_overpotential, 2.0),
+            "CO2RR": (calculate_co2rr_overpotential, 2.0),
+            "CER": (calculate_cer_overpotential, 2.0),
+            "NRR": (calculate_nrr_overpotential, 2.0),
+            "NOXRR": (calculate_noxrr_overpotential, 2.0),
+            "HER": (calculate_her_overpotential, 2.0),
+            "ORR": (calculate_orr_overpotential, 2.0)
         }
 
         if self.ctx.reaction not in reaction_map:
@@ -133,11 +128,11 @@ class AdsorbatesWorkChain(WorkChain):
                 eta, dG_steps, dG_cumulative = calc_method(energy_set, self.ctx.reaction_path)
                 print(f"{self.ctx.chemical_formula}: {self.ctx.reaction} ({self.ctx.reaction_path}): {eta}")
 
-                # if eta > eta_threshold:
+                # if eta > eta_threshold:  # TODO: remove?
                 #     continue
 
                 self.ctx.candidates += 1
-                add_surface_ml_adsorbate(existing_uuid=uuid_str, surf_id=surface_id, surface_miller_index= miller_index,
+                add_surface_ml_adsorbate(existing_uuid=uuid_str, surf_id=surface_id, surface_miller_index=miller_index,
                                          comp=self.ctx.chemical_formula,
                                          react=self.ctx.reaction, react_path=self.ctx.reaction_path,
                                          site_type=site_type, ads_coord=ads_coord, repeat=repeat,
@@ -146,17 +141,13 @@ class AdsorbatesWorkChain(WorkChain):
 
     def final_report(self):
         """Final report"""
-        if not self.ctx.candidates:
+        if self.ctx.candidates == 0:
             self.report(f"AdsorbatesWorkChain for {self.ctx.chemical_formula}: no candidates below eta threshold.")
             return self.exit_codes.NO_CANDIDATES_WITHIN_ETA_LIMIT
         self.report(f"AdsorbatesWorkChain for {self.ctx.chemical_formula} finished successfully.")
-        if self.ctx.candidates == 0:
-            self.report(f"Warning: AdsorbatesWorkChain for {self.ctx.chemical_formula}: no candidates below eta threshold.")
 
-    def _construct_adsorbate_builder(self, slab, ML_model, reaction, pathway):
-        """
-        Builder for generating surface and surface optimiziation with MatterSim or MACE
-        """
+    def _construct_adsorbate_builder(self, slab, reaction, pathway):
+        ML_model = settings.inputs['adsorbates']['model']
         structure = [slab]
         slab_energy = slab["energy"]
         Workflow = WorkflowFactory(ML_model.lower())
@@ -181,9 +172,11 @@ class AdsorbatesWorkChain(WorkChain):
             "max_steps": settings.inputs[relax_key]["max_steps"],
             "reaction": reaction,
             "pathway": pathway,
-            "task_name": settings.inputs[relax_key].get("task_name", "oc20"),
+            "task_name": settings.inputs['adsorbates']['head']
         }
 
         builder.job_info = Dict(job_info)
+
+        print('adsorbates builder: ', ML_model, settings.inputs['adsorbates']['head'])
 
         return builder

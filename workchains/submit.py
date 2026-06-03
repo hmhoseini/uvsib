@@ -2,7 +2,7 @@ import uuid
 from uvsib.workchains.launch_calculations import MainSubmissionController
 
 
-def submit_mainworkchain(chemical_formula, chemical_systems, model, reaction, reaction_path,
+def submit_mainworkchain(chemical_formula, chemical_systems, reaction, reaction_path,
                          nano=False, similarities=None, sqs=False):
     controller = MainSubmissionController(
         group_label='wf_test',
@@ -10,7 +10,6 @@ def submit_mainworkchain(chemical_formula, chemical_systems, model, reaction, re
         uuid_str=str(uuid.uuid4()),
         chemical_formula=chemical_formula,
         chemical_systems=chemical_systems,
-        model=model,
         reaction=reaction,
         reaction_path=reaction_path,
         nanoparticles=nano,

@@ -42,8 +42,6 @@ class MACEWorkChain(BaseRestartWorkChain):
     @classmethod
     def define(cls, spec):
         super().define(spec)
-
-        # Declare the inputs needed for this workchain:
         spec.input('input_structures', valid_type=List)
         spec.input("code", valid_type=Code)
         spec.input('job_info', valid_type=Dict)
@@ -64,10 +62,8 @@ class MACEWorkChain(BaseRestartWorkChain):
     def setup(self):
         """Initialize context before first calculation."""
         super().setup()
-
         input_structures = self.inputs.input_structures.get_list()
         job_info = self.inputs.job_info
-
         input_structures_file = get_structures_file(input_structures)
 
         self.ctx.inputs = {

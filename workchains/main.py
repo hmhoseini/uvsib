@@ -17,8 +17,6 @@ class MainWorkChain(WorkChain):
         super().define(spec)
         spec.input("chemical_formula", valid_type=Str)
         spec.input("chemical_systems", valid_type=List)
-        spec.input("model_bulk", valid_type=Str)
-        spec.input("model_surface", valid_type=Str)
         spec.input("reaction", valid_type=Str)
         spec.input("reaction_path", valid_type=Str)
         spec.input("nanoparticles", valid_type=Str)
@@ -83,8 +81,6 @@ class MainWorkChain(WorkChain):
         """Setup and report"""
         self.ctx.chemical_formula = self.inputs.chemical_formula.value
         self.ctx.chemical_systems = self.inputs.chemical_systems
-        self.ctx.model_bulk = self.inputs.model_bulk
-        self.ctx.model_surface = self.inputs.model_surface
         self.ctx.reaction = self.inputs.reaction
         self.ctx.reaction_path = self.inputs.reaction_path
         self.ctx.dbcomposition_row = query_by_columns(DBComposition,{"composition": self.ctx.chemical_formula})[0]
@@ -499,7 +495,6 @@ class MainWorkChain(WorkChain):
         builder = PhaseDiagramMLWorkChain.get_builder()
         builder.chemical_formula = Str(self.ctx.chemical_formula)
         builder.chemical_systems = self.ctx.chemical_systems
-        builder.ML_model = self.ctx.model_bulk
         return builder
 
     def _construct_pd_verification_builder(self):
@@ -507,7 +502,6 @@ class MainWorkChain(WorkChain):
         PDVerificationWorkChain = WorkflowFactory("pdverification")
         builder = PDVerificationWorkChain.get_builder()
         builder.chemical_formula = Str(self.ctx.chemical_formula)
-        builder.ML_model = self.ctx.model_bulk
         return builder
 
 #    def _construct_band_alignment_builder(self):
@@ -522,8 +516,6 @@ class MainWorkChain(WorkChain):
         SurfaceBuilderWorkChain = WorkflowFactory("surfacebuilder")
         builder = SurfaceBuilderWorkChain.get_builder()
         builder.chemical_formula = Str(self.ctx.chemical_formula)
-        builder.ML_model = self.ctx.model_surface
-        builder.model_bulk = self.ctx.model_bulk        
         return builder
 
     def _construct_adsorbates_builder(self):
@@ -531,7 +523,6 @@ class MainWorkChain(WorkChain):
         AdsorbatesWorkChain = WorkflowFactory("adsorbates")
         builder = AdsorbatesWorkChain.get_builder()
         builder.chemical_formula = Str(self.ctx.chemical_formula)
-        builder.ML_model = self.ctx.model_surface
         builder.reaction = self.ctx.reaction
         builder.reaction_path = self.ctx.reaction_path
         return builder
@@ -539,6 +530,7 @@ class MainWorkChain(WorkChain):
     def _construct_particle_builder(self):
         """Nano Particles WorkChain builder"""
         WorkChain = WorkflowFactory("nano_particles")
+        raise NotImplementedError
         builder = WorkChain.get_builder()
         builder.elements = '-'.join(list(str(el) for el in Composition(self.ctx.chemical_formula).elements))
         builder.particles_range = self.ctx.nano_particles_range
@@ -553,5 +545,4 @@ class MainWorkChain(WorkChain):
         builder.elements = '-'.join(list(str(el) for el in Composition(self.ctx.chemical_formula).elements))
         builder.particles_range = self.ctx.nano_particles_range
         builder.generator = 'systematic'
-        builder.ml_model = self.ctx.model_surface
         return builder

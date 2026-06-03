@@ -4,9 +4,9 @@ from aiida.engine import WorkChain
 from aiida.plugins import WorkflowFactory
 from aiida.orm import Str, List, Dict, Int
 from pymatgen.core import Structure, Composition
-from matseran.db.utils import add_similarities
-from matseran.workchains.utils import get_code, get_model_device
-from matseran.workflows import settings
+# from uvsib.db.utils import add_similarities
+from uvsib.workchains.utils import get_code, get_model_device
+from uvsib.workflows import settings
 
 
 def read_yaml(file_path):
@@ -151,10 +151,10 @@ class SimilarityWorkChain(WorkChain):
 
                     print('NOCHUNK: ', index, self.ctx.chemical_system, similarity)
 
-                    add_similarities(chemical_system=self.ctx.chemical_system, similarity=similarity,
-                                     composition=composition_string,
-                                     reference_material_id=material_id, reference_structure=ref_structure_dict,
-                                     csp_structure=generated_structure_dict)
+                    # add_similarities(chemical_system=self.ctx.chemical_system, similarity=similarity,
+                    #                  composition=composition_string,
+                    #                  reference_material_id=material_id, reference_structure=ref_structure_dict,
+                    #                  csp_structure=generated_structure_dict)
                     positive_matches += 1
                 else:
                     negative_matches += 1
@@ -183,10 +183,10 @@ class SimilarityWorkChain(WorkChain):
 
                         print('CHUNK: ', chunk, index, self.ctx.chemical_system, similarity)
 
-                        add_similarities(chemical_system=self.ctx.chemical_system, similarity=similarity,
-                                         composition=composition_string,
-                                         reference_material_id=material_id, reference_structure=ref_structure_dict,
-                                         csp_structure=generated_structure_dict)
+                        # add_similarities(chemical_system=self.ctx.chemical_system, similarity=similarity,
+                        #                  composition=composition_string,
+                        #                  reference_material_id=material_id, reference_structure=ref_structure_dict,
+                        #                  csp_structure=generated_structure_dict)
                         positive_matches += 1
                     else:
                         negative_matches += 1

@@ -22,7 +22,7 @@ class SimilarityCalculation(CalcJob):
         parameters = self.inputs.parameters.get_dict()
         cmdline = parameters['cmdline_params']
 
-        input_file = os.path.join(settings.upet_files_path, 'similarity.py')
+        input_file = os.path.join(settings.files_path, 'similarity.py')
 
         with open(input_file, 'r', encoding='utf-8') as f:
             content = f.read()

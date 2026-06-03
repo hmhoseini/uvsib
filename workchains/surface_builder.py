@@ -28,13 +28,9 @@ def read_yaml(file_path):
 
 class SurfaceBuilderWorkChain(WorkChain):
     """SurfaceBuilder WorkChain"""
-
     @classmethod
     def define(cls, spec):
         super().define(spec)
-
-        spec.input("ML_model", valid_type=Str)
-        spec.input("model_bulk", valid_type=Str)
         spec.input("chemical_formula", valid_type=Str)
 
         spec.outline(
@@ -94,34 +90,33 @@ class SurfaceBuilderWorkChain(WorkChain):
         """Final report"""
         self.report(f"SurfaceBuilderWorkChain for {self.ctx.chemical_formula} finished successfully")
 
-    def _construct_facebuild_builder(self, ml_structure, ML_model):
+    def _construct_facebuild_builder(self, ml_structure):
         """Builder for generating surface and surface optimiziation"""
+        ML_model = settings.inputs['face_build']['model']
+
         structure = [ml_structure]
-
         Workflow = WorkflowFactory(ML_model.lower())
-
         builder = Workflow.get_builder()
-
         builder.input_structures = List(structure)
         builder.code = get_code(ML_model)
         builder.local_label = Str("FaceBuild: {}".format(self.ctx.chemical_formula))
         model, model_path, device = get_model_device(ML_model)
 
-        relax_key = "face_build"
-
         job_info = {
-            "job_type": relax_key,
+            "job_type": "face_build",
             "ML_model": ML_model,
             "model_name": model,
             "model_path": model_path,
+            "model_head": settings.inputs["face_build"]['head'],
             "device": device,
-            "fmax": settings.inputs[relax_key]["fmax"],
-            "max_steps": settings.inputs[relax_key]["max_steps"],
-            "max_miller_idx": settings.inputs[relax_key]["max_miller_idx"],
-            "max_num_surf": settings.MAX_NUM_SURF,
-            "task_name": settings.inputs[relax_key].get("task_name", "omat"),
+            "fmax": settings.inputs["face_build"]["fmax"],
+            "max_steps": settings.inputs["face_build"]["max_steps"],
+            "max_miller_idx": settings.inputs["face_build"]["max_miller_idx"],
+            "max_num_surf": settings.MAX_NUM_SURF
         }
 
         builder.job_info = Dict(job_info)
+
+        print('face builder: ', ML_model, settings.inputs['adsorbates']['head'])
 
         return builder

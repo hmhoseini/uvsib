@@ -31,26 +31,14 @@ class NanoParticleGenerator(CalcJob):
     def prepare_for_submission(self, folder):
         """Create input files for uPET. Here, adding to the command line"""
         parameters = self.inputs.parameters.get_dict()
-        job_type = parameters['job_type']
         cmdline = parameters['cmdline_params']
 
-        if job_type == 'relax':
-            input_file = os.path.join(settings.upet_files_path, 'relax.py')
-        elif job_type == 'face_build':
-            input_file = os.path.join(settings.upet_files_path, 'face_build.py')
-        elif job_type == 'adsorbates':
-            input_file = os.path.join(settings.upet_files_path, 'adsorbates.py')
-        elif job_type == 'nano_particles':
-            input_file = os.path.join(settings.upet_files_path, 'nano_particles.py')
-        else:
-            input_file = os.path.join(settings.upet_path, 'energy_forces.py')
-
-        with open(input_file, 'r', encoding='utf-8') as f:
+        with open(os.path.join(settings.files_path, 'nano_particles.py'), 'r', encoding='utf-8') as f:
             content = f.read()
         with folder.open('aiida.py', 'w', encoding='utf-8') as f:
             f.write(content)
 
-        helper_file = os.path.join(settings.upet_files_path, '_calculators.py')
+        helper_file = os.path.join(settings.files_path, '_calculators.py')
         with open(helper_file, 'r', encoding='utf-8') as f:
             content = f.read()
         with folder.open('_calculators.py', 'w', encoding='utf-8') as f:
@@ -64,10 +52,7 @@ class NanoParticleGenerator(CalcJob):
         calcinfo.uuid = self.uuid
         calcinfo.retrieve_list = ['output.json', 'total.txt', 'failed.txt', 'rejected.json']
         calcinfo.codes_info = [codeinfo]
-        calcinfo.local_copy_list = [
-            (file.uuid, file.filename, file.filename)
-            for file in self.inputs.file.values()
-        ]
+        calcinfo.local_copy_list = [(file.uuid, file.filename, file.filename) for file in self.inputs.file.values()]
         calcinfo.provenance_exclude_list = ['input_structures.extxyz']
 
         return calcinfo

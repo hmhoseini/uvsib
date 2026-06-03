@@ -45,7 +45,7 @@ class SQSWorkChain(BaseRestartWorkChain):
     def define(cls, spec):
         super().define(spec)
         # Declare the inputs needed for this workchain:
-        spec.input('input_structures', valid_type=List)
+        spec.input('input_structure', valid_type=List)
         spec.input("code", valid_type=Code)
         spec.input('job_info', valid_type=Dict)
         spec.input('local_label', valid_type=Str)
@@ -65,19 +65,17 @@ class SQSWorkChain(BaseRestartWorkChain):
     def setup(self):
         """Initialize context before first calculation."""
         super().setup()
-        input_structures = self.inputs.input_structures.get_list()
+        input_structure = self.inputs.input_structure
         job_info = self.inputs.job_info
-        input_structures_file = get_structures_file(input_structures)
+        input_structure_file = get_structures_file(input_structure)
 
         self.ctx.inputs = {
             'code': self.inputs.code,
-            'file': {'input_structures_file': input_structures_file},
+            'file': {'input_structures_file': input_structure_file},
             'parameters': Dict(dict={
                 'job_type': job_info['job_type'],
-                'cmdline_params': get_cmdline(job_info)
-            }),
+                'cmdline_params': get_cmdline(job_info)}),
             'metadata': {
                 'options': get_options(),
-                'label': 'SQS: {}'.format(self.inputs.local_label.value)
-            }
+                'label': 'SQS: {}'.format(self.inputs.local_label.value)}
         }

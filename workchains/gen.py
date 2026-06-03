@@ -17,9 +17,7 @@ class GeneratorWorkChain(WorkChain):
     @classmethod
     def define(cls, spec):
         super().define(spec)
-
         spec.input("chemical_systems", valid_type=List)
-        spec.input("ML_model", valid_type=Str)
 
         spec.outline(
             cls.setup,
@@ -36,7 +34,6 @@ class GeneratorWorkChain(WorkChain):
     def setup(self):
         """Setup and report"""
         self.ctx.chemical_systems = self.inputs.chemical_systems.get_list()
-        self.ctx.ML_model = self.inputs.ML_model.value
         self.ctx.failed_ml_e = []
         self.report(f"Launching MatterGenWorkChain for {self.ctx.chemical_systems}")
 
@@ -60,7 +57,7 @@ class GeneratorWorkChain(WorkChain):
         for chemical_system in chemical_systems:
             wch = self.ctx[f"{chemical_system}_mattergen"]
             output_structures = wch.outputs.output_dict["structures"]
-            builder = self._construct_ML_relax_builder(output_structures, self.ctx.ML_model)
+            builder = self._construct_ML_relax_builder(output_structures)
             builder.local_label = Str("relax: {}".format(chemical_system))
             future = self.submit(builder)
             self.to_context(**{f"{chemical_system}_ml_e": future})
@@ -73,7 +70,7 @@ class GeneratorWorkChain(WorkChain):
             wch = self.ctx[f"{chemical_system}_ml_e"]
             if not wch.is_finished_ok:
                 failed_ml_e.append(chemical_system)
-                self.report(f"Warning: {self.ctx.ML_model} for {chemical_system} failed")
+                self.report(f"Warning: potential for {chemical_system} failed")
                 continue
             try:
                 new_entries = get_output_as_entry(wch)
@@ -129,27 +126,23 @@ class GeneratorWorkChain(WorkChain):
         return builder
 
     @staticmethod
-    def _construct_ML_relax_builder(structures, ML_model):
-        """
-        General builder for MatterSim or MACE for structure opimization
-        """
+    def _construct_ML_relax_builder(structures):
+        ML_model = settings.inputs['bulk_relax']['model']
         Workflow = WorkflowFactory(ML_model.lower())
         builder = Workflow.get_builder()
         builder.input_structures = List(structures)
         builder.code = get_code(ML_model)
-        model , model_path, device = get_model_device(ML_model)
-
-        relax_key = "bulk_relax"
+        model, model_path, device = get_model_device(ML_model)
 
         job_info = {
             "job_type": "relax",
             "ML_model": ML_model,
             "model_name": model,
             "model_path": model_path,
+            "model_head": settings.inputs["bulk_relax"]["head"],
             "device": device,
-            "fmax": settings.inputs[relax_key]["fmax"],
-            "max_steps": settings.inputs[relax_key]["max_steps"],
-            "task_name": settings.inputs[relax_key].get("task_name", "omat"),
+            "fmax": settings.inputs["bulk_relax"]["fmax"],
+            "max_steps": settings.inputs["bulk_relax"]["max_steps"]
         }
 
         builder.job_info = Dict(job_info)

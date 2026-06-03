@@ -53,7 +53,8 @@
 		"nano_particles = uvsib.workchains.nano_particles:NanoParticleWorkChain",
 		"similarity = uvsib.workchains.similarity:SimilarityWorkChain",
 		"similarity_calc = uvsib.codes.similarity.workchain:SimilarityWorkChain",
-		"sqs = uvsib.codes.sqs.workchain:SQSWorkChain"
+		"sqs = uvsib.workchains.sqs.workchain:SQSWorkChain",
+		"sqs_calc = uvsib.codes.sqs.workchain:SQSWorkChain"
 	]
     }
 }

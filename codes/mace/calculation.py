@@ -24,13 +24,17 @@ class MACECalculation(CalcJob):
         cmdline = parameters['cmdline_params']
 
         if job_type == 'relax':
-            input_file = os.path.join(settings.mace_files_path, 'relax.py')
+            input_file = os.path.join(settings.files_path, 'relax.py')
         elif job_type == 'face_build':
-            input_file = os.path.join(settings.mace_files_path, 'face_build.py')
+            input_file = os.path.join(settings.files_path, 'face_build.py')
         elif job_type == 'adsorbates':
-            input_file = os.path.join(settings.mace_files_path, 'adsorbates.py')
+            input_file = os.path.join(settings.files_path, 'adsorbates.py')
+        elif job_type == 'nano_particles':
+            input_file = os.path.join(settings.files_path, 'nano_particles.py')
+        elif job_type == 'sqs':
+            input_file = os.path.join(settings.files_path, 'sqs.py')
         else:
-            input_file = os.path.join(settings.mace_files_path, 'energy_forces.py')
+            raise NotImplementedError(f'{job_type} is not implemented.')
 
         with open(input_file, 'r', encoding='utf-8') as f:
             content = f.read()
@@ -39,7 +43,7 @@ class MACECalculation(CalcJob):
 
         # Ship the shared calculator factory alongside aiida.py — the script
         # does `from _calculators import make_calculator` at runtime.
-        helper_file = os.path.join(settings.mace_files_path, '_calculators.py')
+        helper_file = os.path.join(settings.files_path, '_calculators.py')
         with open(helper_file, 'r', encoding='utf-8') as f:
             content = f.read()
         with folder.open('_calculators.py', 'w', encoding='utf-8') as f:

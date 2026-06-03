@@ -10,8 +10,6 @@ class MainSubmissionController(BaseSubmissionController):
             uuid_str,
             chemical_formula,
             chemical_systems,
-            model_bulk,
-            model_surface,
             reaction,
             reaction_path,
             nanoparticles,
@@ -23,12 +21,10 @@ class MainSubmissionController(BaseSubmissionController):
         self.uuid_str = uuid_str
         self.chemical_formula = chemical_formula
         self.chemical_systems = chemical_systems
-        self.model_bulk = model_bulk
-        self.model_surface = model_surface
         self.reaction = reaction
         self.reaction_path = reaction_path
-        self.nanoparticles = nanoparticles  # if nanoparticles else False
-        self.similarities = similarities  # if similarities else {}
+        self.nanoparticles = nanoparticles
+        self.similarities = similarities
         self.sqs = sqs
 
     def get_extra_unique_keys(self):
@@ -63,8 +59,6 @@ class MainSubmissionController(BaseSubmissionController):
 
         inputs = {"chemical_formula": Str(self.chemical_formula),
                   "chemical_systems": List(list=self.chemical_systems),
-                  "model_bulk": Str(self.model_bulk),
-                  "model_surface": Str(self.model_surface),
                   "reaction": Str(self.reaction),
                   "reaction_path": Str(self.reaction_path),
                   "nanoparticles": Str(self.nanoparticles),

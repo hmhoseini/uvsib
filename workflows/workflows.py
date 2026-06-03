@@ -11,19 +11,22 @@ def add_from_frontend(dict_from_frontend_list):
         user = entry["user"]
         reaction = entry["reaction"]
         reaction_path = entry["reaction_path"]
-        mdata = entry["mdata"]
+        retry = entry["retry"]
 
-        retry = mdata["retry"]
-
-        if "nano_particles" in mdata:
-            nano = mdata['nano_particles']
+        if "nano_particles" in entry:
+            nano = entry['nano_particles']
         else:
             nano = False
 
-        if "similarities" in mdata:
-            similars = mdata['similarities']
+        if "similarities" in entry:
+            similars = entry['similarities']
         else:
             similars = {}
+
+        if "sqs" in entry:
+            sqs = True
+        else:
+            sqs = False
 
         existing_frontend_rows = query_by_columns(DBFrontend,{"composition": chemical_formula})
         user_already_exists = any(row.username == user for row in existing_frontend_rows)
@@ -64,12 +67,10 @@ def add_from_frontend(dict_from_frontend_list):
                                                       "reaction_path": reaction_path})
         if row:
             continue
-        model_bulk = settings.configs["model_bulk"] 
-        model_surface = settings.configs["model_surface"]
 
         submit_mainworkchain(chemical_formula=chemical_formula, chemical_systems=new_chemsys,
-                             model_bulk=model_bulk, model_surface=model_surface, reaction=reaction, reaction_path=reaction_path,
-                             nano=nano, similarities=similars)
+                             reaction=reaction, reaction_path=reaction_path,
+                             nano=nano, similarities=similars, sqs=sqs)
         update_dbfrontend()
 
 def update_dbfrontend():

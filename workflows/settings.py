@@ -30,12 +30,13 @@ DFT_FUNC = "r2SCAN"
 _SKIP_PD_VERIFICATION = False
 
 code_folder_path =  os.path.join(uvsib_directory, 'codes')
-mattergen_files_path = os.path.join(code_folder_path, 'files')
-mattersim_files_path = os.path.join(code_folder_path, 'files')
-mace_files_path = os.path.join(code_folder_path, 'files')
-upet_files_path = os.path.join(code_folder_path, 'files')
-minimahopping_files_path = os.path.join(code_folder_path, 'files')
-vasp_files_path = os.path.join(code_folder_path, 'files')
-uma_files_path = os.path.join(code_folder_path, 'files')
+files_path = os.path.join(code_folder_path, 'files')
 molecular_reference_files = os.path.join(code_folder_path, 'files', 'molecular_references')
-sqs_files_path = os.path.join(code_folder_path, 'files')
+
+# mattergen_files_path = os.path.join(code_folder_path, 'files')
+# mattersim_files_path = os.path.join(code_folder_path, 'files')
+# mace_files_path = os.path.join(code_folder_path, 'files')
+# upet_files_path = os.path.join(code_folder_path, 'files')
+# minimahopping_files_path = os.path.join(code_folder_path, 'files')
+# uma_files_path = os.path.join(code_folder_path, 'files')
+# sqs_files_path = os.path.join(code_folder_path, 'files')

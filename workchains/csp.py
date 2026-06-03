@@ -22,7 +22,6 @@ class CSPWorkChain(WorkChain):
     def define(cls, spec):
         super().define(spec)
         spec.input("chemical_formula", valid_type=Str)
-        spec.input("ML_model", valid_type=Str)
         spec.input("n_csp", valid_type=Int)
         spec.input("n_mh", valid_type=Int)
 
@@ -45,7 +44,6 @@ class CSPWorkChain(WorkChain):
     def setup(self):
         """Setup and report"""
         self.ctx.chemical_formula = self.inputs.chemical_formula.value
-        self.ctx.ML_model = self.inputs.ML_model.value
         self.ctx.n_csp = self.inputs.n_csp.value
         self.ctx.n_mh = self.inputs.n_mh.value
         self.ctx.csp_structures = []
@@ -111,7 +109,7 @@ class CSPWorkChain(WorkChain):
         selected_entries = random.sample(entries_csp, n_mh)
         for i, entry in enumerate(selected_entries):
             struct = StructureData(pymatgen_structure = entry.structure)
-            builder = self._construct_mh_builder(struct, self.ctx.ML_model)
+            builder = self._construct_mh_builder(struct)
             future = self.submit(builder)
             self.to_context(**{f"mh_{i}": future})
 
@@ -155,7 +153,7 @@ class CSPWorkChain(WorkChain):
         for entry in low_energy_entries:
             structure_energy_pairs.append((entry.structure.as_dict(), entry.energy))
 
-        add_structures("csp", self.ctx.ML_model, structure_energy_pairs)
+        add_structures("csp", settings.inputs['bulk_relax']['model'], structure_energy_pairs)
 
     def final_report(self):
         """Final report"""
@@ -183,63 +181,47 @@ class CSPWorkChain(WorkChain):
         """
         General builder for structure optimization with an ML model
         """
-        ML_model = self.ctx.ML_model
+        ML_model = settings.inputs['bulk_relax']['model']
         structures = self.ctx.csp_structures
-
         Workflow = WorkflowFactory(ML_model.lower())
-
         builder = Workflow.get_builder()
         builder.input_structures = List(structures)
         builder.code = get_code(ML_model)
         builder.local_label = Str("relax {}".format(self.ctx.chemical_formula))
-
         model, model_path, device = get_model_device(ML_model)
-
-        relax_key = "bulk_relax"
 
         job_info = {
             "job_type": "relax",
             "ML_model": ML_model,
             "model_name": model,
             "model_path": model_path,
+            "model_head": settings.inputs["bulk_relax"]["head"],
             "device": device,
-            "fmax": settings.inputs[relax_key]["fmax"],
-            "max_steps": settings.inputs[relax_key]["max_steps"],
-            "task_name": settings.inputs[relax_key].get("task_name", "omat"),
+            "fmax": settings.inputs["bulk_relax"]["fmax"],
+            "max_steps": settings.inputs["bulk_relax"]["max_steps"]
         }
-
-        # if ML_model in ["uPET", "UMA"]:
-        #     job_info.update({"model_name": model})
-        # else:
-        #     job_info.update({"model_path": model_path})
 
         builder.job_info = Dict(job_info)
         return builder
 
-    def _construct_mh_builder(self, struct, ML_model):
+    def _construct_mh_builder(self, struct):
         Workflow = WorkflowFactory("minimahopping")
         builder = Workflow.get_builder()
         builder.structure = struct
         builder.code = get_code("MinimaHopping")
         builder.this_label = '{}'.format(self.ctx.chemical_formula)
-
-        model, model_path, device = get_model_device(ML_model)
+        model, model_path, device = get_model_device(settings.inputs["MinimaHopping"]["model"])
 
         job_info = {
-             "ML_model": ML_model,
-             "model_name": model,
-             "model_path": model_path,
-             "device": device,
-             "mh_steps": settings.inputs["MinimaHopping"]["mh_steps"],
-             "fmax": settings.inputs["MinimaHopping"]["fmax"],
-             "task_name": settings.inputs["MinimaHopping"].get("task_name", "omat"),
-            }
-
-        # if ML_model in ["uPET", "UMA"]:
-        #     job_info.update({})
-        # else:
-        #     job_info.update({"model_path": model_path})
+            "job_type": "hopping",
+            "ML_model": settings.inputs["MinimaHopping"]["model"],
+            "model_name": model,
+            "model_path": model_path,
+            "model_head": settings.inputs["MinimaHopping"]["head"],
+            "device": device,
+            "mh_steps": settings.inputs["MinimaHopping"]["mh_steps"],
+            "fmax": settings.inputs["MinimaHopping"]["fmax"]
+        }
 
         builder.job_info = Dict(job_info)
-
         return builder
