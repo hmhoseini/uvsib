@@ -80,18 +80,12 @@ class GeneratorWorkChain(WorkChain):
                 failed_ml_e.append(chemical_system)
                 continue
 
-            low_energy_entries = unique_low_energy_chemsys(
-                    chemical_system,
-                    new_entries,
-                    DFT_FUNC,
-                    EHULL_ML
-            )
+            low_energy_entries = unique_low_energy_chemsys(chemical_system, new_entries, DFT_FUNC, EHULL_ML)
             structure_energy_pairs = []
-
             for entry in low_energy_entries:
                 structure_energy_pairs.append((entry.structure.as_dict(), entry.energy))
 
-            add_structures("generated", self.ctx.ML_model, structure_energy_pairs)
+            add_structures("generated", settings.inputs['bulk_relax']['model'], structure_energy_pairs)
             # DBChemsys status is updated to Ready
             row = query_by_columns(DBChemsys,{"chemsys": chemical_system})[0]
             update_row(DBChemsys, row.uuid,{"gen_structures": "Ready"})

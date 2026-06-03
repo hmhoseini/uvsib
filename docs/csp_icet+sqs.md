@@ -335,7 +335,7 @@ entries (each carrying its MLIP-relaxed energy under
 `properties["predicted_energy"]` in eV) and a `metadata` list with one
 entry per surviving structure (parent label, composition, n_parent_atoms,
 natoms, kind in `{bulk_sqs, slab, slab_Ovac}`, miller, slab_thickness,
-vacuum, vacancy_frac, sqs_seed). The convex-hull step of `MainWorkChain`
+vacuum, vacancy_frac, sqs_seed). The convex-hull step of `SQSWorkChain`
 consumes both lists directly -- no separate relax stage is needed for SQS
 output.
 
@@ -343,6 +343,35 @@ Because the relax pass runs inline, the job_info dict must specify a real
 MLIP backend (`ML_model`, `model`/`model_path`, `device`, optionally
 `task_name` for UMA) -- the placeholders in the example above are for
 illustration only.
+
+### Analysis -- `workchains/sqs_analysis.py`
+
+`SQSWorkChain.create_hull` calls three pure helpers and writes one combined
+`analysis` Dict output:
+
+- `analyse_bulk(bulk_items, functional)` -- one convex hull per
+  `parent_label`. Elemental references come from
+  `codes/files/{r2scan,gga_ggau}_entries.json` (selected by `functional`,
+  defaults to `settings.DFT_FUNC`). Returns `eform_per_atom`, `ehull`,
+  `energy_per_atom` and an `is_ground_state` flag per (parent, composition)
+  after StructureMatcher dedup of equivalent SQS seeds.
+- `analyse_surface(slab_items, bulk_results)` -- surface energy
+  `gamma = (E_slab - N * mu_bulk_per_atom) / (2 A)` per (parent, comp,
+  miller). `mu_bulk_per_atom` is the lowest energy_per_atom from the bulk
+  pass at the same composition; `area = |a x b|` of the slab cell. Reported
+  in both eV/A2 and J/m2; entries with no bulk reference at that composition
+  get `gamma = None` and a note.
+- `analyse_ovac(slab_vac_items, slab_results, mu_O2)` --
+  `dE_vac = (E_vac + 0.5 * n_vac * mu_O2 - E_pristine) / n_vac`. Pass
+  `mu_O2` in eV per O2 molecule (MLIP-relaxed); without it the function
+  falls back to the unreferenced `(E_vac - E_pristine) / n_vac` and tags
+  the entry `reference="no O2 ref"`.
+
+To switch on the O2-referenced vacancy formation energy, relax
+`codes/files/molecular_references/o2.vasp` with the same MLIP (it holds 4
+O2 molecules per cell -- divide the total energy by 4) and pass the
+per-molecule value as `mu_O2` in the SQS WorkChain inputs (or as
+`SQS.mu_O2` in `input.yaml` when going via `MainWorkChain`).
 
 ## Status
 
@@ -354,6 +383,11 @@ illustration only.
   (BFGSLineSearch, fmax 0.05, max 200 steps) drops unconverged structures
   and stores the relaxed energy on each surviving structure under
   `properties["predicted_energy"]`.
+- **Stage 1b (analysis)**: implemented in `workchains/sqs_analysis.py`,
+  wired into `SQSWorkChain.create_hull`. Bulk hull + slab gamma + surface
+  O-vacancy dE in one pass, returned as a single `analysis` Dict output.
+  Smoke-tested on a synthetic 4-structure mini-dataset (numbers match the
+  closed-form values for gamma and dE_vac to round-off).
 - **Stage 2 (enumeration)**: not implemented; pymatgen's
   `EnumerateStructureTransformation` slot.
 - **Stage 3 (cluster expansion, active loop)**: not implemented.

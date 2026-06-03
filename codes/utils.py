@@ -24,6 +24,10 @@ def get_cmdline(job_info):
             f"--fmax={job_info['fmax']}",
             f"--max_steps={job_info['max_steps']}"]
         )
+    elif job_type == 'hopping':
+        cmdline.extend([
+            f"--mh_steps={job_info['mh_steps']}"
+        ])
     elif job_type == 'face_build':
         cmdline.extend([
             f"--fmax={job_info['fmax']}",
@@ -48,7 +52,7 @@ def get_cmdline(job_info):
             '--max_natoms={}'.format(job_info['particles_range'].split('-')[1]),
             '--generator={}'.format(job_info['generator'])]
         )
-    print('codes/utils: ', cmdline)
+    print('DBG codes/utils: ', cmdline)
     return cmdline
 
 def get_element_entries(chemsys_list, functional):

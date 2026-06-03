@@ -219,8 +219,7 @@ class CSPWorkChain(WorkChain):
             "model_path": model_path,
             "model_head": settings.inputs["MinimaHopping"]["head"],
             "device": device,
-            "mh_steps": settings.inputs["MinimaHopping"]["mh_steps"],
-            "fmax": settings.inputs["MinimaHopping"]["fmax"]
+            "mh_steps": settings.inputs["MinimaHopping"]["mh_steps"]
         }
 
         builder.job_info = Dict(job_info)

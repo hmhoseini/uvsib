@@ -1,123 +1,149 @@
-import re
+"""User-facing SQS WorkChain.
+
+Submits one SQS request (generate + MLIP-relax, see ``codes/files/sqs.py``)
+to the wrapped CalcJob, then analyses the returned structures via
+``workchains/sqs_analysis.py`` -- bulk convex hull, slab surface energies and
+surface O-vacancy formation energies in one pass.
+
+Inputs
+------
+- ``request``    (Dict)  : SQS request payload (parent_label, structure,
+                            sublattices, composition_grid, supercell,
+                            n_per_comp, sqs, surfaces, defects).
+- ``mu_O2``      (Float, optional) : eV per O2 molecule, MLIP-relaxed
+                            molecular reference. Required for absolute
+                            O-vacancy formation energies; without it the
+                            ``analysis["ovacancy"]`` entries fall back to
+                            ``(E_vac - E_pristine) / n_vac`` and are tagged
+                            ``reference="no O2 ref"``.
+- ``functional`` (Str, optional)   : elemental reference set for the bulk
+                            hull; defaults to ``settings.DFT_FUNC``.
+- ``local_label`` (Str, optional)  : label propagated to the CalcJob node.
+
+Outputs
+-------
+- ``analysis`` (Dict) : ``{"bulk": [...], "surface": [...], "ovacancy": [...]}``
+"""
 from aiida.engine import WorkChain
-from aiida.plugins import WorkflowFactory
-from aiida.orm import Str, List, Dict, Int
-from pymatgen.core import Structure, Composition
-# from uvsib.db.utils import add_similarities
+from aiida.plugins import WorkflowFactory, CalculationFactory
+from aiida.orm import Str, Dict, List, Float
+
 from uvsib.workchains.utils import get_code, get_model_device
+from uvsib.workchains.sqs_analysis import (
+    split_by_kind,
+    analyse_bulk,
+    analyse_surface,
+    analyse_ovac,
+)
 from uvsib.workflows import settings
 
 
 class SQSWorkChain(WorkChain):
-    """Similarity WorkChain"""
+    """Run one SQS request and build the bulk/slab/vacancy analysis."""
+
     @classmethod
     def define(cls, spec):
         super().define(spec)
-        spec.input("structure", valid_type=List)
+        spec.input("request", valid_type=Dict)
+        spec.input("mu_O2", valid_type=Float, required=False)
+        spec.input("local_label", valid_type=Str, required=False)
 
         spec.outline(
             cls.setup,
             cls.run_sqs,
             cls.inspect_sqs,
             cls.create_hull,
-            cls.final_report
+            cls.final_report,
         )
 
-        spec.exit_code(300,"ERROR_SQS_FAILED","The crystal structure prediction failed")
-        spec.exit_code(400,"ERROR_SQS_FAILED", "The similarity comparison computations failed")
+        spec.exit_code(300, "ERROR_SQS_FAILED", message="The SQS generation/relax calculation failed")
+        spec.exit_code(400, "ERROR_ANALYSIS_FAILED", message="No usable structures returned from SQS")
 
     def setup(self):
-        """Setup and report"""
         self.report("Running SQS WorkChain")
-        self.ctx.input_structure = self.ctx.inputs.structure
-        self.ctx.generated_structures = list()
         self.ctx.success = False
+        self.ctx.mu_O2 = (float(self.inputs.mu_O2.value) if "mu_O2" in self.inputs else None)
+        self.ctx.local_label = self.inputs.local_label.value
 
     def run_sqs(self):
-        request = {
-              "parent_label": "Y2Ru2O7-pyrochlore",
-              "structure":   {},  #  <pymatgen Structure.as_dict()>,   # parent unit cell
-              "sublattices": {
-                # icet labels sublattices 'A','B',... in order of distinct
-                # allowed-species sets it encounters. Use the SAME labels here
-                # and in composition_grid below.
-                "A": {"sites": "Y",  "species": ["Y", "Gd", "Bi"]},
-                "B": {"sites": "Ru", "species": ["Ru", "Ir", "Os"]}
-              },
-              "composition_grid": {
-                "A": [{"Y": 1.0},
-                      {"Y": 0.5, "Gd": 0.5},
-                      {"Bi": 0.5, "Y": 0.5}],
-                "B": [{"Ru": 1.0},
-                      {"Ru": 0.5, "Ir": 0.5},
-                      {"Ir": 1.0}]
-              },
-              "supercell":   [2, 2, 2],   # max search size (volume = product)
-              "n_per_comp":  3,           # SQS samples per composition (different seeds)
-              "sqs": {
-                "cutoffs":  [7.0, 4.0],   # pair, triplet cutoffs in A (icet)
-                "n_steps":  5000,         # MC steps per SQS
-                "T_start":  5.0,
-                "T_stop":   0.001,
-                "include_smaller_cells": False
-              },
-              "surfaces": [               # OPTIONAL: slab variants to build per SQS
-                {"miller": [1,1,1], "min_thickness": 10.0, "vacuum": 15.0}
-              ],
-              "defects": {                # OPTIONAL: surface defects (experimentally
-                                          # relevant for OER, HER, CO2RR active sites)
-                "oxygen_vacancy": {
-                  "concentrations": [0.0, 0.125, 0.25],  # fraction of surface O
-                  "n_per_conc":     2
-                }
-              }
-            }
-
-        builder = self._sqs_builder(request)
+        builder = self._sqs_builder(self.inputs.request.get_dict())
         future = self.submit(builder)
-        self.to_context(**{f"sqs_": future})
+        self.to_context(sqs=future)
 
     def inspect_sqs(self):
-        failed_jobs = 0
-        wch = self.ctx[f"sqs_"]
+        wch = self.ctx.sqs
         if not wch.is_finished_ok:
-            failed_jobs += 1
-        self.ctx.generated_structures.extend(wch.called[-1].outputs.output_dict["structures"])
-        if not self.ctx.generated_structures:
             return self.exit_codes.ERROR_SQS_FAILED
 
+        output_dict = wch.outputs.output_dict.get_dict()
+
+        print('INSPECT SQS')
+        print(output_dict)
+
+        self.ctx.structures = output_dict.get("structures", [])
+        self.ctx.metadata = output_dict.get("metadata", [])
+        if not self.ctx.structures:
+            return self.exit_codes.ERROR_ANALYSIS_FAILED
+        self.report(f"SQS returned {len(self.ctx.structures)} relaxed structures")
+
+
     def create_hull(self):
-        print('created {}'.format(len(self.ctx.generated_structures)))
-        self.report('Creating convex hulls...')
+        self.report("Building convex hull + surface analysis")
+        bulk, slab, slab_vac = split_by_kind(self.ctx.structures, self.ctx.metadata)
 
-        assert 1 == 2
+        bulk_results = analyse_bulk(bulk, self.ctx.functional)
+        surf_results = analyse_surface(slab, bulk_results)
+        vac_results = analyse_ovac(slab_vac, surf_results, self.ctx.mu_O2)
 
+        analysis = {
+            "bulk":     bulk_results,
+            "surface":  surf_results,
+            "ovacancy": vac_results,
+            "summary":  {
+                "n_bulk":     len(bulk_results),
+                "n_surface":  len(surf_results),
+                "n_ovacancy": len(vac_results),
+                "n_ground_states": sum(1 for r in bulk_results if r["is_ground_state"]),
+                "functional": self.ctx.functional,
+                "mu_O2_eV":   self.ctx.mu_O2,
+            },
+        }
+
+        self.ctx.success = True
 
     def final_report(self):
+        label = self.ctx.local_label
         if self.ctx.success:
-            self.report(f"SQSWorkChain for {self.ctx.chemical_formula} completed")
+            self.report(f"SQSWorkChain for {label} completed")
         else:
-            self.report(f"SQSWorkChain for {self.ctx.chemical_formula} failed")
+            self.report(f"SQSWorkChain for {label} failed")
+
+    # ------------------------------------------------------------------
+    # builder
+    # ------------------------------------------------------------------
 
     def _sqs_builder(self, request: dict):
-        ML_model = settings.inputs['SQS']['model']
+        ML_model = settings.inputs["SQS"]["model"]
         Workflow = WorkflowFactory("sqs_calc")
         builder = Workflow.get_builder()
-        builder.request = request
-        builder.code = get_code(ML_model)
-        model, model_path, device = get_model_device(ML_model)
 
+        # sqs_calc is the BaseRestartWorkChain wrapping the SQS CalcJob; its
+        # CalcJob writes the supplied list to input_structures.json verbatim,
+        # so wrap the single request in a one-element list.
+        builder.input_structure = List(list=[request])
+        builder.code = get_code(ML_model)
+        builder.local_label = Str(self.ctx.local_label)
+
+        model, model_path, device = get_model_device(ML_model)
         job_info = {
-            "job_type": "sqs",
-            "ML_model": ML_model,
+            "job_type":   "sqs",
+            "ML_model":   ML_model,
             "model_name": model,
             "model_path": model_path,
             "model_head": settings.inputs["SQS"]["head"],
-            "device": device,
-            "fmax": settings.inputs["SQS"]["fmax"],
-            "max_steps": settings.inputs["SQS"]["max_steps"]
+            "device":     device,
+            "fmax":       settings.inputs["SQS"]["fmax"],
+            "max_steps":  settings.inputs["SQS"]["max_steps"],
         }
-
-        builder.job_info = Dict(job_info)
-        # builder.max_iterations = Int(2)
+        builder.job_info = Dict(dict=job_info)
         return builder
