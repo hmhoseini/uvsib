@@ -38,7 +38,6 @@ def get_cmdline(job_info):
         )
     elif job_type == 'face_build':
         cmdline.extend([
-            f"--bulk_energy={job_info['bulk_energy']}",
             f"--fmax={job_info['fmax']}",
             f"--max_steps={job_info['max_steps']}",
             f"--max_miller_idx={job_info['max_miller_idx']}",

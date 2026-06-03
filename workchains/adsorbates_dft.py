@@ -1,21 +1,22 @@
+import os
 import yaml
+# import numpy as np
 from ase.io import jsonio
 from aiida.engine import WorkChain
 from aiida.plugins import WorkflowFactory
-from aiida.orm import Str, List, Dict
+from aiida.orm import Str, List, Dict, load_code, StructureData
 from uvsib.db.tables import DBSurface
-from uvsib.db.utils import add_surface_ml_adsorbate  # add_surface_adsorbate
+from uvsib.db.utils import add_surface_ml_adsorbate # add_surface_adsorbate
+from uvsib.codes.vasp.workchains import construct_vasp_builder
+from uvsib.codes.utils import ase_to_pmg
 from uvsib.db.utils import get_structure_uuid_surface_id, query_by_columns
 from uvsib.workchains.utils import get_code, get_model_device
 from uvsib.workchains.oer import calculate_oer_overpotential
 from uvsib.workchains.co2rr import calculate_co2rr_overpotential
 from uvsib.workchains.noxrr import calculate_noxrr_overpotential
-from uvsib.workchains.cer import calculate_cer_overpotential
-from uvsib.workchains.her import calculate_her_overpotential
-from uvsib.workchains.nrr import calculate_nrr_overpotential
-from uvsib.workchains.orr import calculate_orr_overpotential
 from uvsib.workflows import settings
 
+_SKIP_AD_VERIFICATION = settings._SKIP_AD_VERIFICATION
 
 def read_yaml(file_path):
     """Read yaml file"""
@@ -40,12 +41,13 @@ class AdsorbatesWorkChain(WorkChain):
             cls.run_adsorbs,
             cls.inspect_adsorbs,
             cls.store_results_ml,
+            cls.run_dft,
+            cls.inspect_store_dft,
             cls.final_report
         )
 
         spec.exit_code(300,"ERROR_CALCULATION_FAILED", message="The calculation did not finish successfully")
         spec.exit_code(301,"ERROR_NO_STRUCTURES_FOUND", message="No structures were found for the given formula.")
-        spec.exit_code(302,"NO_CANDIDATES_WITHIN_ETA_LIMIT", message="No candidates we within the given eta limit")
 
     def setup(self):
         """Setup and report"""
@@ -57,9 +59,16 @@ class AdsorbatesWorkChain(WorkChain):
         if not self.ctx.structure_surface_rows:
             return self.exit_codes.ERROR_NO_STRUCTURES_FOUND
         self.ctx.ml_results = {}
-        self.ctx.candidates = 0
+        self.ctx.dft_results = {} #TODO
+        self.ctx.candidates = {}
+        self.ctx.verification = {} #TODO
         self.ctx.relaxation_results = {}
         self.ctx.adsorption_sets = {}
+        self.ctx.protocol = read_yaml(os.path.join(settings.vasp_files_path, "protocol.yaml"))
+        self.ctx.potential_family = settings.configs["codes"]["VASP"]["potential_family"]
+        potential_mapping = read_yaml(os.path.join(settings.vasp_files_path, "potential_mapping.yaml"))
+        self.ctx.potential_mapping = potential_mapping["potential_mapping"]
+        self.ctx.vasp_code = load_code(settings.configs["codes"]["VASP"]["code_string"])
 
         self.report(f"Running Adsorbates WorkChain for {self.ctx.chemical_formula}. "
                     f"Reaction: {self.ctx.reaction}, reaction_path: {self.ctx.reaction_path}")
@@ -88,22 +97,19 @@ class AdsorbatesWorkChain(WorkChain):
             output_dict = ads_wch.outputs.output_dict
             self.ctx.ml_results[parent_key] = output_dict["structures"]
 
+        if failed:
+            self.report(f"WARNING: {len(failed)} sub-workflow(s) failed.")
+
         if len(failed) == len(self.ctx.structure_surface_rows):
             self.report("ERROR: all sub-workflows failed - no results to process.")
             return self.exit_codes.ERROR_CALCULATION_FAILED
-        if failed:
-            self.report(f"WARNING: {len(failed)} sub-workflow(s) failed.")
 
     def store_results_ml(self):
         """Store ML results """
         reaction_map = {
-            "OER": (calculate_oer_overpotential, 12.0),
-            "CO2RR": (calculate_co2rr_overpotential, 12.5),
-            "CER": (calculate_cer_overpotential, 12.5),
-            "NRR": (calculate_nrr_overpotential, 12.5),
-            "NOXRR": (calculate_noxrr_overpotential, 12.5),
-            "HER": (calculate_her_overpotential, 12.5),
-            "ORR": (calculate_orr_overpotential, 12.5)
+            "OER": (calculate_oer_overpotential, 2.0),
+            "CO2RR": (calculate_co2rr_overpotential, 2.5),
+            "NOXRR": (calculate_noxrr_overpotential, 2.5),
         }
 
         if self.ctx.reaction not in reaction_map:
@@ -130,27 +136,85 @@ class AdsorbatesWorkChain(WorkChain):
                     adsorbed = jsonio.decode(ads_json)
                     energy_set[adsorbed.info["adsorbate"]] = adsorbed.info['{}_energy'.format(str(self.ctx.ML_model).lower())]
 
-                eta, dG_steps, dG_cumulative = calc_method(energy_set, self.ctx.reaction_path)
-                print(f"{self.ctx.chemical_formula}: {self.ctx.reaction} ({self.ctx.reaction_path}): {eta}")
+                eta, dG_steps, dG_cumulative = calc_method(energy_set, self.ctx.reaction_path, self.ctx.ML_model, settings.ML_FUNC)
 
-                # if eta > eta_threshold:
-                #     continue
+                if eta > eta_threshold:
+                    continue
+                if eta < 1.5: #TODO
+                    self.ctx.verification[parent_key] = adsorb_set
 
-                self.ctx.candidates += 1
+                self.ctx.candidates[parent_key] = adsorb_set
                 add_surface_ml_adsorbate(existing_uuid=uuid_str, surf_id=surface_id, surface_miller_index= miller_index,
                                          comp=self.ctx.chemical_formula,
                                          react=self.ctx.reaction, react_path=self.ctx.reaction_path,
                                          site_type=site_type, ads_coord=ads_coord, repeat=repeat,
                                          e=eta, dG_steps=dG_steps, dG_cumulative=dG_cumulative,
                                          ad_set=adsorb_set)
+    # TODO: Only for test
+    def run_dft(self):
+        """Run r2SCAN geometry optimization"""
+        if _SKIP_AD_VERIFICATION:
+            return
+        for parent_key, adsorption_sets in self.ctx.verification.items():
+            for adsorb_set in adsorption_sets:
+                for idx, ads_json in enumerate(adsorb_set["structures"]):
+                    adsorbed = jsonio.decode(ads_json)
+                    pmg_structure = ase_to_pmg(adsorbed)
+                    struct = StructureData(pymatgen=pmg_structure)
+                    struct.base.attributes.set("site_properties", pmg_structure.site_properties)
+                    builder = construct_vasp_builder(
+                        struct,
+                        self.ctx.protocol["r2SCAN_slab"],
+                        self.ctx.potential_family,
+                        self.ctx.potential_mapping,
+                        self.ctx.vasp_code
+                    )
+                    future = self.submit(builder)
+                    self.to_context(**{f"{parent_key}_{idx}": future})
+
+    def inspect_store_dft(self):
+        """Inspect r2SCAN geometry optimization"""
+        if _SKIP_AD_VERIFICATION:
+            return
+
+        reaction_map = {
+            "OER": (calculate_oer_overpotential, 2.0),
+            "CO2RR": (calculate_co2rr_overpotential, 1.5),
+            "NOXRR": (calculate_noxrr_overpotential, 1.5),
+        }
+
+        if self.ctx.reaction not in reaction_map:
+            self.report(f"The reaction {self.ctx.reaction} is not known")
+            return self.exit_codes.ERROR_CALCULATION_FAILED
+
+        self.report(f"Storing {self.ctx.reaction} dft results.")
+
+        calc_method, _ = reaction_map[self.ctx.reaction]
+
+        failed_jobs = 0
+        for parent_key, adsorption_sets in self.ctx.verification.items():
+            for adsorb_set in adsorption_sets:
+                site_type = adsorb_set["site_type"]
+                ads_coord = adsorb_set["ads_coord"]
+                repeat = adsorb_set["repeat"]
+                energy_set = {}
+                for idx, ads_json in enumerate(adsorb_set["structures"]):
+                    scan_wch = self.ctx[f"{parent_key}_{idx}"]
+                    if not scan_wch.is_finished_ok:
+                        failed_jobs += 1
+                        break
+                    outputs = scan_wch.outputs
+                    structure = outputs.structure.get_pymatgen()
+                    energy = outputs.misc["total_energies"]["energy_extrapolated"]
+                    adsorbed = jsonio.decode(ads_json)
+                    energy_set[adsorbed.info["adsorbate"]] = energy
+                else:
+                    eta, dG_steps, dG_cumulative = calc_method(energy_set, self.ctx.reaction_path, "dft", settings.DFT_FUNC)
+                break
 
     def final_report(self):
         """Final report"""
         if not self.ctx.candidates:
-            self.report(f"AdsorbatesWorkChain for {self.ctx.chemical_formula}: no candidates below eta threshold.")
-            return self.exit_codes.NO_CANDIDATES_WITHIN_ETA_LIMIT
-        self.report(f"AdsorbatesWorkChain for {self.ctx.chemical_formula} finished successfully.")
-        if self.ctx.candidates == 0:
             self.report(f"Warning: AdsorbatesWorkChain for {self.ctx.chemical_formula}: no candidates below eta threshold.")
 
     def _construct_adsorbate_builder(self, slab, ML_model, reaction, pathway):

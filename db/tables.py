@@ -167,7 +167,6 @@ class DBFrontend(Base):
     )
     username = Column(String, nullable=True)
     composition = Column(String, nullable=True)
-    model = Column(String, nullable=True)
     reaction = Column(String, nullable=True)
     reaction_path = Column(String, nullable=False)
     nano_particles = Column(String, nullable=True)

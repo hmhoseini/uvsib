@@ -8,19 +8,18 @@ from uvsib.workflows import settings
 
 _SKIP_PD_VERIFICATION = settings._SKIP_PD_VERIFICATION #TODO for test
 
-def get_struct_uuid(chemical_formula, ml_model): #TODO: will remove after test
+def get_struct_uuid(chemical_formula, ml_model): #TODO: will correct after test
     """Query structures from the database by formula and return list of (structure_dict, uuid)"""
     if _SKIP_PD_VERIFICATION:
         results = query_structure({"composition": chemical_formula}, method=ml_model)
         filtered_results = list()
-        for s, e, u in sorted([(row.structure, row.energy, str(row.structure_uuid)) for row in results], key=lambda x: x[1]):
-            filtered_results.append([s, e, u])
+        for s, u in sorted([(row.structure, str(row.structure_uuid)) for row in results], key=lambda x: x[1]):
+            filtered_results.append([s, u])
             if len(filtered_results) == 10:
                 break
         return filtered_results
-    else:
-        results = query_structure({"composition": chemical_formula}, method = "r2SCAN") or []
-        return [(row.structure, row.energy, str(row.structure_uuid)) for row in results]
+    results = query_structure({"composition": chemical_formula}, method = "r2SCAN") or []
+    return [(row.structure, str(row.structure_uuid)) for row in results]
 
 def read_yaml(file_path):
     """Read a yaml file"""
@@ -35,6 +34,7 @@ class SurfaceBuilderWorkChain(WorkChain):
         super().define(spec)
 
         spec.input("ML_model", valid_type=Str)
+        spec.input("model_bulk", valid_type=Str)
         spec.input("chemical_formula", valid_type=Str)
 
         spec.outline(
@@ -54,7 +54,7 @@ class SurfaceBuilderWorkChain(WorkChain):
         self.report("Running SurfaceBuilder WorkChain")
         self.ctx.chemical_formula = self.inputs.chemical_formula.value
         self.ctx.ML_model = self.inputs.ML_model.value
-        self.ctx.struct_uuid = get_struct_uuid(self.ctx.chemical_formula, self.ctx.ML_model) #TODO update
+        self.ctx.struct_uuid = get_struct_uuid(self.ctx.chemical_formula, self.inputs.model_bulk.value) #TODO update
         if not self.ctx.struct_uuid:
             self.report(f"No structures were found for {self.ctx.chemical_formula}")
             return self.exit_codes.ERROR_NO_STRUCTURES_FOUND
@@ -62,14 +62,14 @@ class SurfaceBuilderWorkChain(WorkChain):
 
     def run_facebuild(self):
         """Run SurfaceBuilder Workchain"""
-        for struct_dict, energy, uuid_str in self.ctx.struct_uuid:
-            builder = self._construct_facebuild_builder(struct_dict, energy, self.ctx.ML_model)
+        for struct_dict, uuid_str in self.ctx.struct_uuid:
+            builder = self._construct_facebuild_builder(struct_dict, self.ctx.ML_model)
             future = self.submit(builder)
             self.to_context(**{f"sfb_{uuid_str}": future})
 
     def inspect_facebuild(self):
         """Inspect SurfaceBuilder WorkChain"""
-        for _, _, uuid_str in self.ctx.struct_uuid:
+        for _, uuid_str in self.ctx.struct_uuid:
             wch = self.ctx[f"sfb_{uuid_str}"]
             if not wch.is_finished_ok:
                 self.report("Some surface builder jobs crashed.")
@@ -94,7 +94,7 @@ class SurfaceBuilderWorkChain(WorkChain):
         """Final report"""
         self.report(f"SurfaceBuilderWorkChain for {self.ctx.chemical_formula} finished successfully")
 
-    def _construct_facebuild_builder(self, ml_structure, ml_energy, ML_model):
+    def _construct_facebuild_builder(self, ml_structure, ML_model):
         """Builder for generating surface and surface optimiziation"""
         structure = [ml_structure]
 
@@ -118,7 +118,6 @@ class SurfaceBuilderWorkChain(WorkChain):
             "fmax": settings.inputs[relax_key]["fmax"],
             "max_steps": settings.inputs[relax_key]["max_steps"],
             "max_miller_idx": settings.inputs[relax_key]["max_miller_idx"],
-            "bulk_energy": ml_energy,
             "max_num_surf": settings.MAX_NUM_SURF,
             "task_name": settings.inputs[relax_key].get("task_name", "omat"),
         }

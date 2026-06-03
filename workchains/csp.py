@@ -90,6 +90,8 @@ class CSPWorkChain(WorkChain):
     def collect_ml_energies(self):
         """ML energies"""
         wch = self.ctx.ml_e
+        if not wch.is_finished_ok:
+            return self.exit_codes.ERROR_ML_RELAX_FAILED
         try:
             new_entries = get_output_as_entry(wch)
         except:
@@ -184,21 +186,20 @@ class CSPWorkChain(WorkChain):
         ML_model = self.ctx.ML_model
         structures = self.ctx.csp_structures
 
-        local_model = settings.inputs['bulk_relax']['model']
-        Workflow = WorkflowFactory(local_model.lower())
+        Workflow = WorkflowFactory(ML_model.lower())
 
         builder = Workflow.get_builder()
         builder.input_structures = List(structures)
-        builder.code = get_code(local_model)
+        builder.code = get_code(ML_model)
         builder.local_label = Str("relax {}".format(self.ctx.chemical_formula))
 
-        model, model_path, device = get_model_device(local_model)
+        model, model_path, device = get_model_device(ML_model)
 
         relax_key = "bulk_relax"
 
         job_info = {
             "job_type": "relax",
-            "ML_model": local_model,
+            "ML_model": ML_model,
             "model_name": model,
             "model_path": model_path,
             "device": device,
@@ -222,11 +223,10 @@ class CSPWorkChain(WorkChain):
         builder.code = get_code("MinimaHopping")
         builder.this_label = '{}'.format(self.ctx.chemical_formula)
 
-        local_model = settings.inputs['MinimaHopping']['model']
-        model, model_path, device = get_model_device(local_model)
+        model, model_path, device = get_model_device(ML_model)
 
         job_info = {
-             "ML_model": local_model,
+             "ML_model": ML_model,
              "model_name": model,
              "model_path": model_path,
              "device": device,
@@ -234,8 +234,6 @@ class CSPWorkChain(WorkChain):
              "fmax": settings.inputs["MinimaHopping"]["fmax"],
              "task_name": settings.inputs["MinimaHopping"].get("task_name", "omat"),
             }
-
-        # print('csp / minhop / job_info: ', job_info)
 
         # if ML_model in ["uPET", "UMA"]:
         #     job_info.update({})
