@@ -41,7 +41,8 @@ def get_cmdline(job_info):
             f"--fmax={job_info['fmax']}",
             f"--max_steps={job_info['max_steps']}",
             f"--reaction={job_info['reaction']}",
-            f"--pathway={job_info['pathway']}"]
+            f"--pathway={job_info['pathway']}",
+            f"--no-validate"]
         )
     elif job_type == 'nano_particles':
         cmdline.extend([
@@ -52,7 +53,7 @@ def get_cmdline(job_info):
             '--max_natoms={}'.format(job_info['particles_range'].split('-')[1]),
             '--generator={}'.format(job_info['generator'])]
         )
-    print('DBG codes/utils: ', cmdline)
+    # print('DBG codes/utils: ', cmdline)
     return cmdline
 
 def get_element_entries(chemsys_list, functional):

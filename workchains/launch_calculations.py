@@ -63,6 +63,6 @@ class MainSubmissionController(BaseSubmissionController):
                   "reaction_path": Str(self.reaction_path),
                   "nanoparticles": Str(self.nanoparticles),
                   "similarities": Dict(self.similarities),
-                  "sqs": Str(self.sqs),
+                  "sqs": Dict(self.sqs),
                   "metadata": {"label": label}}
         return inputs, MainWorkChain

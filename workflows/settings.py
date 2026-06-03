@@ -27,7 +27,7 @@ EHULL_SCAN = 0.1
 DFT_FUNC = "r2SCAN"
 # ML_FUNC = "r2SCAN"
 
-_SKIP_PD_VERIFICATION = False
+_SKIP_PD_VERIFICATION = True
 
 code_folder_path =  os.path.join(uvsib_directory, 'codes')
 files_path = os.path.join(code_folder_path, 'files')

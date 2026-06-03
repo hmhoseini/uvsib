@@ -61,7 +61,11 @@ Only relaxation-converged structures are written. The MLIP relaxed energy
 travels on the pymatgen Structure dict under
 ``properties["predicted_energy"]`` (set from ``atoms.info`` before
 serialisation), so the downstream convex-hull step has everything it needs
-in one file::
+in one file. Any molecular references shipped alongside the request (e.g.
+``o2.vasp`` for the O-vacancy formation energy) are relaxed with the same
+MLIP and emitted as per-molecule energies under ``molecular_refs``; the O2
+value is also exposed at the top level as ``mu_O2`` for the SQSWorkChain
+analysis consumer::
 
     {
       "structures": [
@@ -86,7 +90,9 @@ in one file::
           "vacuum":          null,
           "vacancy_frac":    0.0,
           "sqs_seed":        17
-      }, ...]
+      }, ...],
+      "molecular_refs": {"O2": -9.86, ...},          # eV per molecule
+      "mu_O2":          -9.86                        # alias for convenience
     }
 
 Tunable parameters in this file are the experimentally relevant axes:
@@ -102,11 +108,13 @@ The downstream consumer is the convex-hull step in ``MainWorkChain``
 per-composition convex hull directly.
 """
 
+import os
 import sys
 import json
 import argparse
 import random
 import numpy as np
+from ase.io import read as ase_read
 from ase.optimize import BFGSLineSearch
 from icet import ClusterSpace
 from icet.tools.structure_generation import generate_sqs
@@ -482,6 +490,55 @@ def relax_requests(calculator, structures, metadata):
 
 
 # ---------------------------------------------------------------------------
+# molecular references (computed inline against the same MLIP)
+# ---------------------------------------------------------------------------
+
+# Atom count per molecule for every gas-phase reference cell we might ship in
+# alongside the SQS request. ase.formula.Formula would derive these, but we
+# avoid the extra dependency by listing them explicitly.
+_REF_ATOMS_PER_MOLECULE = {"O2": 2, "H2": 2, "N2": 2, "Cl2": 2,
+                           "H2O": 3, "CO2": 3, "H2O2": 4}
+
+
+def relax_molecular_reference(calculator, ref_path, formula,
+                              fmax=0.05, max_steps=200):
+    """MLIP-relax one molecular reference cell and return per-molecule energy.
+
+    The molecular_references/*.vasp cells pack several copies of a molecule
+    (o2.vasp = 4 O2, h2o.vasp = 8 H2O, ...); the total relaxed energy is
+    divided by that count so downstream code can use it as the chemical
+    potential of a single molecule. Returns None (with a stderr note) if the
+    file is missing, ASE refuses to read it, or the relaxation does not
+    converge -- callers should treat None as "no reference available" rather
+    than abort.
+    """
+    if not os.path.exists(ref_path):
+        sys.stderr.write(f"mol-ref: {ref_path} not shipped, skipping\n")
+        return None
+    try:
+        atoms = ase_read(ref_path)
+    except Exception as exc:
+        sys.stderr.write(f"mol-ref: cannot read {ref_path}: {exc}\n")
+        return None
+
+    atoms.calc = calculator
+    relax = BFGSLineSearch(atoms, maxstep=0.1, logfile="opt_molref.log")
+    try:
+        relax.run(fmax=fmax, steps=max_steps)
+    except Exception as exc:
+        sys.stderr.write(f"mol-ref: {formula} relax raised: {exc}\n")
+        return None
+    if not relax.converged():
+        sys.stderr.write(
+            f"mol-ref: {formula} did not converge in {max_steps} steps\n")
+        return None
+
+    atoms_per_mol = _REF_ATOMS_PER_MOLECULE.get(formula, 1)
+    n_molecules = max(1, round(len(atoms) / atoms_per_mol))
+    return float(atoms.get_potential_energy()) / n_molecules
+
+
+# ---------------------------------------------------------------------------
 # entry point
 # ---------------------------------------------------------------------------
 
@@ -518,8 +575,23 @@ def main():
 
     structures, metadata = relax_requests(calc, structures, metadata)
 
+    # Relax any molecular references the CalcJob shipped alongside the
+    # request (currently just o2.vasp for the O-vacancy formation energy).
+    # Per-molecule values land in output.json under "molecular_refs"; mu_O2
+    # is also exposed at the top level for the SQSWorkChain.create_hull
+    # consumer.
+    molecular_refs = {}
+    for formula, filename in [("O2", "o2.vasp")]:
+        e_per_mol = relax_molecular_reference(calc, filename, formula)
+        if e_per_mol is not None:
+            molecular_refs[formula] = e_per_mol
+
+    output = {"structures": structures, "metadata": metadata, "molecular_refs": molecular_refs}
+    if "O2" in molecular_refs:
+        output["mu_O2"] = molecular_refs["O2"]
+
     with open("output.json", "w") as f:
-        json.dump({"structures": structures, "metadata": metadata}, f)
+        json.dump(output, f)
 
 
 if __name__ == "__main__":

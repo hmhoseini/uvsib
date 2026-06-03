@@ -6,6 +6,7 @@ from uvsib.db.utils import query_structure, add_slab
 from uvsib.workchains.utils import get_code, get_model_device
 from uvsib.workflows import settings
 
+
 _SKIP_PD_VERIFICATION = settings._SKIP_PD_VERIFICATION #TODO for test
 
 def get_struct_uuid(chemical_formula, ml_model): #TODO: will correct after test
@@ -49,8 +50,7 @@ class SurfaceBuilderWorkChain(WorkChain):
         """Setup and report"""
         self.report("Running SurfaceBuilder WorkChain")
         self.ctx.chemical_formula = self.inputs.chemical_formula.value
-        self.ctx.ML_model = self.inputs.ML_model.value
-        self.ctx.struct_uuid = get_struct_uuid(self.ctx.chemical_formula, self.inputs.model_bulk.value) #TODO update
+        self.ctx.struct_uuid = get_struct_uuid(self.ctx.chemical_formula, settings.inputs['bulk_relax']['model']) #TODO update
         if not self.ctx.struct_uuid:
             self.report(f"No structures were found for {self.ctx.chemical_formula}")
             return self.exit_codes.ERROR_NO_STRUCTURES_FOUND
@@ -59,7 +59,7 @@ class SurfaceBuilderWorkChain(WorkChain):
     def run_facebuild(self):
         """Run SurfaceBuilder Workchain"""
         for struct_dict, uuid_str in self.ctx.struct_uuid:
-            builder = self._construct_facebuild_builder(struct_dict, self.ctx.ML_model)
+            builder = self._construct_facebuild_builder(struct_dict)
             future = self.submit(builder)
             self.to_context(**{f"sfb_{uuid_str}": future})
 
@@ -93,7 +93,6 @@ class SurfaceBuilderWorkChain(WorkChain):
     def _construct_facebuild_builder(self, ml_structure):
         """Builder for generating surface and surface optimiziation"""
         ML_model = settings.inputs['face_build']['model']
-
         structure = [ml_structure]
         Workflow = WorkflowFactory(ML_model.lower())
         builder = Workflow.get_builder()
@@ -116,7 +115,4 @@ class SurfaceBuilderWorkChain(WorkChain):
         }
 
         builder.job_info = Dict(job_info)
-
-        print('face builder: ', ML_model, settings.inputs['adsorbates']['head'])
-
         return builder

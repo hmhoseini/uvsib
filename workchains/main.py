@@ -21,7 +21,7 @@ class MainWorkChain(WorkChain):
         spec.input("reaction_path", valid_type=Str)
         spec.input("nanoparticles", valid_type=Str)
         spec.input("similarities", valid_type=Dict)
-        spec.input('sqs', valid_type=Str)
+        spec.input('sqs', valid_type=Dict)
 
         spec.outline(
             cls.setup,
@@ -538,7 +538,7 @@ class MainWorkChain(WorkChain):
         builder.ml_model = self.ctx.ML_model
         return builder
 
-    def _construct_sqs_builder(self):
+    def _construct_sqs_builder(self, request):
         """SQS WorkChain builder.
 
         The request payload (parent structure, sublattices, composition_grid,
@@ -547,23 +547,11 @@ class MainWorkChain(WorkChain):
         O2 molecule, MLIP-relaxed) and ``functional`` (elemental reference
         set for the bulk hull) come from the same block.
         """
-        sqs_cfg = settings.inputs.get("SQS", {}) or {}
-        request = sqs_cfg.get("request")
-        if not request:
-            raise ValueError(
-                "input.yaml SQS.request is missing -- the SQS WorkChain needs "
-                "a request dict (parent_label, structure, sublattices, "
-                "composition_grid, supercell, ...); see "
-                "docs/csp_icet+sqs.md for the schema."
-            )
-
         WorkChain = WorkflowFactory("sqs")
         builder = WorkChain.get_builder()
         builder.request = Dict(dict=request)
-        builder.local_label = Str(self.ctx.chemical_formula)
-        if "mu_O2" in sqs_cfg:
-            from aiida.orm import Float
-            builder.mu_O2 = Float(float(sqs_cfg["mu_O2"]))
-        if "functional" in sqs_cfg:
-            builder.functional = Str(str(sqs_cfg["functional"]))
+        builder.local_label = Str('SQS for {}'.format(request['parent_label']))
+        # if "mu_O2" in settings.inputs['SQS']:
+        #     from aiida.orm import Float
+        #     builder.mu_O2 = Float(float(settings.inputs['SQS']["mu_O2"]))
         return builder

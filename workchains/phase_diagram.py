@@ -167,7 +167,7 @@ class PhaseDiagramMLWorkChain(WorkChain):
         """Return final structures"""
         chemical_formula = self.ctx.chemical_formula
         self.report(f"Constructing phase diagram for {chemical_formula}")
-        entries = get_entries_from_db(chemical_formula, self.ctx.ML_model)
+        entries = get_entries_from_db(chemical_formula, settings.inputs['bulk_relax']['model'])
 
         if not entries:
             self.report(f"Constructing phase diagram for {chemical_formula} failed")

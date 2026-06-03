@@ -11,8 +11,13 @@ Inputs
                             sublattices, composition_grid, supercell,
                             n_per_comp, sqs, surfaces, defects).
 - ``mu_O2``      (Float, optional) : eV per O2 molecule, MLIP-relaxed
-                            molecular reference. Required for absolute
-                            O-vacancy formation energies; without it the
+                            molecular reference. Override only -- when not
+                            supplied, the SQS CalcJob relaxes
+                            ``molecular_references/o2.vasp`` against the same
+                            MLIP and the per-molecule value is read from its
+                            output, so absolute O-vacancy formation energies
+                            are available by default. If both the override is
+                            missing AND the CalcJob did not emit ``mu_O2``,
                             ``analysis["ovacancy"]`` entries fall back to
                             ``(E_vac - E_pristine) / n_vac`` and are tagged
                             ``reference="no O2 ref"``.
@@ -25,28 +30,21 @@ Outputs
 - ``analysis`` (Dict) : ``{"bulk": [...], "surface": [...], "ovacancy": [...]}``
 """
 from aiida.engine import WorkChain
-from aiida.plugins import WorkflowFactory, CalculationFactory
+from aiida.plugins import WorkflowFactory
 from aiida.orm import Str, Dict, List, Float
-
 from uvsib.workchains.utils import get_code, get_model_device
-from uvsib.workchains.sqs_analysis import (
-    split_by_kind,
-    analyse_bulk,
-    analyse_surface,
-    analyse_ovac,
-)
+from uvsib.workchains.sqs_analysis import split_by_kind, analyse_bulk, analyse_surface, analyse_ovac
 from uvsib.workflows import settings
 
 
 class SQSWorkChain(WorkChain):
     """Run one SQS request and build the bulk/slab/vacancy analysis."""
-
     @classmethod
     def define(cls, spec):
         super().define(spec)
         spec.input("request", valid_type=Dict)
         spec.input("mu_O2", valid_type=Float, required=False)
-        spec.input("local_label", valid_type=Str, required=False)
+        spec.input("local_label", valid_type=Str, required=True)
 
         spec.outline(
             cls.setup,
@@ -78,14 +76,22 @@ class SQSWorkChain(WorkChain):
         output_dict = wch.outputs.output_dict.get_dict()
 
         print('INSPECT SQS')
-        print(output_dict)
+        # print(output_dict)
 
         self.ctx.structures = output_dict.get("structures", [])
         self.ctx.metadata = output_dict.get("metadata", [])
+
+        # Explicit mu_O2 input wins as an override; otherwise pick up the
+        # value the SQS CalcJob computed inline against the same MLIP
+        # (codes/files/sqs.py relaxes molecular_references/o2.vasp and
+        # writes the per-molecule energy under "mu_O2").
+        if self.ctx.mu_O2 is None and output_dict.get("mu_O2") is not None:
+            self.ctx.mu_O2 = float(output_dict["mu_O2"])
+            self.report(f"mu_O2 from MLIP: {self.ctx.mu_O2:.4f} eV/molecule")
+
         if not self.ctx.structures:
             return self.exit_codes.ERROR_ANALYSIS_FAILED
         self.report(f"SQS returned {len(self.ctx.structures)} relaxed structures")
-
 
     def create_hull(self):
         self.report("Building convex hull + surface analysis")
@@ -109,6 +115,8 @@ class SQSWorkChain(WorkChain):
             },
         }
 
+        print('did {} candidates'.format(len(analysis)))
+
         self.ctx.success = True
 
     def final_report(self):
@@ -121,19 +129,13 @@ class SQSWorkChain(WorkChain):
     # ------------------------------------------------------------------
     # builder
     # ------------------------------------------------------------------
-
     def _sqs_builder(self, request: dict):
         ML_model = settings.inputs["SQS"]["model"]
         Workflow = WorkflowFactory("sqs_calc")
         builder = Workflow.get_builder()
-
-        # sqs_calc is the BaseRestartWorkChain wrapping the SQS CalcJob; its
-        # CalcJob writes the supplied list to input_structures.json verbatim,
-        # so wrap the single request in a one-element list.
         builder.input_structure = List(list=[request])
         builder.code = get_code(ML_model)
         builder.local_label = Str(self.ctx.local_label)
-
         model, model_path, device = get_model_device(ML_model)
         job_info = {
             "job_type":   "sqs",

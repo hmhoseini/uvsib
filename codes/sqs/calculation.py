@@ -13,13 +13,11 @@ class SQSCalculation(CalcJob):
         spec.input("parameters", valid_type=Dict)
         spec.input_namespace("file", valid_type=(SinglefileData), dynamic=True)
         spec.output("output_dict", valid_type=Dict, required=True)
-
         spec.exit_code(100,"ERROR_MISSING_OUTPUT", message="Required output file not found.")
         spec.exit_code(200,"ERROR_NO_RETRIEVED_FOLDER", message="The retrieved folder data node can not be accessed.")
         spec.exit_code(303, "ERROR_OUTPUT_INCOMPLETE", message="The output file is incomplete.")
 
     def prepare_for_submission(self, folder):
-        """Create input files for uPET. Here, adding to the command line"""
         parameters = self.inputs.parameters.get_dict()
         cmdline = parameters['cmdline_params']
 
@@ -34,19 +32,19 @@ class SQSCalculation(CalcJob):
         with folder.open('_calculators.py', 'w', encoding='utf-8') as f:
             f.write(content)
 
-        # Ship the shared calculator factory alongside aiida.py — the script
-        # does `from _calculators import make_calculator` at runtime.
-        helper_file = os.path.join(settings.files_path, '_calculators.py')
-        with open(helper_file, 'r', encoding='utf-8') as f:
-            content = f.read()
-        with folder.open('_calculators.py', 'w', encoding='utf-8') as f:
-            f.write(content)
+        for ref_filename in ['o2.vasp']:
+            ref_src = os.path.join(settings.molecular_reference_files, ref_filename)
+            if not os.path.exists(ref_src):
+                raise FileNotFoundError('{} does not exist'.format(ref_src))
+            with open(ref_src, 'r', encoding='utf-8') as f:
+                content = f.read()
+            with folder.open(ref_filename, 'w', encoding='utf-8') as f:
+                f.write(content)
 
-        # Code info
         codeinfo = CodeInfo()
         codeinfo.code_uuid = self.inputs.code.uuid
         codeinfo.cmdline_params = cmdline
-        # Calc info.
+
         calcinfo = CalcInfo()
         calcinfo.uuid = self.uuid
         calcinfo.retrieve_list = ['output.json']

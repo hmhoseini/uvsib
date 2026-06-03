@@ -39,7 +39,6 @@ SQSCalculation = CalculationFactory('sqs')
 
 
 class SQSWorkChain(BaseRestartWorkChain):
-    """BaseRestartWorkChain to run uPETCalculation with automatic restarts."""
     _process_class = SQSCalculation
     @classmethod
     def define(cls, spec):
@@ -63,7 +62,6 @@ class SQSWorkChain(BaseRestartWorkChain):
         spec.exit_code(400,'ERROR_MAX_RESTARTS_EXCEEDED', message='Maximum number of restarts exceeded for SQS WorkChain.')
 
     def setup(self):
-        """Initialize context before first calculation."""
         super().setup()
         input_structure = self.inputs.input_structure
         job_info = self.inputs.job_info

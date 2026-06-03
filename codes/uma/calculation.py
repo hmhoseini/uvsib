@@ -48,6 +48,13 @@ class UMACalculation(CalcJob):
         with folder.open('_calculators.py', 'w', encoding='utf-8') as f:
             f.write(content)
 
+        # transfer the molecular reference files for computation
+        for mol_file in os.listdir(settings.molecular_reference_files):
+            with open(os.path.join(settings.molecular_reference_files, mol_file), 'r', encoding='utf-8') as f:
+                content = f.read()
+            with folder.open(mol_file, 'w', encoding='utf-8') as f:
+                f.write(content)
+
         # Code info
         codeinfo = CodeInfo()
         codeinfo.code_uuid = self.inputs.code.uuid

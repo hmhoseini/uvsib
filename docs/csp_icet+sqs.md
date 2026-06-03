@@ -367,11 +367,26 @@ illustration only.
   falls back to the unreferenced `(E_vac - E_pristine) / n_vac` and tags
   the entry `reference="no O2 ref"`.
 
-To switch on the O2-referenced vacancy formation energy, relax
-`codes/files/molecular_references/o2.vasp` with the same MLIP (it holds 4
-O2 molecules per cell -- divide the total energy by 4) and pass the
-per-molecule value as `mu_O2` in the SQS WorkChain inputs (or as
-`SQS.mu_O2` in `input.yaml` when going via `MainWorkChain`).
+The O2 chemical potential `mu_O2` is computed automatically by the SQS
+CalcJob, *not* by the user:
+
+- `codes/sqs/calculation.py` ships `codes/files/molecular_references/o2.vasp`
+  into the remote calc folder alongside `aiida.py` and `_calculators.py`.
+- After relaxing the SQS structures, `codes/files/sqs.py main()` calls
+  `relax_molecular_reference(calc, "o2.vasp", "O2")` -- same MLIP, same
+  BFGSLineSearch settings, divides the relaxed cell energy by the four O2
+  molecules packed into o2.vasp -- and writes the per-molecule value into
+  `output.json` under `mu_O2` (and inside `molecular_refs` for any future
+  H2O / CO2 / ... references we add the same way).
+- `SQSWorkChain.inspect_sqs` reads `output_dict["mu_O2"]` and stores it on
+  the context. An explicit `mu_O2` input on the WorkChain (or
+  `SQS.mu_O2` in `input.yaml`) overrides the auto-computed value when you
+  want to pin a reference (e.g. for sensitivity tests or to use a
+  beyond-MLIP DFT value).
+
+Cost is ~0.5 s of MLIP inference per SQS run -- cheaper than maintaining a
+per-(model, checkpoint) cache, and the value used for any given hull stays
+provenance-linked to the CalcJob output node that produced it.
 
 ## Status
 
@@ -386,7 +401,10 @@ per-molecule value as `mu_O2` in the SQS WorkChain inputs (or as
 - **Stage 1b (analysis)**: implemented in `workchains/sqs_analysis.py`,
   wired into `SQSWorkChain.create_hull`. Bulk hull + slab gamma + surface
   O-vacancy dE in one pass, returned as a single `analysis` Dict output.
-  Smoke-tested on a synthetic 4-structure mini-dataset (numbers match the
+  `mu_O2` is auto-computed inline by the CalcJob (relaxing
+  `molecular_references/o2.vasp` with the same MLIP); explicit input still
+  wins as an override. Smoke-tested on a synthetic 4-structure mini-dataset
+  (numbers match the
   closed-form values for gamma and dE_vac to round-off).
 - **Stage 2 (enumeration)**: not implemented; pymatgen's
   `EnumerateStructureTransformation` slot.

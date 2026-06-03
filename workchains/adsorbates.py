@@ -1,10 +1,9 @@
-import yaml
 from ase.io import jsonio
 from aiida.engine import WorkChain
 from aiida.plugins import WorkflowFactory
 from aiida.orm import Str, List, Dict
 from uvsib.db.tables import DBSurface
-from uvsib.db.utils import add_surface_ml_adsorbate  # add_surface_adsorbate
+from uvsib.db.utils import add_surface_ml_adsorbate
 from uvsib.db.utils import get_structure_uuid_surface_id, query_by_columns
 from uvsib.workchains.utils import get_code, get_model_device
 from uvsib.workchains.oer import calculate_oer_overpotential
@@ -17,10 +16,9 @@ from uvsib.workchains.orr import calculate_orr_overpotential
 from uvsib.workflows import settings
 
 
-def read_yaml(file_path):
-    with open(file_path, "r", encoding="utf8") as fhandle:
-        data = yaml.safe_load(fhandle)
-    return data
+from pymatgen.core.structure import Structure
+
+
 
 
 class AdsorbatesWorkChain(WorkChain):
@@ -52,6 +50,7 @@ class AdsorbatesWorkChain(WorkChain):
         self.ctx.structure_surface_rows = get_structure_uuid_surface_id(self.ctx.chemical_formula)
         if not self.ctx.structure_surface_rows:
             return self.exit_codes.ERROR_NO_STRUCTURES_FOUND
+        self.ctx.selected_surfaces = list()
         self.ctx.ml_results = {}
         self.ctx.candidates = 0
         self.ctx.relaxation_results = {}
@@ -61,29 +60,43 @@ class AdsorbatesWorkChain(WorkChain):
 
     def run_adsorbs(self):
         """Run Adsorbates WorkChain"""
+        selected = list()
+
+        count = 0
         for structure_uuid, surface_id in self.ctx.structure_surface_rows:
-            slab_row = query_by_columns(DBSurface, {"id":surface_id})[0]
-            uuid_str = str(structure_uuid)
-            parent_key = f"{uuid_str}_{surface_id}"
-            builder = self._construct_adsorbate_builder(slab_row.slab, self.ctx.reaction, self.ctx.reaction_path)
+            count += 1
+
+            slab_row = query_by_columns(DBSurface, {"id": surface_id})[0]
+
+            print('KAUNT IN: ', count, slab_row.slab['energy'])
+
+            selected.append((slab_row.slab['energy'], slab_row, str(structure_uuid), surface_id))
+
+        selected.sort(key=lambda x: x[0])
+
+        for count, (en, row, uid, fid) in enumerate(selected):
+            print('EN SORT: ', count, en)
+            self.ctx.selected_surfaces.append((f"{uid}", f"{fid}"))
+            builder = self._construct_adsorbate_builder(row.slab, self.ctx.reaction, self.ctx.reaction_path)
             future = self.submit(builder)
-            self.to_context(**{parent_key: future})
+            self.to_context(**{f"{uid}_{fid}": future})
+            if count == 4:
+                print('stop nau')
+                return
 
     def inspect_adsorbs(self):
         """Inspect Adsorbates WorkChain"""
         failed = []
-        for structure_uuid, surface_id in self.ctx.structure_surface_rows:
-            uuid_str = str(structure_uuid)
-            parent_key = f"{uuid_str}_{surface_id}"
-            ads_wch = self.ctx[parent_key]
+        for uid, fid in self.ctx.selected_surfaces:
+            ads_wch = self.ctx[f"{uid}_{fid}"]
             if not ads_wch.is_finished_ok:
-                failed.append(f"{parent_key} (exit status: {ads_wch.exit_status})")
+                failed.append(f"{uid}_{fid} (exit status: {ads_wch.exit_status})")
                 continue
 
             output_dict = ads_wch.outputs.output_dict
-            self.ctx.ml_results[parent_key] = output_dict["structures"]
+            self.ctx.ml_results[f"{str(uid)}_{fid}"] = output_dict["structures"]
 
-        if len(failed) == len(self.ctx.structure_surface_rows):
+        if len(failed) == len(self.ctx.selected_surfaces):
             self.report("ERROR: all sub-workflows failed - no results to process.")
             return self.exit_codes.ERROR_CALCULATION_FAILED
         if failed:
@@ -123,7 +136,7 @@ class AdsorbatesWorkChain(WorkChain):
                 energy_set = {}
                 for ads_json in adsorb_set["structures"]:
                     adsorbed = jsonio.decode(ads_json)
-                    energy_set[adsorbed.info["adsorbate"]] = adsorbed.info['{}_energy'.format(str(self.ctx.ML_model).lower())]
+                    energy_set[adsorbed.info["adsorbate"]] = adsorbed.info['{}_energy'.format(str(settings.inputs['adsorbates']['model']).lower())]
 
                 eta, dG_steps, dG_cumulative = calc_method(energy_set, self.ctx.reaction_path)
                 print(f"{self.ctx.chemical_formula}: {self.ctx.reaction} ({self.ctx.reaction_path}): {eta}")
@@ -166,17 +179,14 @@ class AdsorbatesWorkChain(WorkChain):
             "ML_model": ML_model,
             "model_name": model,
             "model_path": model_path,
+            "model_head": settings.inputs['adsorbates']['head'],
             "device": device,
             "slab_energy": slab_energy,
             "fmax": settings.inputs[relax_key]["fmax"],
             "max_steps": settings.inputs[relax_key]["max_steps"],
             "reaction": reaction,
-            "pathway": pathway,
-            "task_name": settings.inputs['adsorbates']['head']
+            "pathway": pathway
         }
 
         builder.job_info = Dict(job_info)
-
-        print('adsorbates builder: ', ML_model, settings.inputs['adsorbates']['head'])
-
         return builder
