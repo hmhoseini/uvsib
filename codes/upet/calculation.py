@@ -69,7 +69,7 @@ class uPETCalculation(CalcJob):
         # Calc info.
         calcinfo = CalcInfo()
         calcinfo.uuid = self.uuid
-        calcinfo.retrieve_list = ['output.json', 'total.txt', 'failed.txt']
+        calcinfo.retrieve_list = ['output.json', 'total.txt', 'failed.txt', 'rejected.json']
         calcinfo.codes_info = [codeinfo]
         calcinfo.local_copy_list = [
             (file.uuid, file.filename, file.filename)

@@ -1,19 +1,20 @@
 import os
 import yaml
-# import numpy as np
 from ase.io import jsonio
 from aiida.engine import WorkChain
 from aiida.plugins import WorkflowFactory
-from aiida.orm import Str, List, Dict, load_code # , StructureData
+from aiida.orm import Str, List, Dict
 from uvsib.db.tables import DBSurface
 from uvsib.db.utils import add_surface_ml_adsorbate  # add_surface_adsorbate
-# from uvsib.codes.vasp.workchains import construct_vasp_builder
-# from uvsib.codes.utils import ase_to_pmg
 from uvsib.db.utils import get_structure_uuid_surface_id, query_by_columns
 from uvsib.workchains.utils import get_code, get_model_device
 from uvsib.workchains.oer import calculate_oer_overpotential
 from uvsib.workchains.co2rr import calculate_co2rr_overpotential
 from uvsib.workchains.noxrr import calculate_noxrr_overpotential
+from uvsib.workchains.cer import calculate_cer_overpotential
+from uvsib.workchains.her import calculate_her_overpotential
+from uvsib.workchains.nrr import calculate_nrr_overpotential
+from uvsib.workchains.orr import calculate_orr_overpotential
 from uvsib.workflows import settings
 
 
@@ -48,6 +49,7 @@ class AdsorbatesWorkChain(WorkChain):
 
         spec.exit_code(300,"ERROR_CALCULATION_FAILED", message="The calculation did not finish successfully")
         spec.exit_code(301,"ERROR_NO_STRUCTURES_FOUND", message="No structures were found for the given formula.")
+        spec.exit_code(302,"NO_CANDIDATES_WITHIN_ETA_LIMIT", message="No candidates we within the given eta limit")
 
     def setup(self):
         """Setup and report"""
@@ -66,8 +68,6 @@ class AdsorbatesWorkChain(WorkChain):
         self.ctx.potential_family = settings.configs["codes"]["VASP"]["potential_family"]
         potential_mapping = read_yaml(os.path.join(settings.vasp_files_path, "potential_mapping.yaml"))
         self.ctx.potential_mapping = potential_mapping["potential_mapping"]
-        # self.ctx.vasp_code = load_code(settings.configs["codes"]["VASP"]["code_string"])
-
         self.report(f"Running Adsorbates WorkChain for {self.ctx.chemical_formula}. "
                     f"Reaction: {self.ctx.reaction}, reaction_path: {self.ctx.reaction_path}")
 
@@ -103,9 +103,13 @@ class AdsorbatesWorkChain(WorkChain):
     def store_results_ml(self):
         """Store ML results """
         reaction_map = {
-            "OER": (calculate_oer_overpotential, 2.0),
-            "CO2RR": (calculate_co2rr_overpotential, 1.5),
-            "NOXRR": (calculate_noxrr_overpotential, 1.5),
+            "OER": (calculate_oer_overpotential, 12.0),
+            "CO2RR": (calculate_co2rr_overpotential, 12.5),
+            "CER": (calculate_cer_overpotential, 12.5),
+            "NRR": (calculate_nrr_overpotential, 12.5),
+            "NOXRR": (calculate_noxrr_overpotential, 12.5),
+            "HER": (calculate_her_overpotential, 12.5),
+            "ORR": (calculate_orr_overpotential, 12.5)
         }
 
         if self.ctx.reaction not in reaction_map:
@@ -133,12 +137,13 @@ class AdsorbatesWorkChain(WorkChain):
                     energy_set[adsorbed.info["adsorbate"]] = adsorbed.info['{}_energy'.format(str(self.ctx.ML_model).lower())]
 
                 eta, dG_steps, dG_cumulative = calc_method(energy_set, self.ctx.reaction_path)
+                print(f"{self.ctx.chemical_formula}: {self.ctx.reaction} ({self.ctx.reaction_path}): {eta}")
 
-                if eta > eta_threshold:
-                    continue
+                # if eta > eta_threshold:
+                #     continue
 
                 self.ctx.candidates[parent_key] = adsorb_set
-                add_surface_ml_adsorbate(existing_uuid=uuid_str, surf_id=surface_id, surface_miller_index= miller_index,
+                add_surface_ml_adsorbate(existing_uuid=uuid_str, surf_id=surface_id, surface_miller_index=miller_index,
                                          comp=self.ctx.chemical_formula,
                                          react=self.ctx.reaction, react_path=self.ctx.reaction_path,
                                          site_type=site_type, ads_coord=ads_coord, repeat=repeat,
@@ -149,7 +154,7 @@ class AdsorbatesWorkChain(WorkChain):
         """Final report"""
         if not self.ctx.candidates:
             self.report(f"AdsorbatesWorkChain for {self.ctx.chemical_formula}: no candidates below eta threshold.")
-            return self.exit_codes.ERROR_CALCULATION_FAILED
+            return self.exit_codes.NO_CANDIDATES_WITHIN_ETA_LIMIT
         self.report(f"AdsorbatesWorkChain for {self.ctx.chemical_formula} finished successfully.")
 
     def _construct_adsorbate_builder(self, slab, ML_model, reaction, pathway):

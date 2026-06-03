@@ -5,7 +5,7 @@ import numpy as np
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Dict, List, Callable
-from ase.data import covalent_radii
+from ase.data import atomic_numbers, covalent_radii
 from ase import Atoms
 from ase.io import jsonio
 from ase.optimize.bfgslinesearch import BFGSLineSearch
@@ -15,11 +15,7 @@ from pymatgen.core import Lattice, Molecule, Structure
 from pymatgen.core.surface import Slab
 from pymatgen.analysis.adsorption import AdsorbateSiteFinder
 from scipy.spatial.distance import pdist, squareform
-# from uvsib.workflows import settings
 
-
-# _REF_DIR = Path(__file__).parent / "molecular_references"
-# _REF_DIR = Path(settings.molecular_reference_files)
 
 ch3oh_ref = Structure.from_file("ch3oh.vasp")
 ch4_ref   = Structure.from_file("ch4.vasp")
@@ -205,6 +201,212 @@ def has_reasonable_distances(atoms: Atoms, scale: float = 0.5) -> bool:
             if d < r_min:
                 return False
     return True
+
+# ---------------------------------------------------------------------------
+# Post-relaxation sanity checks for ML-relaxed adsorbates.
+# See docs/sanity_checks.md for the full rationale and failure taxonomy.
+# Layers 0-2 (finite energy, atom overlap, surface binding, molecular
+# identity) run by default; slab-integrity (layer 3) and energy-outlier
+# (layer 4) are opt-in via run_relaxation flags.
+# ---------------------------------------------------------------------------
+
+# Bond cutoff used both to build the reference adsorbate graphs and to graph
+# the relaxed adsorbate. A bond connects i, j when their separation is within
+# _ADSORBATE_BOND_TOL * (r_cov_i + r_cov_j). Both sides MUST use the same value.
+# Calibrated at 1.25: at this value every bundled adsorbate's reference graph is
+# a single connected component, while spurious 1,3 bonds (e.g. in *OCCO/*ONNO)
+# only appear at >= 1.30. See docs/sanity_checks.md.
+_ADSORBATE_BOND_TOL = 1.25
+
+
+@dataclass
+class AdsorbateValidation:
+    """Outcome of validate_relaxed_adsorbate (ok + human-readable reason)."""
+    ok: bool
+    reason: str = ""
+
+
+def _bond_graph(numbers, positions, tol: float):
+    """Element-labelled covalent-bond graph for an isolated (non-periodic) set
+    of atoms. Used for the reference adsorbate geometries."""
+    import networkx as nx
+    g = nx.Graph()
+    for i, z in enumerate(numbers):
+        g.add_node(i, z=int(z))
+    n = len(numbers)
+    for i in range(n):
+        for j in range(i + 1, n):
+            d = float(np.linalg.norm(np.asarray(positions[i]) - np.asarray(positions[j])))
+            if d <= tol * (covalent_radii[numbers[i]] + covalent_radii[numbers[j]]):
+                g.add_edge(i, j)
+    return g
+
+
+def _subset_bond_graph(atoms: Atoms, idx, tol: float):
+    """Element-labelled covalent-bond graph for a subset of a periodic Atoms
+    object, using minimum-image distances (robust to wrapping across cell
+    boundaries)."""
+    import networkx as nx
+    numbers = atoms.get_atomic_numbers()
+    g = nx.Graph()
+    for k, i in enumerate(idx):
+        g.add_node(k, z=int(numbers[i]))
+    for a in range(len(idx)):
+        for b in range(a + 1, len(idx)):
+            i, j = idx[a], idx[b]
+            d = float(atoms.get_distance(i, j, mic=True))
+            if d <= tol * (covalent_radii[numbers[i]] + covalent_radii[numbers[j]]):
+                g.add_edge(a, b)
+    return g
+
+
+def _adsorbate_reference_graph(ads_molecule, tol: float = _ADSORBATE_BOND_TOL):
+    """Intramolecular bond graph of a reference adsorbate Molecule.
+
+    The DummySpecies 'X' binding marker is stripped first; the remaining atoms
+    are graphed exactly as the relaxed adsorbate is, so the two can be compared
+    by element-aware graph isomorphism.
+    """
+    numbers, positions = [], []
+    for site in ads_molecule:
+        sym = str(site.specie.symbol)
+        if sym == "X":
+            continue
+        numbers.append(atomic_numbers[sym])
+        positions.append(np.asarray(site.coords))
+    return _bond_graph(numbers, positions, tol)
+
+
+def validate_relaxed_adsorbate(atoms: Atoms, n_ads: int, expected_graph,
+                               energy, *, graph_tol: float = _ADSORBATE_BOND_TOL,
+                               bind_tol: float = 1.25, overlap_scale: float = 0.5,
+                               clean_slab_atoms: Atoms = None,
+                               slab_max_disp: float = 1.5) -> AdsorbateValidation:
+    """Validate a single relaxed adsorbate-on-slab structure.
+
+    The adsorbate is assumed to be the LAST ``n_ads`` atoms of ``atoms`` (this
+    is how generate_adsorbed_structures appends it). Returns early with ok=True
+    (skipping identity/binding) if that assumption cannot be verified, so a
+    bad index guess never causes a false rejection.
+
+    Layers
+    ------
+    0  finite energy; no atom overlap / explosion (has_reasonable_distances)
+    1  surface binding: an adsorbate atom is within bonding range of the slab
+    2  molecular identity: adsorbate's intramolecular bond graph is isomorphic
+       (element-aware) to the reference -- catches dissociation/isomerisation
+    3  (only if clean_slab_atoms given) slab has not reconstructed
+    """
+    import networkx as nx
+
+    # --- Layer 0: finite energy + no overlap/explosion ---
+    if energy is None or not np.isfinite(energy):
+        return AdsorbateValidation(False, "non-finite energy")
+    if not has_reasonable_distances(atoms, scale=overlap_scale):
+        return AdsorbateValidation(False, "atoms too close (overlap/explosion)")
+
+    n_total = len(atoms)
+    if not (0 < n_ads <= n_total):
+        return AdsorbateValidation(True, "")  # cannot locate adsorbate; skip 1-3
+
+    numbers = atoms.get_atomic_numbers()
+    ads_idx = list(range(n_total - n_ads, n_total))
+    slab_idx = list(range(0, n_total - n_ads))
+
+    # Safety: the last n_ads atoms must match the expected element multiset,
+    # otherwise the append-order assumption is wrong -- skip rather than reject.
+    exp_z = sorted(int(d['z']) for _, d in expected_graph.nodes(data=True))
+    got_z = sorted(int(numbers[i]) for i in ads_idx)
+    if exp_z != got_z:
+        return AdsorbateValidation(True, "")
+
+    # --- Layer 1: surface binding (PBC-aware) ---
+    if slab_idx:
+        bound = False
+        for i in ads_idx:
+            d = atoms.get_distances(i, slab_idx, mic=True)
+            rsum = np.array([covalent_radii[numbers[i]] + covalent_radii[numbers[j]]
+                             for j in slab_idx])
+            if np.any(d <= bind_tol * rsum):
+                bound = True
+                break
+        if not bound:
+            return AdsorbateValidation(False, "desorbed (no adsorbate-slab bond)")
+
+    # --- Layer 2: molecular identity (intramolecular bond graph) ---
+    got_graph = _subset_bond_graph(atoms, ads_idx, graph_tol)
+    # 2a: fragmentation -- an intact adsorbate is a single connected component.
+    if got_graph.number_of_nodes() > 1 and not nx.is_connected(got_graph):
+        return AdsorbateValidation(False, "dissociation (adsorbate fragmented)")
+    # 2b: isomerisation -- topology must match the reference (element-aware).
+    node_match = nx.algorithms.isomorphism.numerical_node_match('z', -1)
+    if not nx.is_isomorphic(got_graph, expected_graph, node_match=node_match):
+        return AdsorbateValidation(
+            False, "molecular identity changed (isomerisation)")
+
+    # --- Layer 3 (opt-in): slab integrity ---
+    if clean_slab_atoms is not None and slab_idx:
+        from ase.geometry import find_mic
+        n_slab = len(slab_idx)
+        if len(clean_slab_atoms) == n_slab:
+            disp = atoms.get_positions()[slab_idx] - clean_slab_atoms.get_positions()
+            mic_disp, _ = find_mic(disp, atoms.cell, atoms.pbc)
+            max_disp = float(np.linalg.norm(mic_disp, axis=1).max())
+            if max_disp > slab_max_disp:
+                return AdsorbateValidation(
+                    False, f"slab reconstructed (max displacement {max_disp:.2f} A)")
+
+    return AdsorbateValidation(True, "")
+
+
+def _flag_energy_outliers(relaxed_sets, model_key, factor: float):
+    """Layer 4 (opt-in): drop sets whose adsorbate energy is a MAD outlier.
+
+    For each adsorbate species, energies are pooled across all sites on this
+    slab; a set is rejected if any of its adsorbates deviates from the species
+    median by more than ``factor`` robust standard deviations (1.4826*MAD).
+    Returns (kept_sets, reject_records).
+    """
+    from collections import defaultdict
+    decoded = [[jsonio.decode(x) for x in s["structures"]] for s in relaxed_sets]
+
+    per_name = defaultdict(list)
+    for structs in decoded:
+        for a in structs:
+            nm = a.info.get('adsorbate', '')
+            if nm.startswith('*') and nm != '*':
+                e = a.info.get(model_key)
+                if e is not None:
+                    per_name[nm].append(e)
+
+    stats = {}
+    for nm, es in per_name.items():
+        arr = np.asarray(es, dtype=float)
+        if len(arr) < 4:                      # too few sites for a robust band
+            continue
+        med = float(np.median(arr))
+        mad = float(np.median(np.abs(arr - med))) or 1e-9
+        stats[nm] = (med, mad)
+
+    kept, rejects = [], []
+    for s, structs in zip(relaxed_sets, decoded):
+        reason = None
+        for a in structs:
+            nm = a.info.get('adsorbate', '')
+            if nm in stats:
+                med, mad = stats[nm]
+                e = a.info.get(model_key)
+                if e is not None and abs(e - med) > factor * 1.4826 * mad:
+                    reason = (f"energy outlier for {nm}: {e:.3f} eV "
+                              f"(median {med:.3f}, MAD {mad:.3f})")
+                    break
+        if reason:
+            rejects.append({"site_type": s["site_type"], "ads_coord": s["ads_coord"],
+                            "repeat": s["repeat"], "reason": reason})
+        else:
+            kept.append(s)
+    return kept, rejects
+
 
 def ase_to_pmg(atoms):
     """Convert an ASE Atoms object to a pymatgen Structure"""
@@ -2312,12 +2514,28 @@ def generate_adsorbed_structures(reaction: str, pathway_name: str = "") -> dict:
                 if len(adsorb_set["structures"]) == len(adsorbates):
                     adsorption_sets[idx]["adsorb_set"].append(adsorb_set)
 
-    return {"sets": adsorption_sets, "gas_refs": gas_refs}
+    # Reference intramolecular bond graphs, keyed by adsorbate name, for the
+    # post-relaxation identity check in run_relaxation (see docs/sanity_checks.md).
+    expected_graphs = {
+        ads.properties['adsorbate']: _adsorbate_reference_graph(ads)
+        for ads in adsorbates
+    }
+
+    return {"sets": adsorption_sets, "gas_refs": gas_refs,
+            "expected_graphs": expected_graphs}
 
 def run_relaxation(ml_model: str, calc, fmax: float, max_steps: int,
-                   reaction: str, pathway: str, **relaxation_kwargs) -> dict:
+                   reaction: str, pathway: str,
+                   validate_adsorbates: bool = True,
+                   check_slab_integrity: bool = False,
+                   check_energy_outliers: bool = False,
+                   bind_tol: float = 1.25,
+                   graph_tol: float = _ADSORBATE_BOND_TOL,
+                   slab_max_disp: float = 1.5,
+                   energy_mad_factor: float = 5.0,
+                   **relaxation_kwargs) -> dict:
     """Run geometry relaxation on adsorbate structures.
-    
+
     Parameters
     ----------
     ml_model : str
@@ -2332,6 +2550,20 @@ def run_relaxation(ml_model: str, calc, fmax: float, max_steps: int,
         Reaction type: 'OER', 'CO2RR', 'NOXRR', 'CER', 'HER', 'ORR', or 'NRR'.
     pathway : str
         Pathway name (required for everything except OER, which takes "").
+    validate_adsorbates : bool, optional
+        Run the default post-relaxation sanity checks (layers 0-2: finite
+        energy, atom overlap, surface binding, molecular identity). A relaxed
+        adsorbate that fails is treated exactly like a relaxation failure and
+        its set is dropped; the reason is recorded in rejected.json. Default True.
+    check_slab_integrity : bool, optional
+        Opt-in layer 3: also reject a set if its slab reconstructs (max slab
+        displacement vs the clean relaxed slab exceeds ``slab_max_disp``).
+    check_energy_outliers : bool, optional
+        Opt-in layer 4: after relaxation, drop sets whose adsorbate energy is a
+        MAD outlier across the sites computed on this slab.
+    bind_tol, graph_tol, slab_max_disp, energy_mad_factor : float, optional
+        Tolerances for the binding (layer 1), identity (layer 2), slab-integrity
+        (layer 3) and energy-outlier (layer 4) checks respectively.
 
     Notes
     -----
@@ -2341,8 +2573,12 @@ def run_relaxation(ml_model: str, calc, fmax: float, max_steps: int,
     alongside `clean_slab`. Downstream analysis routines find them by the
     `info['adsorbate']` key (e.g. 'H2O', 'O2', 'Cl2') in the same way they
     find '*' (clean slab) and surface intermediates ('*O', '*OH', …).
+
+    Adsorbate validation is documented in docs/sanity_checks.md. Rejected
+    structures (with reasons) are written to rejected.json.
     """
     relaxed_sets = []
+    rejected = []
     num_failed = 0
     total_number = 0
     model_key = f'{ml_model.lower()}_energy'
@@ -2350,6 +2586,7 @@ def run_relaxation(ml_model: str, calc, fmax: float, max_steps: int,
     result = generate_adsorbed_structures(reaction, pathway)
     adsorption_sets = result["sets"]
     gas_refs = result["gas_refs"]
+    expected_graphs = result.get("expected_graphs", {})
 
     # Relax each pathway-required gas reference once. These energies are
     # appended (in the same JSON-encoded form) to every relaxed_set below, so
@@ -2409,6 +2646,29 @@ def run_relaxation(ml_model: str, calc, fmax: float, max_steps: int,
 
                 ads_energy = adsorbed.get_potential_energy()
                 adsorbed.info[model_key] = ads_energy
+
+                # Post-relaxation sanity checks (layers 0-2 by default, +3 opt-in).
+                # A failure is treated like a relaxation failure: the set is
+                # dropped and the reason logged to rejected.json.
+                if validate_adsorbates:
+                    name = adsorbed.info.get('adsorbate')
+                    exp_graph = expected_graphs.get(name)
+                    if exp_graph is not None:
+                        verdict = validate_relaxed_adsorbate(
+                            adsorbed, exp_graph.number_of_nodes(), exp_graph,
+                            ads_energy, graph_tol=graph_tol, bind_tol=bind_tol,
+                            clean_slab_atoms=(clean_slab if check_slab_integrity else None),
+                            slab_max_disp=slab_max_disp)
+                        if not verdict.ok:
+                            rejected.append({
+                                "adsorbate": name,
+                                "site_type": site_type,
+                                "ads_coord": ads_coords.tolist(),
+                                "repeat": list(adsorb_set["repeat"]),
+                                "reason": verdict.reason})
+                            num_failed += 1
+                            break
+
                 relaxed_structures.append(jsonio.encode(adsorbed))
                 total_number += 1
 
@@ -2423,6 +2683,12 @@ def run_relaxation(ml_model: str, calc, fmax: float, max_steps: int,
                                    + [jsonio.encode(clean_slab)])}
                 relaxed_sets.append(relaxed_set)
 
+    # Layer 4 (opt-in): ensemble energy-outlier rejection across sites.
+    if check_energy_outliers and relaxed_sets:
+        relaxed_sets, outlier_rejects = _flag_energy_outliers(relaxed_sets, model_key, energy_mad_factor)
+        rejected.extend(outlier_rejects)
+        num_failed += len(outlier_rejects)
+
     # Write output files
     output = {'structures': relaxed_sets}
     with open('output.json', 'w') as f:
@@ -2433,6 +2699,11 @@ def run_relaxation(ml_model: str, calc, fmax: float, max_steps: int,
 
     with open('failed.txt', 'w') as f:
         f.write(str(num_failed))
+
+    # Structures rejected by the sanity checks, with reasons (see
+    # docs/sanity_checks.md). Empty list when nothing was rejected.
+    with open('rejected.json', 'w') as f:
+        json.dump(rejected, f)
 
 
 if __name__ == "__main__":
@@ -2447,6 +2718,13 @@ if __name__ == "__main__":
     parser.add_argument("--slab_energy", type=float)
     parser.add_argument("--reaction", type=str)
     parser.add_argument("--pathway", type=str)
+    # Post-relaxation sanity checks (see docs/sanity_checks.md).
+    parser.add_argument("--no-validate", action="store_true",
+                        help="disable default adsorbate validation (layers 0-2)")
+    parser.add_argument("--check-slab-integrity", action="store_true",
+                        help="opt-in layer 3: reject sets where the slab reconstructs")
+    parser.add_argument("--check-energy-outliers", action="store_true",
+                        help="opt-in layer 4: reject MAD-outlier adsorption energies")
     args = parser.parse_args()
 
     from _calculators import make_calculator
@@ -2454,4 +2732,7 @@ if __name__ == "__main__":
                            device=args.device, task_name=args.task_name)
 
     run_relaxation(ml_model=args.ML_model, calc=calc, fmax=args.fmax, max_steps=args.max_steps,
-                   reaction=args.reaction, pathway=args.pathway)
+                   reaction=args.reaction, pathway=args.pathway,
+                   validate_adsorbates=not args.no_validate,
+                   check_slab_integrity=args.check_slab_integrity,
+                   check_energy_outliers=args.check_energy_outliers)

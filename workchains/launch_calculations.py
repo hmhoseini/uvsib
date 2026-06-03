@@ -15,6 +15,7 @@ class MainSubmissionController(BaseSubmissionController):
             reaction_path,
             nanoparticles,
             similarities,
+            sqs,
             *args,
             **kwargs):
         super().__init__(*args, **kwargs)
@@ -24,8 +25,9 @@ class MainSubmissionController(BaseSubmissionController):
         self.model = model
         self.reaction = reaction
         self.reaction_path = reaction_path
-        self.nanoparticles = nanoparticles if nanoparticles else False
-        self.similarities = similarities if similarities else {}
+        self.nanoparticles = nanoparticles  # if nanoparticles else False
+        self.similarities = similarities  # if similarities else {}
+        self.sqs = sqs
 
     def get_extra_unique_keys(self):
         """ Return a tuple of the keys of the unique extras that
@@ -64,5 +66,6 @@ class MainSubmissionController(BaseSubmissionController):
                   "reaction_path": Str(self.reaction_path),
                   "nanoparticles": Str(self.nanoparticles),
                   "similarities": Dict(self.similarities),
+                  "sqs": Str(self.sqs),
                   "metadata": {"label": label}}
         return inputs, MainWorkChain

@@ -22,6 +22,7 @@ class MainWorkChain(WorkChain):
         spec.input("reaction_path", valid_type=Str)
         spec.input("nanoparticles", valid_type=Str)
         spec.input("similarities", valid_type=Dict)
+        spec.input('sqs', valid_type=Str)
 
         spec.outline(
             cls.setup,
@@ -40,6 +41,14 @@ class MainWorkChain(WorkChain):
                 ),
                 cls.pd_verification,
                 cls.inspect_pd_verification
+            ),
+            if_(cls.should_run_sqs)(
+                while_(cls.should_wait_sqs)(
+                    cls.wait_sleep,
+                    cls.check_pythonjob_sleep
+                ),
+                cls.sqs,
+                cls.inspect_sqs
             ),
             if_(cls.should_run_surface_builder)(
                 while_(cls.should_wait_surface_builder)(
@@ -67,11 +76,7 @@ class MainWorkChain(WorkChain):
             )
         )
 
-        spec.exit_code(
-            300,
-            "ERROR_CALCULATION_FAILED",
-            message="A sub-workchain did not finish successfully"
-        )
+        spec.exit_code(300,"ERROR_CALCULATION_FAILED", message="A sub-workchain did not finish successfully")
 
     def setup(self):
         """Setup and report"""
@@ -83,6 +88,7 @@ class MainWorkChain(WorkChain):
         self.ctx.dbcomposition_row = query_by_columns(DBComposition,{"composition": self.ctx.chemical_formula})[0]
         self.ctx.nano_generator = True if len(self.inputs.nanoparticles.value.split('-')) == 2 else False
         self.ctx.similarities = self.inputs.similarities.value
+        self.ctx.sqs = bool(self.inputs.sqs.value)
         if self.ctx.nano_generator:
             self.ctx.nano_particles_range = self.inputs.nanoparticles.value
             elements = '-'.join(sorted(list([str(el) for el in Composition(self.ctx.chemical_formula).elements])))
@@ -93,22 +99,36 @@ class MainWorkChain(WorkChain):
 
     def should_run_pd_ml(self):
         """Check whether should run PhaseDiagramML"""
+        if self.ctx.sqs:
+            return False
         if self.ctx.nano_generator:
             return False
-        pd_ml_step_status = self.ctx.dbcomposition_row.step_status.get("pd_ml")
-        if pd_ml_step_status in ["Done"]:
+        step_status = self.ctx.dbcomposition_row.step_status.get("pd_ml")
+        if step_status in ["Done"]:
             return False
         return True
 
     def should_run_pd_verification(self):
         """Check whether should run PDVerification"""
+        if self.ctx.sqs:
+            return False
         if self.ctx.nano_generator:
             return False
         if _SKIP_PD_VERIFICATION: #TODO remove after test
             return False
+        step_status = self.ctx.dbcomposition_row.step_status.get("pd_verification")
+        if step_status in ["Done"]:
+            return False
+        return True
 
-        pd_ver_step_status = self.ctx.dbcomposition_row.step_status.get("pd_verification")
-        if pd_ver_step_status in ["Done"]:
+    def should_run_sqs(self):
+        """Check whether should run PhaseDiagramML"""
+        if not self.ctx.sqs:
+            return False
+        if self.ctx.nano_generator:
+            return False
+        step_status = self.ctx.dbcomposition_row.step_status.get("sqs")
+        if step_status in ["Done"]:
             return False
         return True
 
@@ -177,6 +197,18 @@ class MainWorkChain(WorkChain):
         pd_ver_step_status = self.ctx.dbcomposition_row.step_status.get("pd_verification")
         if pd_ver_step_status in ["Running"]:
             self.ctx.sts = "phase diagram verification"
+            return True
+        return False
+
+    def should_wait_sqs(self):
+        """Should wait for another running WorkChain"""
+        if not self.ctx.sqs:
+            return False
+        if self.ctx.nano_generator:
+            return False
+        step_status = self.ctx.dbcomposition_row.step_status.get("sqs")
+        if step_status in ["Running"]:
+            self.ctx.sts = "sqs"
             return True
         return False
 
@@ -305,6 +337,32 @@ class MainWorkChain(WorkChain):
                  "step_status": row.step_status
                 }
         )
+
+    def sqs(self):
+        """Running PhaseDiagramML WorkChain"""
+        row = self.ctx.dbcomposition_row
+        # update row status in DBComposition table
+        row.step_status.update({"sqs": "Running"})
+        update_row(DBComposition, row.uuid,{"status": "Running", "step_status": row.step_status})
+        builder = self._construct_sqs_builder()
+        future = self.submit(builder)
+        self.to_context(**{"sqs": future})
+
+    def inspect_sqs(self):
+        """Inspecting PhaseDiagramML WorkChain"""
+        wch = self.ctx.sqs
+        row = self.ctx.dbcomposition_row
+        if not wch.is_finished_ok:
+            # update row status in DBComposition table
+            row.step_status.update({"sqs": "Failed"})
+            update_row(DBComposition, row.uuid,{"status": "Failed", "step_status": row.step_status})
+            self.report("PhaseDiagramML WorkChain failed")
+            return self.exit_codes.ERROR_CALCULATION_FAILED
+
+        # update row status in DBComposition table
+        row.step_status.update({"sqs": "Done"})
+        update_row(DBComposition, row.uuid,{"status": "Running", "step_status": row.step_status})
+
 
 #    def band_alignment(self):
 #        """Running BandAlignmentWorkChain"""
@@ -477,8 +535,18 @@ class MainWorkChain(WorkChain):
 
     def _construct_particle_builder(self):
         """Nano Particles WorkChain builder"""
-        NanoParticleWorkChain = WorkflowFactory("nano_particles")
-        builder = NanoParticleWorkChain.get_builder()
+        WorkChain = WorkflowFactory("nano_particles")
+        builder = WorkChain.get_builder()
+        builder.elements = '-'.join(list(str(el) for el in Composition(self.ctx.chemical_formula).elements))
+        builder.particles_range = self.ctx.nano_particles_range
+        builder.generator = 'systematic'
+        builder.ml_model = self.ctx.ML_model
+        return builder
+
+    def _construct_sqs_builder(self):
+        """Nano Particles WorkChain builder"""
+        WorkChain = WorkflowFactory("sqs")
+        builder = WorkChain.get_builder()
         builder.elements = '-'.join(list(str(el) for el in Composition(self.ctx.chemical_formula).elements))
         builder.particles_range = self.ctx.nano_particles_range
         builder.generator = 'systematic'
