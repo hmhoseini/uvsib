@@ -408,10 +408,9 @@ class MainWorkChain(WorkChain):
 
     def inspect_surface_builder(self):
         """Inspecting SurfaceBuilderWorkChain"""
-        s_b_wch = self.ctx.surface_builder
+        wch = self.ctx.surface_builder
         row = self.ctx.dbcomposition_row
-
-        if not s_b_wch.is_finished_ok:
+        if not wch.is_finished_ok:
             # update row status in DBComposition table
             row.step_status.update({"surface_builder": "Failed"})
             update_row(DBComposition, row.uuid,{"status": "Failed", "step_status": row.step_status})
@@ -425,46 +424,26 @@ class MainWorkChain(WorkChain):
     def adsorbates(self):
         """Running AdsorbatesWorkChain"""
         row = self.ctx.dbcomposition_row
-        # update row status in DBComposition table
         row.step_status.update({"adsorbates": "Running"})
-        update_row(
-            DBComposition,
-            row.uuid,
-            {"status": "Running",
-             "step_status": row.step_status
-             }
-        )
+        update_row(DBComposition, row.uuid,{"status": "Running", "step_status": row.step_status})
         builder = self._construct_adsorbates_builder()
         future = self.submit(builder)
         self.to_context(**{"adsorbates": future})
 
     def inspect_adsorbates(self):
         """Inspecting SurfaceBuilderWorkChain"""
-        ad_wch = self.ctx.adsorbates
+        wch = self.ctx.adsorbates
         row = self.ctx.dbcomposition_row
-
-        if not ad_wch.is_finished_ok:
+        if not wch.is_finished_ok:
             # update row status in DBComposition table
             row.step_status.update({"adsorbates": "Failed"})
-            update_row(
-                    DBComposition,
-                    row.uuid,
-                    {"status": "Failed",
-                     "step_status": row.step_status
-                    }
-            )
+            update_row(DBComposition, row.uuid,{"status": "Failed", "step_status": row.step_status})
             self.report("Adsorbates WorkChain failed")
             return self.exit_codes.ERROR_CALCULATION_FAILED
 
         # update row status in DBComposition table
         row.step_status.update({"adsorbates": "Done"})
-        update_row(
-                DBComposition,
-                row.uuid,
-                {"status": "Done",
-                 "step_status": row.step_status
-                }
-        )
+        update_row(DBComposition, row.uuid,{"status": "Done", "step_status": row.step_status})
 
     def nano_generator(self):
         """Running NanoParticlesWorkChain"""
