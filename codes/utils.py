@@ -120,6 +120,29 @@ def get_structures_from_mpdb_by_composition(chemical_formula, e_hull):
             stable_structures.append(summary.structure.as_dict())
     return stable_structures
 
+def get_mp_element_structures(elements):
+    """Stable elemental ground-state structures from the Materials Project.
+
+    Returns ``{element_symbol: structure_dict}`` with the lowest-e_above_hull
+    elemental polymorph per element -- the seed crystals to be relaxed with the
+    project MLIP so the hull's elemental endpoints are on-method.
+    """
+    out = {}
+    with MPRester(settings.api_key) as mpr:
+        for el in elements:
+            try:
+                docs = mpr.materials.summary.search(
+                    chemsys=el, fields=["structure", "energy_above_hull"])
+            except Exception:
+                continue
+            docs = [d for d in docs if getattr(d, "energy_above_hull", None) is not None]
+            if not docs:
+                continue
+            best = min(docs, key=lambda d: d.energy_above_hull)
+            out[el] = best.structure.as_dict()
+    return out
+
+
 def get_entries_from_mpdb(chemical_formula, run_type, ehull):
     """Get structures entry from the MPDB
        run_type: GGA or r2SCAN

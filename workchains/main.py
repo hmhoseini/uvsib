@@ -41,6 +41,14 @@ class MainWorkChain(WorkChain):
                 cls.pd_verification,
                 cls.inspect_pd_verification
             ),
+            if_(cls.should_run_synthesizability)(
+                while_(cls.should_wait_synthesizability)(
+                    cls.wait_sleep,
+                    cls.check_pythonjob_sleep
+                ),
+                cls.synthesizability,
+                cls.inspect_synthesizability
+            ),
             if_(cls.should_run_sqs)(
                 while_(cls.should_wait_sqs)(
                     cls.wait_sleep,
@@ -130,8 +138,25 @@ class MainWorkChain(WorkChain):
             return False
         return True
 
+    def should_run_synthesizability(self):
+        """Check whether should run SynthesizabilityWorkChain"""
+        if not settings.SYNTH_ENABLED:
+            return False
+        if self.ctx.sqs:
+            return False
+        if self.ctx.nano_generator:
+            return False
+        step_status = self.ctx.dbcomposition_row.step_status.get("synthesizability")
+        if step_status in ["Done"]:
+            return False
+        return True
+
     def should_run_surface_builder(self):
         """Check whether should run SurfaceBuilder"""
+        if settings.SOFT_STOP_BEFORE_SURFACE:
+            self.report("Soft stop (soft_stop.before_surface_builder): ending before the "
+                        "surface builder; generation/synthesizability stages are complete.")
+            return False
         if self.ctx.nano_generator:
             return False
         surface_builder_step_status = self.ctx.dbcomposition_row.step_status.get("surface_builder")
@@ -141,6 +166,8 @@ class MainWorkChain(WorkChain):
 
     def should_run_adsorbates(self):
         """Check whether should run Adsorbates"""
+        if settings.SOFT_STOP_BEFORE_SURFACE:
+            return False
         if self.ctx.nano_generator:
             return False
         adsorbates_step_status = self.ctx.dbcomposition_row.step_status.get("adsorbates")
@@ -207,6 +234,16 @@ class MainWorkChain(WorkChain):
         step_status = self.ctx.dbcomposition_row.step_status.get("sqs")
         if step_status in ["Running"]:
             self.ctx.sts = "sqs"
+            return True
+        return False
+
+    def should_wait_synthesizability(self):
+        """Should wait for another running WorkChain"""
+        if self.ctx.nano_generator:
+            return False
+        step_status = self.ctx.dbcomposition_row.step_status.get("synthesizability")
+        if step_status in ["Running"]:
+            self.ctx.sts = "synthesizability"
             return True
         return False
 
@@ -336,6 +373,28 @@ class MainWorkChain(WorkChain):
                 }
         )
 
+    def synthesizability(self):
+        """Running SynthesizabilityWorkChain (classify all generated structures)"""
+        row = self.ctx.dbcomposition_row
+        row.step_status.update({"synthesizability": "Running"})
+        update_row(DBComposition, row.uuid, {"status": "Running", "step_status": row.step_status})
+        builder = self._construct_synthesizability_builder()
+        future = self.submit(builder)
+        self.to_context(**{"synthesizability": future})
+
+    def inspect_synthesizability(self):
+        """Inspecting SynthesizabilityWorkChain"""
+        wch = self.ctx.synthesizability
+        row = self.ctx.dbcomposition_row
+        if not wch.is_finished_ok:
+            row.step_status.update({"synthesizability": "Failed"})
+            update_row(DBComposition, row.uuid, {"status": "Failed", "step_status": row.step_status})
+            self.report("Synthesizability WorkChain failed")
+            return self.exit_codes.ERROR_CALCULATION_FAILED
+
+        row.step_status.update({"synthesizability": "Done"})
+        update_row(DBComposition, row.uuid, {"status": "Running", "step_status": row.step_status})
+
     def sqs(self):
         """Running PhaseDiagramML WorkChain"""
         row = self.ctx.dbcomposition_row
@@ -399,7 +458,6 @@ class MainWorkChain(WorkChain):
     def surface_builder(self):
         """Running SurfaceBuilderWorkChain"""
         row = self.ctx.dbcomposition_row
-        # update row status in DBComposition table
         row.step_status.update({"surface_builder": "Running"})
         update_row(DBComposition, row.uuid,{"status": "Running", "step_status": row.step_status})
         builder = self._construct_surface_builder()
@@ -411,13 +469,11 @@ class MainWorkChain(WorkChain):
         wch = self.ctx.surface_builder
         row = self.ctx.dbcomposition_row
         if not wch.is_finished_ok:
-            # update row status in DBComposition table
             row.step_status.update({"surface_builder": "Failed"})
             update_row(DBComposition, row.uuid,{"status": "Failed", "step_status": row.step_status})
             self.report("SurfaceBuilder WorkChain failed")
             return self.exit_codes.ERROR_CALCULATION_FAILED
 
-        # update row status in DBComposition table
         row.step_status.update({"surface_builder": "Done"})
         update_row(DBComposition, row.uuid,{"status": "Running", "step_status": row.step_status})
 
@@ -435,13 +491,11 @@ class MainWorkChain(WorkChain):
         wch = self.ctx.adsorbates
         row = self.ctx.dbcomposition_row
         if not wch.is_finished_ok:
-            # update row status in DBComposition table
             row.step_status.update({"adsorbates": "Failed"})
             update_row(DBComposition, row.uuid,{"status": "Failed", "step_status": row.step_status})
             self.report("Adsorbates WorkChain failed")
             return self.exit_codes.ERROR_CALCULATION_FAILED
 
-        # update row status in DBComposition table
         row.step_status.update({"adsorbates": "Done"})
         update_row(DBComposition, row.uuid,{"status": "Done", "step_status": row.step_status})
 
@@ -480,6 +534,13 @@ class MainWorkChain(WorkChain):
         """Build PDVerification WorkChain builder"""
         PDVerificationWorkChain = WorkflowFactory("pdverification")
         builder = PDVerificationWorkChain.get_builder()
+        builder.chemical_formula = Str(self.ctx.chemical_formula)
+        return builder
+
+    def _construct_synthesizability_builder(self):
+        """Build Synthesizability WorkChain builder"""
+        SynthesizabilityWorkChain = WorkflowFactory("synthesizability")
+        builder = SynthesizabilityWorkChain.get_builder()
         builder.chemical_formula = Str(self.ctx.chemical_formula)
         return builder
 

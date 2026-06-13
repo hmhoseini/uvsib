@@ -1,4 +1,4 @@
-from pymatgen.core.structure import Structure
+from pymatgen.core.structure import Structure, Composition
 from pymatgen.entries.computed_entries import ComputedStructureEntry
 from aiida.orm import Str, List, Bool
 from aiida.engine import WorkChain, if_
@@ -13,7 +13,7 @@ from uvsib.db.utils import (
         get_chemical_systems,
 #        add_version_to_existing_structure,
         query_structure)
-from uvsib.workchains.utils import unique_low_energy_comp
+from uvsib.workchains.utils import unique_low_energy_comp, element_reference_entries
 from uvsib.workchains.pythonjob_inputs import is_data_available
 from uvsib.workflows import settings
 
@@ -174,7 +174,11 @@ class PhaseDiagramMLWorkChain(WorkChain):
             return self.exit_codes.ERROR_CALCULATION_FAILED
 
         uuid_list = []
-        unique_entries, _ = unique_low_energy_comp(chemical_formula, entries, DFT_FUNC, EHULL_ML, min_n_return=1)
+        model = settings.inputs['bulk_relax']['model']
+        el_entries, _ = element_reference_entries(
+            Composition(chemical_formula).chemical_system.split('-'), model)
+        unique_entries, _ = unique_low_energy_comp(
+            chemical_formula, entries, DFT_FUNC, EHULL_ML, min_n_return=1, element_entries=el_entries)
         for entry in unique_entries:
             uuid_list.append(str(entry.data["struct_uuid"]))
 #            self.local_list.append([entry.data["struct_uuid"],

@@ -2,11 +2,16 @@ import random
 from aiida.engine import WorkChain
 from aiida.orm import Str, List, Dict, Int
 from aiida.plugins import DataFactory, WorkflowFactory
+from pymatgen.core import Composition
 from uvsib.workchains.utils import (
         unique_low_energy_comp,
         get_output_as_entry,
         get_code,
-        get_model_device)
+        get_model_device,
+        element_reference_entries,
+        missing_element_references,
+        construct_reference_relax_builder)
+from uvsib.codes.utils import get_mp_element_structures
 from uvsib.db.utils import add_structures
 from uvsib.workflows import settings
 
@@ -29,6 +34,8 @@ class CSPWorkChain(WorkChain):
             cls.setup,
             cls.run_csp,
             cls.inspect_csp_calcs,
+            cls.compute_references,
+            cls.collect_references,
             cls.predict_ml_energies,
             cls.collect_ml_energies,
             cls.minimahopping,
@@ -51,16 +58,31 @@ class CSPWorkChain(WorkChain):
         self.report(f"Launching CSPWorkChain for {self.ctx.chemical_formula}")
 
     def run_csp(self):
-        """Run MatterGen CSP"""
-        for i in range(1, self.ctx.n_csp + 1):
-            builder = self._construct_mattergen_csp_builder()
-            future = self.submit(builder)
-            self.to_context(**{f"csp_{i}": future})
+        """Run MatterGen CSP and/or GNoME (SAPS) CSP in parallel, per input.yaml
+        toggles (`mattergen.enabled`, `gnome.enabled`); at least one required."""
+        self.ctx.n_csp_jobs = 0
+        if settings.MATTERGEN_ENABLED:
+            self.ctx.n_csp_jobs = self.ctx.n_csp
+            for i in range(1, self.ctx.n_csp + 1):
+                builder = self._construct_mattergen_csp_builder()
+                future = self.submit(builder)
+                self.to_context(**{f"csp_{i}": future})
+
+        self.ctx.n_gnome = 0
+        if settings.GNOME_PARALLEL:
+            self.ctx.n_gnome = int(settings.inputs.get("GNoME_CSP", {}).get("num_runs", 1))
+            for i in range(1, self.ctx.n_gnome + 1):
+                gbuilder = self._construct_gnome_csp_builder()
+                self.to_context(**{f"gnome_{i}": self.submit(gbuilder)})
+
+        if self.ctx.n_csp_jobs == 0 and self.ctx.n_gnome == 0:
+            self.report("No CSP generator enabled (mattergen + gnome both off)")
+            return self.exit_codes.ERROR_CSP_FAILED
 
     def inspect_csp_calcs(self):
-        """Check MatterGen CSP calculations"""
+        """Collect structures from MatterGen (primary) and GNoME (best-effort) CSP"""
         failed_jobs = 0
-        for i in range(1, self.ctx.n_csp + 1):
+        for i in range(1, self.ctx.n_csp_jobs + 1):
             csp_wch = self.ctx[f"csp_{i}"]
             if not csp_wch.is_finished_ok:
                 failed_jobs += 1
@@ -71,13 +93,57 @@ class CSPWorkChain(WorkChain):
             except:
                 failed_jobs += 1
 
+        for i in range(1, self.ctx.n_gnome + 1):
+            gnome_wch = self.ctx[f"gnome_{i}"]
+            if not gnome_wch.is_finished_ok:
+                self.report(f"Warning: GNoME CSP job {i} failed; continuing with MatterGen")
+                continue
+            try:
+                self.ctx.csp_structures.extend(gnome_wch.outputs.output_dict["structures"])
+            except Exception:
+                self.report(f"Warning: could not read GNoME CSP structures from job {i}")
+
         if not self.ctx.csp_structures:
             self.report("No structure was found")
             return self.exit_codes.ERROR_CSP_FAILED
 
-        if failed_jobs / self.ctx.n_csp > 0.5:
+        if self.ctx.n_csp_jobs and failed_jobs / self.ctx.n_csp_jobs > 0.5:
             self.report("Many CSP jobs failed")
             return self.exit_codes.ERROR_CSP_FAILED
+
+    def compute_references(self):
+        """Relax the elemental ground states (from MP) with the SAME MLIP so the
+        hull endpoints are on-method. Cached in the DB; only missing elements run."""
+        model = settings.inputs['bulk_relax']['model']
+        elements = Composition(self.ctx.chemical_formula).chemical_system.split('-')
+        missing = missing_element_references(elements, model)
+        if not missing:
+            return
+        structs = get_mp_element_structures(missing)
+        if not structs:
+            self.report(f"Warning: no MP elemental structures for {missing}; "
+                        "hull will fall back to DFT references")
+            return
+        builder = construct_reference_relax_builder(list(structs.values()), model)
+        self.to_context(ref_relax=self.submit(builder))
+
+    def collect_references(self):
+        """Store the MLIP-relaxed elemental references (source='reference')."""
+        if "ref_relax" not in self.ctx:
+            return
+        wch = self.ctx.ref_relax
+        if not wch.is_finished_ok:
+            self.report("Warning: element-reference relax failed; hull falls back to DFT references")
+            return
+        try:
+            entries = get_output_as_entry(wch)
+        except Exception:
+            self.report("Warning: could not read element-reference energies")
+            return
+        pairs = [(e.structure.as_dict(), e.energy) for e in entries]
+        if pairs:
+            add_structures("reference", settings.inputs['bulk_relax']['model'], pairs)
+            self.report(f"Stored {len(pairs)} MLIP elemental reference(s)")
 
     def predict_ml_energies(self):
         """Predict the energies of the structures with the given ML model"""
@@ -95,12 +161,19 @@ class CSPWorkChain(WorkChain):
         except:
             return self.exit_codes.ERROR_ML_RELAX_FAILED
 
+        model = settings.inputs['bulk_relax']['model']
+        self.ctx.el_entries, missing = element_reference_entries(
+            Composition(self.ctx.chemical_formula).chemical_system.split('-'), model)
+        if missing:
+            self.report(f"Warning: DFT-fallback elemental refs for {missing} (per-element offset risk)")
+
         self.ctx.low_energy_entries_csp, _ = unique_low_energy_comp(
                 self.ctx.chemical_formula,
                 new_entries,
                 DFT_FUNC,
                 EHULL_ML,
-                min_n_return=self.ctx.n_mh)
+                min_n_return=self.ctx.n_mh,
+                element_entries=self.ctx.el_entries)
 
     def minimahopping(self):
         """Run MinimaHopping"""
@@ -136,17 +209,19 @@ class CSPWorkChain(WorkChain):
                 self.ctx.chemical_formula,
                 new_entries,
                 DFT_FUNC,
-                EHULL_ML
+                EHULL_ML,
+                element_entries=self.ctx.el_entries
         )
 
     def final_step(self):
         """Store structures"""
-        all_entries = self.ctx.low_energy_entries_csp + self.ctx.low_energy_entries_mh
+        all_entries = self.ctx.low_energy_entries_csp  # + self.ctx.low_energy_entries_mh
         low_energy_entries, _ = unique_low_energy_comp(
                 self.ctx.chemical_formula,
                 all_entries,
                 DFT_FUNC,
-                EHULL_ML
+                EHULL_ML,
+                element_entries=self.ctx.el_entries
         )
         structure_energy_pairs = []
 
@@ -174,6 +249,24 @@ class CSPWorkChain(WorkChain):
                 "num_batches": settings.inputs["MatterGen_CSP"]["num_batches"],
             }
         )
+        builder.max_iterations = Int(2)
+        return builder
+
+    def _construct_gnome_csp_builder(self):
+        """GNoME (SAPS) CSP builder, parallel to MatterGen's csp branch."""
+        Workflow = WorkflowFactory("gnome.csp")
+        builder = Workflow.get_builder()
+        builder.chemical_formula = Str(self.ctx.chemical_formula)
+        builder.code = get_code("GNoME")
+
+        ji = dict(settings.inputs["GNoME_CSP"])
+        ji["model_head"] = ji.get("head")
+        screen = ji.get("screen", "none")
+        if str(screen).lower() != "none":
+            model, model_path, device = get_model_device(screen)
+            ji.update({"model_name": model, "model_path": model_path, "device": device})
+
+        builder.job_info = Dict(ji)
         builder.max_iterations = Int(2)
         return builder
 

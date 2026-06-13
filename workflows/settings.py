@@ -24,8 +24,32 @@ MAX_NUM_SURF = 10
 
 EHULL_ML = 0.05
 EHULL_SCAN = 0.1
-DFT_FUNC = "r2SCAN"
+DFT_FUNC = "GGA"  # MP naming: GGA == PBE (bundled refs key on "GGA"/"r2SCAN", not "PBE")
 # ML_FUNC = "r2SCAN"
+
+# Run the GNoME (SAPS) generator in parallel with MatterGen in the gen + csp
+# paths. Opt-in via input.yaml (`gnome: {enabled: true}`); defaults off so
+# existing runs without the block are unaffected.
+GNOME_PARALLEL = bool(inputs.get('gnome', {}).get('enabled', False))
+
+# Run the MatterGen generator at all (de-novo gen + CSP). Toggles
+# MatterGen_generate and MatterGen_CSP together. Configured in input.yaml under
+# `mattergen:`; defaults on so existing runs without the block are unaffected.
+# With this off and `gnome` on, generation runs GNoME-only; at least one
+# generator must be enabled.
+MATTERGEN_ENABLED = bool(inputs.get('mattergen', {}).get('enabled', True))
+
+# Classify all generated structures by synthesizability (thermo + reaction +
+# PU) as a MainWorkChain stage after the phase diagram. Configured in input.yaml
+# under `synthesizability:`; enabled by default (post-processing only, no jobs).
+SYNTH_ENABLED = bool(inputs.get('synthesizability', {}).get('enabled', True))
+
+# Soft stop: gracefully end the MainWorkChain after the generation/phase-diagram/
+# synthesizability stages, before the surface builder (and adsorbates) start.
+# Opt-in via input.yaml (`soft_stop: {before_surface_builder: true}`); absent or
+# false -> the full pipeline runs as before.
+SOFT_STOP_BEFORE_SURFACE = bool(
+    inputs.get('soft_stop', {}).get('before_surface_builder', False))
 
 _SKIP_PD_VERIFICATION = True
 

@@ -257,6 +257,28 @@ def query_structureversions_by_attributes(**filters):
 
 ####################################
 
+def update_version_attributes(structure_uuid, method, new_attributes, source=None):
+    """Merge ``new_attributes`` into a DBStructureVersion.attributes JSONB.
+
+    Selects the version by (structure_uuid, method[, source]); returns False if
+    no matching version exists. Used to attach synthesizability scores to the
+    generated structure versions without adding a duplicate version row.
+    """
+    with get_session() as session:
+        query = session.query(DBStructureVersion).filter_by(
+            structure_uuid=structure_uuid, method=method)
+        if source is not None:
+            query = query.filter_by(source=source)
+        version = query.first()
+        if version is None:
+            return False
+        merged = dict(version.attributes or {})
+        merged.update(new_attributes)
+        version.attributes = merged
+        session.commit()
+    return True
+
+
 def query_by_columns(table_class, filters):
     """
     Query a given table for rows matching all column-value pairs in "filters"

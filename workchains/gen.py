@@ -3,10 +3,14 @@ from aiida.plugins import WorkflowFactory
 from aiida.engine import WorkChain
 from uvsib.db.utils import update_row, add_structures, query_by_columns
 from uvsib.db.tables import DBChemsys
+from uvsib.codes.utils import get_mp_element_structures
 from uvsib.workchains.utils import (get_output_as_entry,
                               unique_low_energy_chemsys,
                               get_code,
-                              get_model_device)
+                              get_model_device,
+                              element_reference_entries,
+                              missing_element_references,
+                              construct_reference_relax_builder)
 from uvsib.workflows import settings
 
 DFT_FUNC = settings.DFT_FUNC
@@ -23,12 +27,14 @@ class GeneratorWorkChain(WorkChain):
             cls.setup,
             cls.generative_calcs,
             cls.inspect_gen_calcs,
+            cls.compute_references,
+            cls.collect_references,
             cls.predict_ml_energies,
             cls.store_ml_energies,
             cls.final_report
         )
 
-        spec.exit_code(301, "ERROR_GENERATIVE_FAILED", message="MatterGen generative calculation failed")
+        spec.exit_code(301, "ERROR_GENERATIVE_FAILED", message="Generative calculation failed (no generator produced structures)")
         spec.exit_code(302, "ERROR_ML_RELAX_FAILED", message="ML relaxation failed")
 
     def setup(self):
@@ -38,25 +44,103 @@ class GeneratorWorkChain(WorkChain):
         self.report(f"Launching MatterGenWorkChain for {self.ctx.chemical_systems}")
 
     def generative_calcs(self):
-        """Run MatterGen workchains for each unique chemical system"""
+        """Run the generative workchains for each unique chemical system.
+
+        MatterGen and GNoME (SAPS) are independent generators, each toggled in
+        input.yaml (`mattergen.enabled`, `gnome.enabled`). Whichever are enabled
+        run in parallel for the same system and their candidates are merged
+        before the shared ML relaxation. At least one must be enabled.
+        """
+        if not (settings.MATTERGEN_ENABLED or settings.GNOME_PARALLEL):
+            self.report("No generator enabled: set mattergen.enabled and/or gnome.enabled in input.yaml")
+            return self.exit_codes.ERROR_GENERATIVE_FAILED
+
         for chemical_system in self.ctx.chemical_systems:
-            builder = self._construct_mattergen_gen_builder(chemical_system)
-            future = self.submit(builder)
-            self.to_context(**{f"{chemical_system}_mattergen": future})
+            if settings.MATTERGEN_ENABLED:
+                builder = self._construct_mattergen_gen_builder(chemical_system)
+                future = self.submit(builder)
+                self.to_context(**{f"{chemical_system}_mattergen": future})
+
+            if settings.GNOME_PARALLEL:
+                gbuilder = self._construct_gnome_gen_builder(chemical_system)
+                gfuture = self.submit(gbuilder)
+                self.to_context(**{f"{chemical_system}_gnome": gfuture})
 
     def inspect_gen_calcs(self):
-        """Check for any failures among MatterGen calculations"""
+        """Best-effort check of each generator branch. Both MatterGen and GNoME
+        are optional (toggled in input.yaml); a failed branch only warns here --
+        predict_ml_energies fails a system only if no generator yielded any
+        structures."""
         for chemical_system in self.ctx.chemical_systems:
-            calculation = self.ctx[f"{chemical_system}_mattergen"]
-            if not calculation.is_finished_ok:
-                return self.exit_codes.ERROR_GENERATIVE_FAILED
+            mkey = f"{chemical_system}_mattergen"
+            if mkey in self.ctx and not self.ctx[mkey].is_finished_ok:
+                self.report(f"Warning: MatterGen branch for {chemical_system} failed")
+
+            gkey = f"{chemical_system}_gnome"
+            if gkey in self.ctx and not self.ctx[gkey].is_finished_ok:
+                self.report(f"Warning: GNoME branch for {chemical_system} failed")
+
+    def compute_references(self):
+        """Relax the elemental ground states (from MP) with the SAME MLIP so the
+        hull endpoints are on-method. Cached in the DB (source='reference'); only
+        elements without a stored reference are (re)computed."""
+        model = settings.inputs['bulk_relax']['model']
+        elements = sorted({el for cs in self.ctx.chemical_systems for el in cs.split('-')})
+        missing = missing_element_references(elements, model)
+        if not missing:
+            return
+        structs = get_mp_element_structures(missing)
+        if not structs:
+            self.report(f"Warning: no MP elemental structures for {missing}; "
+                        "hull will fall back to DFT references")
+            return
+        builder = construct_reference_relax_builder(list(structs.values()), model)
+        self.to_context(ref_relax=self.submit(builder))
+
+    def collect_references(self):
+        """Store the MLIP-relaxed elemental references (source='reference')."""
+        if "ref_relax" not in self.ctx:
+            return
+        wch = self.ctx.ref_relax
+        if not wch.is_finished_ok:
+            self.report("Warning: element-reference relax failed; hull falls back to DFT references")
+            return
+        try:
+            entries = get_output_as_entry(wch)
+        except Exception:
+            self.report("Warning: could not read element-reference energies")
+            return
+        pairs = [(e.structure.as_dict(), e.energy) for e in entries]
+        if pairs:
+            add_structures("reference", settings.inputs['bulk_relax']['model'], pairs)
+            self.report(f"Stored {len(pairs)} MLIP elemental reference(s)")
 
     def predict_ml_energies(self):
-        """Predict the energies of the structures with the given ML model"""
-        chemical_systems = self.ctx.chemical_systems
-        for chemical_system in chemical_systems:
-            wch = self.ctx[f"{chemical_system}_mattergen"]
-            output_structures = wch.outputs.output_dict["structures"]
+        """Predict the energies of the (merged) structures with the given ML model.
+
+        Structures from whichever generators were enabled and succeeded are
+        merged; a system with no structures from any generator fails."""
+        for chemical_system in self.ctx.chemical_systems:
+            output_structures = []
+
+            mkey = f"{chemical_system}_mattergen"
+            if mkey in self.ctx and self.ctx[mkey].is_finished_ok:
+                try:
+                    output_structures.extend(self.ctx[mkey].outputs.output_dict["structures"])
+                except Exception:
+                    self.report(f"Warning: could not read MatterGen structures for {chemical_system}")
+
+            gkey = f"{chemical_system}_gnome"
+            if gkey in self.ctx and self.ctx[gkey].is_finished_ok:
+                try:
+                    output_structures.extend(self.ctx[gkey].outputs.output_dict["structures"])
+                except Exception:
+                    self.report(f"Warning: could not read GNoME structures for {chemical_system}")
+
+            if not output_structures:
+                self.report(f"No generated structures for {chemical_system}")
+                return self.exit_codes.ERROR_GENERATIVE_FAILED
+
             builder = self._construct_ML_relax_builder(output_structures)
             builder.local_label = Str("relax: {}".format(chemical_system))
             future = self.submit(builder)
@@ -80,7 +164,13 @@ class GeneratorWorkChain(WorkChain):
                 failed_ml_e.append(chemical_system)
                 continue
 
-            low_energy_entries = unique_low_energy_chemsys(chemical_system, new_entries, DFT_FUNC, EHULL_ML)
+            model = settings.inputs['bulk_relax']['model']
+            el_entries, missing = element_reference_entries(chemical_system.split('-'), model)
+            if missing:
+                self.report(f"Warning: DFT-fallback elemental refs for {missing} "
+                            f"in {chemical_system} (per-element offset risk)")
+            low_energy_entries = unique_low_energy_chemsys(
+                chemical_system, new_entries, DFT_FUNC, EHULL_ML, element_entries=el_entries)
             structure_energy_pairs = []
             for entry in low_energy_entries:
                 structure_energy_pairs.append((entry.structure.as_dict(), entry.energy))
@@ -116,6 +206,25 @@ class GeneratorWorkChain(WorkChain):
                  "num_batches": settings.inputs["MatterGen_generate"]["num_batches"]
                 }
         )
+        builder.max_iterations = Int(2)
+        return builder
+
+    @staticmethod
+    def _construct_gnome_gen_builder(chemical_system):
+        """GNoME (SAPS) de-novo builder, parallel to MatterGen's gen branch."""
+        Workflow = WorkflowFactory("gnome.base")
+        builder = Workflow.get_builder()
+        builder.chemical_system = Str(chemical_system)
+        builder.code = get_code("GNoME")
+
+        ji = dict(settings.inputs["GNoME_generate"])
+        ji["model_head"] = ji.get("head")
+        screen = ji.get("screen", "none")
+        if str(screen).lower() != "none":
+            model, model_path, device = get_model_device(screen)
+            ji.update({"model_name": model, "model_path": model_path, "device": device})
+
+        builder.job_info = Dict(ji)
         builder.max_iterations = Int(2)
         return builder
 
