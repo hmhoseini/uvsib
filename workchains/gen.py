@@ -4,13 +4,12 @@ from aiida.engine import WorkChain
 from uvsib.db.utils import update_row, add_structures, query_by_columns
 from uvsib.db.tables import DBChemsys
 from uvsib.codes.utils import get_mp_element_structures
-from uvsib.workchains.utils import (get_output_as_entry,
+from uvsib.workchains.utils import (split_relax_output,
                               unique_low_energy_chemsys,
                               get_code,
                               get_model_device,
                               element_reference_entries,
-                              missing_element_references,
-                              construct_reference_relax_builder)
+                              missing_element_references)
 from uvsib.workflows import settings
 
 DFT_FUNC = settings.DFT_FUNC
@@ -27,8 +26,6 @@ class GeneratorWorkChain(WorkChain):
             cls.setup,
             cls.generative_calcs,
             cls.inspect_gen_calcs,
-            cls.compute_references,
-            cls.collect_references,
             cls.predict_ml_energies,
             cls.store_ml_energies,
             cls.final_report
@@ -80,46 +77,33 @@ class GeneratorWorkChain(WorkChain):
             if gkey in self.ctx and not self.ctx[gkey].is_finished_ok:
                 self.report(f"Warning: GNoME branch for {chemical_system} failed")
 
-    def compute_references(self):
-        """Relax the elemental ground states (from MP) with the SAME MLIP so the
-        hull endpoints are on-method. Cached in the DB (source='reference'); only
-        elements without a stored reference are (re)computed."""
-        model = settings.inputs['bulk_relax']['model']
-        elements = sorted({el for cs in self.ctx.chemical_systems for el in cs.split('-')})
-        missing = missing_element_references(elements, model)
-        if not missing:
-            return
-        structs = get_mp_element_structures(missing)
-        if not structs:
-            self.report(f"Warning: no MP elemental structures for {missing}; "
-                        "hull will fall back to DFT references")
-            return
-        builder = construct_reference_relax_builder(list(structs.values()), model)
-        self.to_context(ref_relax=self.submit(builder))
-
-    def collect_references(self):
-        """Store the MLIP-relaxed elemental references (source='reference')."""
-        if "ref_relax" not in self.ctx:
-            return
-        wch = self.ctx.ref_relax
-        if not wch.is_finished_ok:
-            self.report("Warning: element-reference relax failed; hull falls back to DFT references")
-            return
-        try:
-            entries = get_output_as_entry(wch)
-        except Exception:
-            self.report("Warning: could not read element-reference energies")
-            return
-        pairs = [(e.structure.as_dict(), e.energy) for e in entries]
-        if pairs:
-            add_structures("reference", settings.inputs['bulk_relax']['model'], pairs)
-            self.report(f"Stored {len(pairs)} MLIP elemental reference(s)")
-
     def predict_ml_energies(self):
-        """Predict the energies of the (merged) structures with the given ML model.
+        """Per-system MLIP relax, each bundled with the missing elemental
+        references that system is the first to need -- so the model is loaded
+        once per relax (no separate reference CalcJob) and a shared element is
+        relaxed only once. References are appended after the generated
+        structures; store_ml_energies peels them off by input index and stores
+        them before any hull is built.
 
         Structures from whichever generators were enabled and succeeded are
         merged; a system with no structures from any generator fails."""
+        model = settings.inputs['bulk_relax']['model']
+        all_elems = sorted({el for cs in self.ctx.chemical_systems for el in cs.split('-')})
+        missing = set(missing_element_references(all_elems, model))
+        ref_structs = get_mp_element_structures(sorted(missing)) if missing else {}
+        if missing and not ref_structs:
+            self.report(f"Warning: no MP elemental structures for {sorted(missing)}; "
+                        "hull will fall back to DFT references")
+        # Assign each missing element's reference to the first chemical system
+        # that contains it (relax a shared element once, not once per system).
+        assigned, used = {}, set()
+        for cs in self.ctx.chemical_systems:
+            for el in cs.split('-'):
+                if el in ref_structs and el not in used:
+                    assigned.setdefault(cs, []).append(ref_structs[el])
+                    used.add(el)
+
+        self.ctx.n_main = {}
         for chemical_system in self.ctx.chemical_systems:
             output_structures = []
 
@@ -141,30 +125,49 @@ class GeneratorWorkChain(WorkChain):
                 self.report(f"No generated structures for {chemical_system}")
                 return self.exit_codes.ERROR_GENERATIVE_FAILED
 
-            builder = self._construct_ML_relax_builder(output_structures)
+            refs = assigned.get(chemical_system, [])
+            self.ctx.n_main[chemical_system] = len(output_structures)
+            builder = self._construct_ML_relax_builder(output_structures + refs)
             builder.local_label = Str("relax: {}".format(chemical_system))
             future = self.submit(builder)
             self.to_context(**{f"{chemical_system}_ml_e": future})
 
     def store_ml_energies(self):
-        """Store predicted ML energies"""
-        failed_ml_e = []
+        """Store predicted ML energies. First peel the bundled elemental
+        references off each relax and store them (source='reference'), so every
+        system's hull then sees the on-method endpoints."""
+        model = settings.inputs['bulk_relax']['model']
         chemical_systems = self.ctx.chemical_systems
+
+        # pass 1: split each system's relax; store all elemental references first
+        generated = {}
         for chemical_system in chemical_systems:
             wch = self.ctx[f"{chemical_system}_ml_e"]
             if not wch.is_finished_ok:
+                generated[chemical_system] = None
+                continue
+            try:
+                main_entries, ref_entries = split_relax_output(
+                    wch, self.ctx.n_main[chemical_system])
+            except Exception:
+                generated[chemical_system] = None
+                continue
+            generated[chemical_system] = main_entries
+            if ref_entries:
+                pairs = [(e.structure.as_dict(), e.energy) for e in ref_entries]
+                add_structures("reference", model, pairs)
+                self.report(f"Stored {len(pairs)} MLIP elemental reference(s) "
+                            f"from {chemical_system}")
+
+        # pass 2: hull-process each system's generated structures
+        failed_ml_e = []
+        for chemical_system in chemical_systems:
+            new_entries = generated.get(chemical_system)
+            if new_entries is None:
                 failed_ml_e.append(chemical_system)
                 self.report(f"Warning: potential for {chemical_system} failed")
                 continue
-            try:
-                new_entries = get_output_as_entry(wch)
 
-            except:
-                self.report(f"Warning: Failed to store results for {chemical_system}")
-                failed_ml_e.append(chemical_system)
-                continue
-
-            model = settings.inputs['bulk_relax']['model']
             el_entries, missing = element_reference_entries(chemical_system.split('-'), model)
             if missing:
                 self.report(f"Warning: DFT-fallback elemental refs for {missing} "
@@ -175,7 +178,7 @@ class GeneratorWorkChain(WorkChain):
             for entry in low_energy_entries:
                 structure_energy_pairs.append((entry.structure.as_dict(), entry.energy))
 
-            add_structures("generated", settings.inputs['bulk_relax']['model'], structure_energy_pairs)
+            add_structures("generated", model, structure_energy_pairs)
             # DBChemsys status is updated to Ready
             row = query_by_columns(DBChemsys,{"chemsys": chemical_system})[0]
             update_row(DBChemsys, row.uuid,{"gen_structures": "Ready"})

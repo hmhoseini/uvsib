@@ -36,8 +36,9 @@ def relax_structures(calc, fmax, max_steps):
     relaxed_structures = []
     energies = []
     epas = []
+    indices = []          # original input position of each converged structure
     num_failed = 0
-    for structure in structure_list:
+    for i, structure in enumerate(structure_list):
         atoms = pmg_to_ase(Structure.from_dict(structure))
         atoms.calc = calc
         cell_filter = FrechetCellFilter(atoms)
@@ -55,10 +56,16 @@ def relax_structures(calc, fmax, max_steps):
             pmg_structure = ase_to_pmg(atoms)
             relaxed_structures.append(pmg_structure.as_dict())
             epas.append(energy/len(pmg_structure.sites))
+            indices.append(i)
         else:
             num_failed += 1
 
-    to_dump = {'structures': relaxed_structures, 'energies': energies, 'epas': epas}
+    # ``indices`` lets a caller that bundled several structure groups into one
+    # relax job (e.g. generated/CSP structures + appended elemental references)
+    # map each surviving output back to its input position -- robust to the
+    # non-converged structures dropped above. See utils.split_relax_output.
+    to_dump = {'structures': relaxed_structures, 'energies': energies,
+               'epas': epas, 'indices': indices}
 
     with open('output.json', 'w') as f:
         json.dump(to_dump, f)

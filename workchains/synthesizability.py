@@ -23,6 +23,10 @@ Phonons need a *conservative* MLIP (MACE / MatterSim); see input.yaml
 ``synthesizability.finite_T.model``.
 """
 
+import os
+import json
+import tempfile
+
 import numpy as np
 
 from pymatgen.core import Composition
@@ -30,9 +34,9 @@ from pymatgen.core.structure import Structure
 from pymatgen.entries.computed_entries import ComputedStructureEntry
 from pymatgen.analysis.phase_diagram import PhaseDiagram
 
-from aiida.orm import Str, Dict, List, Int, Float
+from aiida.orm import Str, Dict, List, Int, Float, SinglefileData
 from aiida.engine import WorkChain, if_, calcfunction
-from aiida.plugins import WorkflowFactory
+from aiida.plugins import WorkflowFactory, CalculationFactory
 
 from uvsib.db.tables import DBStructure, DBStructureVersion, DBComposition
 from uvsib.db.session import get_session
@@ -56,6 +60,11 @@ from uvsib.workflows import settings
 
 DFT_FUNC = settings.DFT_FUNC
 _GENERATED_SOURCES = ("generated", "csp")
+
+# The disordered-SQS generator runs remotely on the gnome@v100 code (reused as
+# the generic v100 Python code), driven through the GNoME CalcJob with the
+# runner + parser overridden via parameters/options. No new entry point needed.
+GNoMECalculation = CalculationFactory("gnome")
 
 
 # --------------------------------------------------------------------------- #
@@ -145,12 +154,55 @@ def _finite_T_config():
     return (settings.inputs.get("synthesizability", {}) or {}).get("finite_T", {}) or {}
 
 
+def _finite_T_sqs_request(formula, ft):
+    """Build the request dict for the remote disordered-SQS generator."""
+    return {
+        "formula": formula,
+        "sqs_size": int(ft.get("sqs_size", 32)),
+        "sqs_steps": int(ft.get("sqs_steps", 2000)),
+        "n_realizations": max(1, int(ft.get("sqs_realizations", 3))),
+        "lattice": ft.get("sqs_lattice", "fcc"),
+        "a": float(ft.get("sqs_a", 3.8)),
+        "cutoffs": list(ft.get("sqs_cutoffs", [7.0, 4.0])),
+    }
+
+
+def _sqs_request_file(request):
+    """Stage the SQS request as sqs_request.json (SinglefileData)."""
+    path = os.path.join(tempfile.gettempdir(), "sqs_request.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(request, f)
+    return SinglefileData(file=path)
+
+
+def _sqs_options():
+    """Scheduler options for the remote SQS generator on the gnome@v100 code."""
+    js = settings.configs["codes"]["GNoME"]["job_script"]
+    options = {
+        "resources": {
+            "num_machines": js["nodes"],
+            "num_mpiprocs_per_machine": js["ntasks"],
+            "num_cores_per_mpiproc": js["cpus"],
+        },
+        "max_wallclock_seconds": js["time"],
+        "parser_name": "sqs_parser",   # generic output.json -> Dict
+    }
+    if js.get("exclusive"):
+        options["custom_scheduler_commands"] = "#SBATCH --exclusive"
+    return options
+
+
 def make_disordered_sqs(formula, supercell_atoms=32, lattice="fcc", n_steps=2000,
                         random_seed=None):
     """Disordered SQS at the target composition (icet) -- the disordered partner
     for the vibrational entropy of ordering. ``random_seed`` selects the
     realization (vary it to average over independent SQS). Returns a pymatgen
-    Structure dict, or None if icet/ase are unavailable or generation fails."""
+    Structure dict, or None if icet/ase are unavailable or generation fails.
+
+    Reference / local-fallback implementation: the production path generates the
+    SQS *remotely* on the gnome@v100 code via ``run_sqs`` (the icet search is too
+    slow to run inline in a daemon step). ``codes/files/sqs_disordered.py`` is the
+    remote twin of this routine."""
     try:
         from ase.build import bulk
         from icet import ClusterSpace
@@ -200,6 +252,8 @@ class SynthesizabilityWorkChain(WorkChain):
             cls.setup,
             cls.build_hull,
             if_(cls.should_run_phonons)(
+                cls.run_sqs,        # remote disordered-SQS generation (gnome@v100)
+                cls.inspect_sqs,    # fold the SQS realizations into the phonon set
                 cls.run_phonons,
                 cls.inspect_phonons,
             ),
@@ -223,6 +277,8 @@ class SynthesizabilityWorkChain(WorkChain):
         self.ctx.dS_info = {}         # vibrational-entropy-of-ordering result
         self.ctx.ordered_uuid = None  # lowest-energy ordered polymorph at the target comp
         self.ctx.sqs_uuids = []       # disordered SQS realizations
+        self.ctx.sqsgen = None        # remote SQS-generation CalcJob node
+        self.ctx.sqs_request = None   # request dict for that job (None -> skip)
         self.report(f"Classifying synthesizability for {self.ctx.chemical_formula}")
 
     def build_hull(self):
@@ -281,29 +337,77 @@ class SynthesizabilityWorkChain(WorkChain):
                     self.ctx.phonon_items.append(
                         {"uuid": ordered[0], "structure": ordered[1].structure.as_dict()})
 
-            # Average over several independent SQS realizations for a robust
-            # S_vib(disordered); each realization gets its own phonon job.
-            n_real = max(1, int(self.ctx.ft.get("sqs_realizations", 3)))
-            for i in range(n_real):
-                sqs_dict = make_disordered_sqs(
-                    self.ctx.chemical_formula,
-                    supercell_atoms=int(self.ctx.ft.get("sqs_size", 32)),
-                    n_steps=int(self.ctx.ft.get("sqs_steps", 2000)),
-                    random_seed=i)
-                if sqs_dict is None:
-                    continue
-                uid = f"sqs:{tgt_rf}#{i}"
-                self.ctx.sqs_uuids.append(uid)
-                self.ctx.phonon_items.append({"uuid": uid, "structure": sqs_dict})
-            if self.ctx.sqs_uuids:
-                self.report(f"Synthesizability: added {len(self.ctx.sqs_uuids)} disordered SQS "
-                            "realization(s) for the vibrational entropy of ordering")
+            # Disordered partner(s) for the vibrational entropy of ordering.
+            # The icet SQS search is too slow to run inline in a daemon step, so
+            # it is generated *remotely* (run_sqs) on the gnome@v100 code and
+            # folded into the phonon set afterwards (inspect_sqs). Only
+            # meaningful for multi-element compositions.
+            if len(Composition(self.ctx.chemical_formula).elements) >= 2:
+                self.ctx.sqs_request = _finite_T_sqs_request(
+                    self.ctx.chemical_formula, self.ctx.ft)
+                self.report(
+                    f"Synthesizability: will generate "
+                    f"{self.ctx.sqs_request['n_realizations']} disordered SQS "
+                    f"realization(s) ({self.ctx.sqs_request['sqs_size']} atoms) "
+                    "remotely on gnome@v100 for the vibrational entropy of ordering")
             else:
-                self.report("Synthesizability: SQS generation unavailable (icet?); "
-                            "vibrational entropy of ordering will be skipped")
+                self.report("Synthesizability: single-element composition; no "
+                            "disordered SQS / vibrational entropy of ordering")
 
     def should_run_phonons(self):
         return bool(self.ctx.ft.get("enabled", False)) and bool(self.ctx.phonon_items)
+
+    def run_sqs(self):
+        """Submit the disordered-SQS generation remotely on the gnome@v100 code.
+
+        Reuses the GNoME CalcJob (runner + parser overridden via parameters /
+        options) so no new entry point is needed. No-op when no SQS is requested
+        (single-element composition)."""
+        if not self.ctx.sqs_request:
+            return
+        req = self.ctx.sqs_request
+        inputs = {
+            "code": get_code("SQS_gen_phonon"),
+            "parameters": Dict(dict={
+                "cmdline_params": ["--request=sqs_request.json"],
+                "staged_files": [["sqs_disordered.py", "aiida.py"]],
+                "retrieve_list": ["output.json"],
+            }),
+            "file": {"sqs_request_file": _sqs_request_file(req)},
+            "metadata": {
+                "options": _sqs_options(),
+                "label": f"SQS(disordered): {req['formula']}",
+            },
+        }
+        self.to_context(sqsgen=self.submit(GNoMECalculation, **inputs))
+        self.report(
+            f"Synthesizability: submitted remote SQS generation "
+            f"({req['n_realizations']} realizations x {req['sqs_size']} atoms, "
+            f"{req['sqs_steps']} MC steps) on gnome@v100")
+
+    def inspect_sqs(self):
+        """Fold the remote SQS realizations into the phonon set."""
+        node = self.ctx.sqsgen
+        if node is None:
+            return  # no SQS requested
+        if not node.is_finished_ok:
+            self.report("Synthesizability: remote SQS generation failed; "
+                        "vibrational entropy of ordering will be skipped")
+            return
+        results = node.outputs.output_dict.get_dict().get("results", [])
+        for rec in results:
+            uid, struct = rec.get("uuid"), rec.get("structure")
+            if not uid or struct is None:
+                continue
+            self.ctx.sqs_uuids.append(uid)
+            self.ctx.phonon_items.append({"uuid": uid, "structure": struct})
+        if self.ctx.sqs_uuids:
+            self.report(f"Synthesizability: received {len(self.ctx.sqs_uuids)} "
+                        "disordered SQS realization(s) from gnome@v100 for the "
+                        "vibrational entropy of ordering")
+        else:
+            self.report("Synthesizability: remote SQS returned no structures; "
+                        "vibrational entropy of ordering will be skipped")
 
     def run_phonons(self):
         """Submit one PhononWorkChain for the selected structures."""

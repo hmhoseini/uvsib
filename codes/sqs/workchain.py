@@ -27,6 +27,11 @@ def get_options():
 
 def get_structures_file(structures):
     """ temp structure file """
+    # `structures` arrives as an aiida ``List`` node (the workchain input),
+    # which json cannot serialise -- unwrap it to the plain Python list first.
+    # Its stored contents are already JSON-safe by construction.
+    if isinstance(structures, List):
+        structures = structures.get_list()
     filename = "input_structures.json"
     temp_dir = tempfile.gettempdir()
     file_path = os.path.join(temp_dir, filename)

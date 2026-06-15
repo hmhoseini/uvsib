@@ -3,11 +3,9 @@ def is_data_available(chemical_systems, timeout=36000):
     If data is available, return True, otherwise sleep. Timeout 10 h.
     """
     import time
-#    from aiida import load_profile
     from uvsib.db.tables import DBChemsys
     from uvsib.db.utils import query_by_columns
 
-#    load_profile()
     tstart = time.time()
     while True:
         missing_data = []
@@ -29,7 +27,7 @@ def is_data_available(chemical_systems, timeout=36000):
             return {"moveon": False}
         time.sleep(60)
 
-def wait_sleep(timeout=3600):
+def wait_sleep(timeout=360):
     """Sleep"""
     import time
     tstart = time.time()

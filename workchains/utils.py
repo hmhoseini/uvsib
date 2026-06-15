@@ -42,6 +42,92 @@ def load_zpe(reaction):
     except:
         return None
 
+
+def che_overpotential(steps, local_energy, zpe, equilibrium_potential,
+                      reduction=True, n_electrons=None, pin_total=False):
+    """Free-energy diagram and thermodynamic overpotential for a CHE pathway.
+
+    This is the shared core for every electrochemical reaction calculator
+    (CO2RR / NOXRR / NRR / ORR / HER / CER); ``oer.py`` keeps its own
+    energy-conserving closure (which ``pin_total`` below now generalises).
+
+    Thermodynamic pin (``pin_total=True``, requires ``n_electrons``)
+    ----------------------------------------------------------------
+    Exactly as ``oer.py`` closes its O2-release step on
+    ``G_OER_TOTAL = 4 * 1.23 = n_e * U_eq``, this anchors the *integrated* free
+    energy of the whole pathway to the experimental total and back-solves the
+    final (gas-product release) elementary step:
+
+        G_total = (-1 if reduction else +1) * n_electrons * U_eq      # eV
+        dG_last = G_total - sum(dG_other_steps)
+
+    ``G_total`` is the experimental overall reaction free energy at U = 0, set
+    by the literature equilibrium potential ``U_eq`` (the audited per-pathway
+    values in co2rr.py / noxrr.py, derived from standard formation free
+    energies). Pinning removes the MLIP gas-phase reference error from the
+    closed step and forces the correct overall thermodynamics, so an ideal
+    one-(H+ + e-)-per-step catalyst gives eta = 0. It does NOT remove gas-phase
+    reference error that sits in a *non-closed* step (e.g. the CO2 / NO reactant
+    in step 1) -- that residual still needs the per-molecule electronic
+    correction. The non-electrochemical "nominal" pathways (n_electrons == 0)
+    are left unpinned.
+
+    ``steps`` is the list of elementary-reaction dictionaries from the
+    pathway definition. Each dict maps a species to its **signed
+    stoichiometric coefficient in that single elementary reaction**
+    (products +, reactants -). A leading empty ``{}`` reference marker is
+    tolerated and ignored. CHE bookkeeping for the proton/ion couple:
+
+        * one (H+ + e-) consumed (reduction step)  -> 'H2':  -1/2
+        * one (H+ + e-) released (oxidation step)   -> 'H2':  +1/2
+        * a released gas molecule (H2O, NH3, ...)   -> +1
+        * a consumed gas reactant (NO, CO2, ...)    -> -1
+
+    Each step free energy is evaluated **directly** from its own dict:
+
+        dG_i = sum_q (E[q] + ZPE[q]) * coeff_q
+
+    The previous implementation instead summed each dict into a ``dga`` list
+    and then took consecutive differences ``dga[1:] - dga[:-1]``. Because the
+    dicts are *incremental* reactions (each references the previous
+    intermediate), differencing them double-subtracts the shared intermediate;
+    with raw total energies on the MLIP scale (H2O ~ -2080 eV) the uncancelled
+    atomic energies blow the overpotential up to thousands of volts. Summing
+    each dict on its own keeps every step bounded and physical.
+
+    The thermodynamic (limiting-potential) overpotential, with the
+    potential-determining step PDS = max_i dG_i (eV) at U = 0:
+
+        reduction:  eta = PDS + U_eq   (drive at U < U_eq; ideal catalyst -> 0)
+        oxidation:  eta = PDS - U_eq   (drive at U > U_eq; ideal catalyst -> 0)
+
+    Returns ``(overpotential, dg_steps, dg_cumulative)`` where ``dg_steps`` are
+    the per-step free energies at U = 0 V and ``dg_cumulative`` is their
+    running sum ``[0, dG1, dG1+dG2, ...]`` at U = 0 V (matching oer.py).
+    """
+    dg_steps = [
+        sum((local_energy[q] + zpe[q]) * coeff for q, coeff in r.items())
+        for r in steps if r          # skip the {} reference-state marker
+    ]
+
+    # OER-style thermodynamic pin (see docstring). Skipped when n_electrons is
+    # None/0, i.e. the non-electrochemical nominal pathways.
+    if pin_total and n_electrons:
+        sign = -1.0 if reduction else 1.0
+        g_total = sign * n_electrons * equilibrium_potential
+        dg_steps[-1] = g_total - sum(dg_steps[:-1])
+
+    pds = max(dg_steps)
+    overpotential = (pds + equilibrium_potential) if reduction \
+        else (pds - equilibrium_potential)
+
+    dg_cumulative, running = [0.0], 0.0
+    for d in dg_steps:
+        running += d
+        dg_cumulative.append(running)
+
+    return overpotential, dg_steps, dg_cumulative
+
 def get_primitive_cell(struct_dict):
     """Refine a structure dictionary into its primitive cell"""
     structure = Structure.from_dict(struct_dict)
@@ -65,6 +151,32 @@ def get_output_as_entry(wch):
             energy = output_dict["energies"][indx])
         )
     return entries
+
+
+def split_relax_output(wch, n_main):
+    """Split one bundled relax job into ``(main_entries, ref_entries)``.
+
+    Used when the elemental reference structures are appended after the main
+    (generated / CSP) structures in a single relax CalcJob, so the MLIP is
+    loaded once instead of in a separate reference job. The relax runner emits
+    ``indices`` (the original input position of each converged structure), so
+    inputs ``[0, n_main)`` are the main structures and ``[n_main, ...)`` the
+    appended references. Splitting on the input index -- not the output
+    position -- is robust to relax.py dropping non-converged structures.
+    Falls back to output order if ``indices`` is absent (legacy jobs).
+    """
+    output_dict = wch.outputs.output_dict.get_dict()
+    structs = output_dict.get("structures", [])
+    energies = output_dict.get("energies", [])
+    indices = output_dict.get("indices")
+    if not indices or len(indices) != len(structs):
+        indices = list(range(len(structs)))
+    main, refs = [], []
+    for struct, energy, idx in zip(structs, energies, indices):
+        entry = ComputedStructureEntry(
+            structure=Structure.from_dict(struct), energy=energy)
+        (refs if idx >= n_main else main).append(entry)
+    return main, refs
 
 def unique_low_energy_chemsys(chemical_system, entries, method, ehull, element_entries=None):
     """Select the unique lowest-energy structures for a given chemical system.

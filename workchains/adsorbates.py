@@ -67,7 +67,7 @@ class AdsorbatesWorkChain(WorkChain):
             future = self.submit(builder)
             self.to_context(**{f"{uid}_{fid}": future})
             if count == 9:
-                print('workchains/adsorbates.py: in run_adsorbs(): reached limit of 10 to process')
+                print('workchains/adsorbates.py: in run_adsorbs(): reached limit of 10 lowest-E surfaces to process')
                 return
 
     def inspect_adsorbs(self):
@@ -124,8 +124,21 @@ class AdsorbatesWorkChain(WorkChain):
                     adsorbed = jsonio.decode(ads_json)
                     energy_set[adsorbed.info["adsorbate"]] = adsorbed.info['{}_energy'.format(str(settings.inputs['adsorbates']['model']).lower())]
 
-                eta, dG_steps, dG_cumulative = calc_method(energy_set, self.ctx.reaction_path)
-                print(f"{self.ctx.chemical_formula}: {self.ctx.reaction} ({self.ctx.reaction_path}): {eta}")
+                try:
+                    eta, dG_steps, dG_cumulative = calc_method(energy_set, self.ctx.reaction_path)
+                except KeyError as missing:
+                    # A pathway intermediate is absent from the relaxed set -- e.g.
+                    # a fragile dimer like *N2O2 that dissociated during relaxation
+                    # and was dropped by the adsorbate validator. Skip THIS
+                    # candidate instead of crashing the whole workchain; other
+                    # sites/surfaces (and other pathways) are unaffected.
+                    self.report(
+                        f"Skipping {self.ctx.reaction}/{self.ctx.reaction_path} on "
+                        f"surface {surface_id} ({site_type}): missing intermediate "
+                        f"{missing.args[0]} in the relaxed set "
+                        f"(have: {sorted(energy_set)}).")
+                    continue
+                # print(f"{self.ctx.chemical_formula}: {self.ctx.reaction} ({self.ctx.reaction_path}): {eta}")
 
                 # if eta > eta_threshold:  # TODO: remove?
                 #     continue
@@ -143,7 +156,8 @@ class AdsorbatesWorkChain(WorkChain):
         if self.ctx.candidates == 0:
             self.report(f"AdsorbatesWorkChain for {self.ctx.chemical_formula}: no candidates below eta threshold.")
             return self.exit_codes.NO_CANDIDATES_WITHIN_ETA_LIMIT
-        self.report(f"AdsorbatesWorkChain for {self.ctx.chemical_formula} finished successfully.")
+        self.report(f"{self.ctx.reaction} WorkChain for {self.ctx.chemical_formula}: "
+                    f"{self.ctx.candidates} eta for {self.ctx.reaction_path}.")
 
     def _construct_adsorbate_builder(self, slab, reaction, pathway):
         ML_model = settings.inputs['adsorbates']['model']

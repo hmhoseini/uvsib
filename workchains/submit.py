@@ -6,7 +6,7 @@ def submit_mainworkchain(chemical_formula, chemical_systems, reaction, reaction_
                          nano=False, similarities=None, sqs=None):
     controller = MainSubmissionController(
         group_label='wf_test',
-        max_concurrent=10,
+        max_concurrent=15,
         uuid_str=str(uuid.uuid4()),
         chemical_formula=chemical_formula,
         chemical_systems=chemical_systems,

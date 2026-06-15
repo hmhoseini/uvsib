@@ -10,7 +10,7 @@ from uvsib.workchains.utils import (
         get_model_device,
         element_reference_entries,
         missing_element_references,
-        construct_reference_relax_builder)
+        split_relax_output)
 from uvsib.codes.utils import get_mp_element_structures
 from uvsib.db.utils import add_structures
 from uvsib.workflows import settings
@@ -34,8 +34,6 @@ class CSPWorkChain(WorkChain):
             cls.setup,
             cls.run_csp,
             cls.inspect_csp_calcs,
-            cls.compute_references,
-            cls.collect_references,
             cls.predict_ml_energies,
             cls.collect_ml_energies,
             cls.minimahopping,
@@ -111,57 +109,42 @@ class CSPWorkChain(WorkChain):
             self.report("Many CSP jobs failed")
             return self.exit_codes.ERROR_CSP_FAILED
 
-    def compute_references(self):
-        """Relax the elemental ground states (from MP) with the SAME MLIP so the
-        hull endpoints are on-method. Cached in the DB; only missing elements run."""
+    def predict_ml_energies(self):
+        """One MLIP relax over the CSP structures, bundled with any missing
+        elemental references (from MP) so the model is loaded once instead of in
+        a separate reference CalcJob. The references are appended after the CSP
+        structures; collect_ml_energies peels them back off by input index."""
         model = settings.inputs['bulk_relax']['model']
         elements = Composition(self.ctx.chemical_formula).chemical_system.split('-')
         missing = missing_element_references(elements, model)
-        if not missing:
-            return
-        structs = get_mp_element_structures(missing)
-        if not structs:
-            self.report(f"Warning: no MP elemental structures for {missing}; "
-                        "hull will fall back to DFT references")
-            return
-        builder = construct_reference_relax_builder(list(structs.values()), model)
-        self.to_context(ref_relax=self.submit(builder))
-
-    def collect_references(self):
-        """Store the MLIP-relaxed elemental references (source='reference')."""
-        if "ref_relax" not in self.ctx:
-            return
-        wch = self.ctx.ref_relax
-        if not wch.is_finished_ok:
-            self.report("Warning: element-reference relax failed; hull falls back to DFT references")
-            return
-        try:
-            entries = get_output_as_entry(wch)
-        except Exception:
-            self.report("Warning: could not read element-reference energies")
-            return
-        pairs = [(e.structure.as_dict(), e.energy) for e in entries]
-        if pairs:
-            add_structures("reference", settings.inputs['bulk_relax']['model'], pairs)
-            self.report(f"Stored {len(pairs)} MLIP elemental reference(s)")
-
-    def predict_ml_energies(self):
-        """Predict the energies of the structures with the given ML model"""
-        builder = self._construct_ML_relax_builder()
-        future = self.submit(builder)
-        self.to_context(**{"ml_e": future})
+        ref_structs = []
+        if missing:
+            structs = get_mp_element_structures(missing)
+            ref_structs = list(structs.values())
+            if not structs:
+                self.report(f"Warning: no MP elemental structures for {missing}; "
+                            "hull will fall back to DFT references")
+        self.ctx.n_main = len(self.ctx.csp_structures)
+        builder = self._construct_ML_relax_builder(self.ctx.csp_structures + ref_structs)
+        self.to_context(**{"ml_e": self.submit(builder)})
 
     def collect_ml_energies(self):
-        """ML energies"""
+        """Split the bundled relax: store the elemental references, then hull the
+        CSP structures (references stored first so the hull picks them up)."""
         wch = self.ctx.ml_e
         if not wch.is_finished_ok:
             return self.exit_codes.ERROR_ML_RELAX_FAILED
         try:
-            new_entries = get_output_as_entry(wch)
-        except:
+            new_entries, ref_entries = split_relax_output(wch, self.ctx.n_main)
+        except Exception:
             return self.exit_codes.ERROR_ML_RELAX_FAILED
 
         model = settings.inputs['bulk_relax']['model']
+        if ref_entries:
+            pairs = [(e.structure.as_dict(), e.energy) for e in ref_entries]
+            add_structures("reference", model, pairs)
+            self.report(f"Stored {len(pairs)} MLIP elemental reference(s)")
+
         self.ctx.el_entries, missing = element_reference_entries(
             Composition(self.ctx.chemical_formula).chemical_system.split('-'), model)
         if missing:
@@ -270,12 +253,11 @@ class CSPWorkChain(WorkChain):
         builder.max_iterations = Int(2)
         return builder
 
-    def _construct_ML_relax_builder(self):
+    def _construct_ML_relax_builder(self, structures):
         """
         General builder for structure optimization with an ML model
         """
         ML_model = settings.inputs['bulk_relax']['model']
-        structures = self.ctx.csp_structures
         Workflow = WorkflowFactory(ML_model.lower())
         builder = Workflow.get_builder()
         builder.input_structures = List(structures)

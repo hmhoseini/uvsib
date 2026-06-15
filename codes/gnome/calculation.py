@@ -19,6 +19,16 @@ class GNoMECalculation(CalcJob):
     Stages the runner and its sidecars plus a ``templates.json`` seed pool
     (passed in via the ``file`` namespace), runs it, and retrieves
     ``output.json`` -- the same output contract as MatterGen.
+
+    The staged files and the retrieved files default to the GNoME SAPS runner,
+    but both are overridable through ``parameters`` so the *same* registered code
+    (gnome@v100) can drive other lightweight v100 jobs without a new entry point:
+
+        parameters['staged_files']  = [["sqs_disordered.py", "aiida.py"], ...]
+        parameters['retrieve_list'] = ["output.json"]
+
+    Set ``metadata.options.parser_name`` to the matching parser (e.g.
+    ``sqs_parser``) for those alternate jobs.
     """
 
     @classmethod
@@ -35,7 +45,10 @@ class GNoMECalculation(CalcJob):
         parameters = self.inputs.parameters.get_dict()
         cmdline = parameters['cmdline_params']
 
-        for src, dst in _STAGED:
+        # Default to the SAPS runner + sidecars; allow a caller to stage a
+        # different runner (e.g. the disordered-SQS generator) on the same code.
+        staged = parameters.get('staged_files') or _STAGED
+        for src, dst in staged:
             with open(os.path.join(settings.files_path, src), 'r', encoding='utf-8') as f:
                 content = f.read()
             with folder.open(dst, 'w', encoding='utf-8') as f:
@@ -47,7 +60,7 @@ class GNoMECalculation(CalcJob):
 
         calcinfo = CalcInfo()
         calcinfo.uuid = self.uuid
-        calcinfo.retrieve_list = ['output.json']
+        calcinfo.retrieve_list = parameters.get('retrieve_list') or ['output.json']
         calcinfo.codes_info = [codeinfo]
         calcinfo.local_copy_list = [
             (f.uuid, f.filename, f.filename) for f in self.inputs.file.values()

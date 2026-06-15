@@ -1,3 +1,4 @@
+import re
 from itertools import combinations
 from sqlalchemy import inspect, delete, select, text
 from sqlalchemy.orm import aliased
@@ -317,9 +318,7 @@ def get_chemical_systems(chemical_formula, new=True):
             subsystems.append(subsystem)
 
     for subsystem in subsystems:
-        result = query_by_columns(DBChemsys,
-                                  {"chemsys": subsystem}
-        )
+        result = query_by_columns(DBChemsys,{"chemsys": subsystem})
         if result:
             repeated_chemsys.append(subsystem)
         else:
@@ -349,6 +348,54 @@ def update_row(table_class, uuid_value, columns_values):
     )
     with get_session() as session:
         session.execute(stmt)
+        session.commit()
+
+
+_SAFE_STEP_KEY = re.compile(r"^[A-Za-z0-9_:.\-]+$")
+
+
+def update_step_status_path(table_class, uuid_value, path, value):
+    """Atomically set a nested key in the ``step_status`` JSONB column.
+
+    Sets ``step_status`` at ``path`` (a list of keys, e.g.
+    ``["adsorbates", reaction, reaction_path]``) to the string ``value``,
+    creating any missing intermediate objects and PRESERVING sibling keys at
+    every level. Implemented as a single nested ``jsonb_set`` UPDATE, so it is
+    safe under concurrent updates of the SAME row by parallel sibling
+    workchains -- each writes only its own leaf instead of overwriting the whole
+    column (which a read-modify-write of the JSONB would do).
+
+    Keys are restricted to a safe identifier charset; ``value`` must be a
+    string (the step states used here are 'Running'/'Done'/'Failed').
+    """
+    if not path:
+        raise ValueError("path must be a non-empty list of keys")
+    for key in path:
+        if not _SAFE_STEP_KEY.match(key):
+            raise ValueError(f"unsafe step_status key: {key!r}")
+    if not isinstance(value, str):
+        raise ValueError("value must be a string")
+
+    # Build the nested jsonb_set expression from the innermost key outward, so
+    # each level coalesces the existing sub-object (or '{}') -> missing parents
+    # are created and existing siblings are kept.
+    expr = "to_jsonb(CAST(:val AS text))"
+    for i in range(len(path) - 1, -1, -1):
+        leaf_arr = "'{" + path[i] + "}'::text[]"
+        parent = path[:i]
+        if parent:
+            parent_arr = "'{" + ",".join(parent) + "}'::text[]"
+            existing = f"COALESCE(step_status #> {parent_arr}, '{{}}'::jsonb)"
+        else:
+            existing = "COALESCE(step_status, '{}'::jsonb)"
+        expr = f"jsonb_set({existing}, {leaf_arr}, {expr}, true)"
+
+    query = text(
+        f"UPDATE {table_class.__tablename__} "
+        f"SET step_status = {expr} WHERE uuid = :uuid"
+    )
+    with get_session() as session:
+        session.execute(query, {"uuid": str(uuid_value), "val": value})
         session.commit()
 
 def add_row(table_class, rows_data):

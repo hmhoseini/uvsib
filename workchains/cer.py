@@ -17,22 +17,31 @@ must be present in adsorption_energies (computed per-molecule from
 molecular_references/cl2.vasp) for the calculation to succeed.
 """
 
-import numpy as np
-from uvsib.workchains.utils import load_zpe
+from uvsib.workchains.utils import load_zpe, che_overpotential
 
 _ZPE = load_zpe("cer")
 
-# Pathway definitions. See co2rr.py for convention notes. Cl2: +1/2 plays
-# the role of H2: +1/2 from the proton-coupled reactions, representing one
-# (Cl- + e-) pair transferred against the Cl-/Cl2 reference couple.
+# Chlorine evolution is an OXIDATION referenced to the Cl-/Cl2 couple. Each
+# dict is ONE elementary reaction (products +, reactants -). One consumed
+# (Cl- - e-) is referenced to 1/2 Cl2 just as (H+ + e-) is to 1/2 H2 in OER,
+# so a step that consumes Cl- carries 'Cl2': -1/2 and one that releases a Cl2
+# molecule carries +1/2 (net of the consumed Cl-). Steps are summed
+# individually, never differenced (utils.che_overpotential).
+#
+# Overpotential is taken vs the Cl-/Cl2 reference itself, where the equilibrium
+# offset is 0 (the 1.36 V below is only the Cl-/Cl2 potential vs SHE, used for
+# reporting -- it is NOT subtracted in the limiting-potential overpotential,
+# exactly as OER subtracts 1.23 V because RHE != the O2/H2O couple but CER's
+# reference IS its own couple).
+CER_U_SHE = 1.36  # V vs SHE, Cl-/Cl2 couple (documentation only)
 CER_PATHWAYS = {
     "volmer_tafel": {
         "equilibrium_potential": 1.36,    # V vs SHE (Cl-/Cl2 couple)
         "n_electrons": 2,
         "steps": [
             {},
-            {'*Cl': +1, '*':   -1, 'Cl2': 1/2},                              # Volmer: * + Cl- → *Cl + e-
-            {'*':   +2, '*Cl': -2, 'Cl2': -1},                               # Tafel: 2 *Cl → Cl2(g) + 2 * (chemical, 2-site)
+            {'*Cl': +1, '*':   -1, 'Cl2': -1/2},                            # Volmer: * + Cl- → *Cl (+ e-)
+            {'*':   +1, '*Cl': -1, 'Cl2': +1/2},                            # Tafel (per *Cl): *Cl → 1/2 Cl2(g) + *
         ],
     },
     "volmer_heyrovsky": {
@@ -40,8 +49,8 @@ CER_PATHWAYS = {
         "n_electrons": 2,
         "steps": [
             {},
-            {'*Cl': +1, '*':   -1, 'Cl2': 1/2},                              # Volmer: * + Cl- → *Cl + e-
-            {'*':   +1, '*Cl': -1, 'Cl2': -1/2},                             # Heyrovsky: *Cl + Cl- → Cl2(g) + * + e-  (-1 gas + 1/2 electron)
+            {'*Cl': +1, '*':   -1, 'Cl2': -1/2},                            # Volmer: * + Cl- → *Cl (+ e-)
+            {'*':   +1, '*Cl': -1, 'Cl2': +1/2},                            # Heyrovsky: *Cl + Cl- → Cl2(g) + * (+ e-)
         ],
     },
     "krishtalik": {
@@ -49,8 +58,8 @@ CER_PATHWAYS = {
         "n_electrons": 2,
         "steps": [
             {},
-            {'*OCl': +1, '*O':   -1, 'Cl2': 1/2},                            # *O + Cl- → *OCl + e-
-            {'*O':   +1, '*OCl': -1, 'Cl2': -1/2},                           # *OCl + Cl- → Cl2(g) + *O + e-
+            {'*OCl': +1, '*O':   -1, 'Cl2': -1/2},                          # *O + Cl- → *OCl (+ e-)
+            {'*O':   +1, '*OCl': -1, 'Cl2': +1/2},                          # *OCl + Cl- → Cl2(g) + *O (+ e-)
         ],
     },
 }
@@ -73,9 +82,9 @@ def calculate_cer_overpotential(adsorption_energies, pathway_name):
     overpotential : float
         Thermodynamic overpotential in V (positive = more difficult).
     dg_steps : list[float]
-        ΔG per elementary step at U = 0 V vs Cl-/Cl2 reference (eV).
+        ΔG per elementary step at U = 0 V vs the Cl-/Cl2 reference (eV).
     dg_cumulative : list[float]
-        Cumulative free energies at U = equilibrium_potential (eV).
+        Cumulative free energies [0, ΔG1, ΔG1+ΔG2, ...] at U = 0 V (eV).
 
     Raises
     ------
@@ -94,30 +103,11 @@ def calculate_cer_overpotential(adsorption_energies, pathway_name):
     # Gas-phase references (Cl2, ...) are computed per-molecule from
     # molecular_references/*.vasp and arrive inside adsorption_energies
     # alongside the surface intermediates and the clean slab. ZPE is added
-    # uniformly below via _ZPE, so the stored energies are raw electronic.
-    local_energy = adsorption_energies
-
+    # inside che_overpotential, so the stored energies are raw electronic.
+    # Oxidation, referenced to the Cl-/Cl2 couple -> equilibrium offset 0
+    # (CER_U_SHE = 1.36 V is the SHE conversion, used only for reporting).
     pathway = CER_PATHWAYS[pathway_name]
-    reaction_path = pathway["steps"]
-    equilibrium_potential = pathway["equilibrium_potential"]
-    n_steps = len(reaction_path)
-
-    dga_list = []
-    for r in reaction_path:
-        dgi = sum(
-            (local_energy[q] + _ZPE[q]) * e
-            for q, e in r.items()
-        )
-        dga_list.append(dgi)
-
-    dga_list.append(0.0)
-    dga = np.array(dga_list)
-
-    dg_steps = (dga[1:] - dga[:-1]).tolist()
-    overpotential = max(dg_steps) - equilibrium_potential
-
-    charges = np.arange(n_steps + 1)
-    dga -= equilibrium_potential * charges
-    dg_cumulative = dga.tolist()
-
-    return overpotential, dg_steps, dg_cumulative
+    return che_overpotential(
+        pathway["steps"], adsorption_energies, _ZPE,
+        equilibrium_potential=0.0, reduction=False,
+    )

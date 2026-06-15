@@ -4,11 +4,22 @@ from aiida.engine import WorkChain, if_, while_
 from aiida_pythonjob import PythonJob, prepare_pythonjob_inputs
 from pymatgen.core.composition import Composition
 from uvsib.db.tables import DBComposition, DBSurfaceMLAdsorbate, DBNanoParticles
-from uvsib.db.utils import update_row, query_by_columns
+from uvsib.db.utils import update_row, query_by_columns, update_step_status_path
 from uvsib.workchains.pythonjob_inputs import wait_sleep
 from uvsib.workflows import settings
 
 _SKIP_PD_VERIFICATION = settings._SKIP_PD_VERIFICATION  #TODO for test
+
+
+def _ads_status(step_status, reaction, reaction_path):
+    """Per-(reaction, pathway) adsorbates status from the nested step_status.
+
+    ``step_status["adsorbates"]`` is keyed reaction -> reaction_path -> state so
+    that catalyst chains running in parallel for one composition (e.g. CO2RR and
+    NOXRR) do not share a single flat 'adsorbates' flag.
+    """
+    return ((step_status or {}).get("adsorbates") or {}).get(
+        reaction, {}).get(reaction_path)
 
 class MainWorkChain(WorkChain):
     """ Main WorkChain"""
@@ -83,7 +94,7 @@ class MainWorkChain(WorkChain):
             )
         )
 
-        spec.exit_code(300,"ERROR_CALCULATION_FAILED", message="A sub-workchain did not finish successfully")
+        spec.exit_code(300,"ERROR_CALCULATION_FAILED", message="A sub-WorkChain did not finish successfully")
 
     def setup(self):
         """Setup and report"""
@@ -94,14 +105,32 @@ class MainWorkChain(WorkChain):
         self.ctx.dbcomposition_row = query_by_columns(DBComposition,{"composition": self.ctx.chemical_formula})[0]
         self.ctx.nano_generator = True if len(self.inputs.nanoparticles.value.split('-')) == 2 else False
         self.ctx.similarities = self.inputs.similarities.value
-        self.ctx.sqs = bool(self.inputs.sqs.value)
+        self.ctx.sqs_request = self.inputs.sqs.get_dict()
+        self.ctx.sqs = bool(self.ctx.sqs_request)   # non-empty request -> SQS run
         if self.ctx.nano_generator:
             self.ctx.nano_particles_range = self.inputs.nanoparticles.value
             elements = '-'.join(sorted(list([str(el) for el in Composition(self.ctx.chemical_formula).elements])))
             self.ctx.nano_row = query_by_columns(DBNanoParticles,{'elements': elements})[0]
             self.report('Running NanoParticleGenerator for elements {}'.format(elements))
         else:
-            self.report(f"Running MainWorkChain for {self.ctx.chemical_formula}: reaction {self.ctx.reaction.value} path {self.ctx.reaction_path.value}")
+            self.report(f"Running MainWorkChain for {self.ctx.chemical_formula}: "
+                        f"reaction {self.ctx.reaction.value} path {self.ctx.reaction_path.value}")
+
+    def _fresh_step_status(self):
+        """Re-query the composition row so the shared-step gates observe a
+        sibling chain's transitions.
+
+        The row cached in setup() is a frozen SELECT * snapshot; reading it in a
+        wait loop would never see a 'Running' -> 'Done' transition (the chain
+        would wait forever) and would let a late chain miss a finished step
+        instead of skipping it and reusing the result (e.g. the surfaces).
+        Refreshing the cached row also gives the run/inspect writes a fresher
+        base. Scoped to the composition-level steps; adsorbates re-queries its
+        own per-(reaction, pathway) status.
+        """
+        row = query_by_columns(DBComposition, {"composition": self.ctx.chemical_formula})[0]
+        self.ctx.dbcomposition_row = row
+        return row.step_status or {}
 
     def should_run_pd_ml(self):
         """Check whether should run PhaseDiagramML"""
@@ -109,7 +138,7 @@ class MainWorkChain(WorkChain):
             return False
         if self.ctx.nano_generator:
             return False
-        step_status = self.ctx.dbcomposition_row.step_status.get("pd_ml")
+        step_status = self._fresh_step_status().get("pd_ml")
         if step_status in ["Done"]:
             return False
         return True
@@ -122,7 +151,7 @@ class MainWorkChain(WorkChain):
             return False
         if _SKIP_PD_VERIFICATION: #TODO remove after test
             return False
-        step_status = self.ctx.dbcomposition_row.step_status.get("pd_verification")
+        step_status = self._fresh_step_status().get("pd_verification")
         if step_status in ["Done"]:
             return False
         return True
@@ -133,7 +162,7 @@ class MainWorkChain(WorkChain):
             return False
         if self.ctx.nano_generator:
             return False
-        step_status = self.ctx.dbcomposition_row.step_status.get("sqs")
+        step_status = self._fresh_step_status().get("sqs")
         if step_status in ["Done"]:
             return False
         return True
@@ -146,7 +175,7 @@ class MainWorkChain(WorkChain):
             return False
         if self.ctx.nano_generator:
             return False
-        step_status = self.ctx.dbcomposition_row.step_status.get("synthesizability")
+        step_status = self._fresh_step_status().get("synthesizability")
         if step_status in ["Done"]:
             return False
         return True
@@ -155,26 +184,30 @@ class MainWorkChain(WorkChain):
         """Check whether should run SurfaceBuilder"""
         if settings.SOFT_STOP_BEFORE_SURFACE:
             self.report("Soft stop (soft_stop.before_surface_builder): ending before the "
-                        "surface builder; generation/synthesizability stages are complete.")
+                        "surface builder starts; generation/synthesizability stages are complete now.")
             return False
         if self.ctx.nano_generator:
             return False
-        surface_builder_step_status = self.ctx.dbcomposition_row.step_status.get("surface_builder")
+        surface_builder_step_status = self._fresh_step_status().get("surface_builder")
         if surface_builder_step_status in ["Done"]:
             return False
         return True
 
     def should_run_adsorbates(self):
-        """Check whether should run Adsorbates"""
+        """Check whether should run Adsorbates for THIS (reaction, pathway)"""
         if settings.SOFT_STOP_BEFORE_SURFACE:
             return False
         if self.ctx.nano_generator:
             return False
-        adsorbates_step_status = self.ctx.dbcomposition_row.step_status.get("adsorbates")
-        if adsorbates_step_status in ["Done"]:
+        reaction = self.ctx.reaction.value
+        reaction_path = self.ctx.reaction_path.value
+        # Re-query for a fresh status: the setup-time row snapshot would not see
+        # a sibling chain's transition. Status is per-(reaction, pathway).
+        comp_row = query_by_columns(DBComposition, {"composition": self.ctx.chemical_formula})[0]
+        if _ads_status(comp_row.step_status, reaction, reaction_path) in ["Done"]:
             row = query_by_columns(DBSurfaceMLAdsorbate, {"composition": self.ctx.chemical_formula,
-                                                          "reaction": self.ctx.reaction.value,
-                                                          "reaction_path": self.ctx.reaction_path.value})
+                                                          "reaction": reaction,
+                                                          "reaction_path": reaction_path})
             if row:
                 return False
         return True
@@ -183,7 +216,7 @@ class MainWorkChain(WorkChain):
 #        """Check whether should run BandAlignment"""
 #        if self.ctx.nano_generator:
 #            return False
-#        band_alignment_step_status = self.ctx.dbcomposition_row.step_status.get("band_alignment")
+#        band_alignment_step_status = self._fresh_step_status().get("band_alignment")
 #        if band_alignment_step_status in ["Done"]:
 #            return False
 #        return True
@@ -209,7 +242,7 @@ class MainWorkChain(WorkChain):
         """Should wait for another running WorkChain"""
         if self.ctx.nano_generator:
             return False
-        pd_ml_step_status = self.ctx.dbcomposition_row.step_status.get("pd_ml")
+        pd_ml_step_status = self._fresh_step_status().get("pd_ml")
         if pd_ml_step_status in ["Running"]:
             self.ctx.sts = "phase diagram"
             return True
@@ -219,7 +252,7 @@ class MainWorkChain(WorkChain):
         """Should wait for another running WorkChain"""
         if self.ctx.nano_generator:
             return False
-        pd_ver_step_status = self.ctx.dbcomposition_row.step_status.get("pd_verification")
+        pd_ver_step_status = self._fresh_step_status().get("pd_verification")
         if pd_ver_step_status in ["Running"]:
             self.ctx.sts = "phase diagram verification"
             return True
@@ -231,7 +264,7 @@ class MainWorkChain(WorkChain):
             return False
         if self.ctx.nano_generator:
             return False
-        step_status = self.ctx.dbcomposition_row.step_status.get("sqs")
+        step_status = self._fresh_step_status().get("sqs")
         if step_status in ["Running"]:
             self.ctx.sts = "sqs"
             return True
@@ -241,7 +274,7 @@ class MainWorkChain(WorkChain):
         """Should wait for another running WorkChain"""
         if self.ctx.nano_generator:
             return False
-        step_status = self.ctx.dbcomposition_row.step_status.get("synthesizability")
+        step_status = self._fresh_step_status().get("synthesizability")
         if step_status in ["Running"]:
             self.ctx.sts = "synthesizability"
             return True
@@ -251,30 +284,31 @@ class MainWorkChain(WorkChain):
         """Should wait for another running WorkChain"""
         if self.ctx.nano_generator:
             return False
-        surface_builder_step_status = self.ctx.dbcomposition_row.step_status.get("surface_builder")
+        surface_builder_step_status = self._fresh_step_status().get("surface_builder")
         if surface_builder_step_status in ["Running"]:
             self.ctx.sts = "surface builder"
             return True
         return False
 
     def should_wait_adsorbates(self):
-        """Should wait for another running WorkChain"""
+        """Wait only if THIS (reaction, pathway) is running elsewhere.
+        Different reactions/pathways (e.g. CO2RR vs NOXRR) are independent work
+        and must not block each other; only a duplicate of the same triple does.
+        """
         if self.ctx.nano_generator:
             return False
-        adsorbates_step_status = self.ctx.dbcomposition_row.step_status.get("adsorbates")
-        if adsorbates_step_status in ["Running"]:
-            self.ctx.sts = "adsorbates"
+        reaction = self.ctx.reaction.value
+        reaction_path = self.ctx.reaction_path.value
+        comp_row = query_by_columns(DBComposition, {"composition": self.ctx.chemical_formula})[0]
+        if _ads_status(comp_row.step_status, reaction, reaction_path) in ["Running"]:
+            self.ctx.sts = f"adsorbates:{reaction}:{reaction_path}"
             return True
         return False
 
     def wait_sleep(self):
         """Wait until the other workchain for this composition ends"""
         self.report(f"Waiting for a similar WorkChain ({self.ctx.sts})")
-        inputs = prepare_pythonjob_inputs(
-            wait_sleep,
-            function_inputs= {},
-            computer="localhost",
-        )
+        inputs = prepare_pythonjob_inputs(wait_sleep, function_inputs={}, computer="localhost")
         future = self.submit(PythonJob, inputs=inputs)
         self.to_context(**{"pyjob_sleep": future})
 
@@ -290,13 +324,7 @@ class MainWorkChain(WorkChain):
         row = self.ctx.dbcomposition_row
         # update row status in DBComposition table
         row.step_status.update({"pd_ml": "Running"})
-        update_row(
-                DBComposition,
-                row.uuid,
-                {"status": "Running",
-                 "step_status": row.step_status
-                }
-        )
+        update_row(DBComposition, row.uuid,{"status": "Running", "step_status": row.step_status})
         builder = self._construct_pd_ml_builder()
         future = self.submit(builder)
         self.to_context(**{"pd_ml": future})
@@ -305,42 +333,23 @@ class MainWorkChain(WorkChain):
         """Inspecting PhaseDiagramML WorkChain"""
         pd_ml_wch = self.ctx.pd_ml
         row = self.ctx.dbcomposition_row
-
         if not pd_ml_wch.is_finished_ok:
             # update row status in DBComposition table
             row.step_status.update({"pd_ml": "Failed"})
-            update_row(
-                    DBComposition,
-                    row.uuid,
-                    {"status": "Failed",
-                     "step_status": row.step_status
-                    }
-            )
+            update_row(DBComposition, row.uuid,{"status": "Failed", "step_status": row.step_status})
             self.report("PhaseDiagramML WorkChain failed")
             return self.exit_codes.ERROR_CALCULATION_FAILED
 
         # update row status in DBComposition table
         row.step_status.update({"pd_ml": "Done"})
-        update_row(
-                DBComposition,
-                row.uuid,
-                {"status": "Running",
-                 "step_status": row.step_status
-                }
-        )
+        update_row(DBComposition, row.uuid,{"status": "Running", "step_status": row.step_status})
 
     def pd_verification(self):
         """Running PDVerificationWorkChain"""
         row = self.ctx.dbcomposition_row
         # update row status in DBComposition table
         row.step_status.update({"pd_verification": "Running"})
-        update_row(
-                DBComposition,
-                row.uuid,
-                {"status": "Running",
-                 "step_status": row.step_status
-                }
-            )
+        update_row(DBComposition, row.uuid,{"status": "Running", "step_status": row.step_status})
         builder = self._construct_pd_verification_builder()
         future = self.submit(builder)
         self.to_context(**{"pdverification": future})
@@ -353,25 +362,13 @@ class MainWorkChain(WorkChain):
         if not pd_ver_wch.is_finished_ok:
             # update row status in DBComposition table
             row.step_status.update({"pd_verification": "Failed"})
-            update_row(
-                    DBComposition,
-                    row.uuid,
-                    {"status": "Failed",
-                     "step_status": row.step_status
-                    }
-            )
+            update_row(DBComposition, row.uuid,{"status": "Failed","step_status": row.step_status})
             self.report("PDVerification WorkChain failed")
             return self.exit_codes.ERROR_CALCULATION_FAILED
 
         # update row status in DBComposition table
         row.step_status.update({"pd_verification": "Done"})
-        update_row(
-                DBComposition,
-                row.uuid,
-                {"status": "Running",
-                 "step_status": row.step_status
-                }
-        )
+        update_row(DBComposition, row.uuid,{"status": "Running","step_status": row.step_status})
 
     def synthesizability(self):
         """Running SynthesizabilityWorkChain (classify all generated structures)"""
@@ -401,7 +398,7 @@ class MainWorkChain(WorkChain):
         # update row status in DBComposition table
         row.step_status.update({"sqs": "Running"})
         update_row(DBComposition, row.uuid,{"status": "Running", "step_status": row.step_status})
-        builder = self._construct_sqs_builder()
+        builder = self._construct_sqs_builder(self.ctx.sqs_request)
         future = self.submit(builder)
         self.to_context(**{"sqs": future})
 
@@ -480,8 +477,11 @@ class MainWorkChain(WorkChain):
     def adsorbates(self):
         """Running AdsorbatesWorkChain"""
         row = self.ctx.dbcomposition_row
-        row.step_status.update({"adsorbates": "Running"})
-        update_row(DBComposition, row.uuid,{"status": "Running", "step_status": row.step_status})
+        path = ["adsorbates", self.ctx.reaction.value, self.ctx.reaction_path.value]
+        # Atomic per-(reaction, pathway) write -- does NOT overwrite siblings'
+        # adsorbates keys (a read-modify-write of the whole JSONB would).
+        update_step_status_path(DBComposition, row.uuid, path, "Running")
+        update_row(DBComposition, row.uuid, {"status": "Running"})
         builder = self._construct_adsorbates_builder()
         future = self.submit(builder)
         self.to_context(**{"adsorbates": future})
@@ -490,14 +490,15 @@ class MainWorkChain(WorkChain):
         """Inspecting SurfaceBuilderWorkChain"""
         wch = self.ctx.adsorbates
         row = self.ctx.dbcomposition_row
+        path = ["adsorbates", self.ctx.reaction.value, self.ctx.reaction_path.value]
         if not wch.is_finished_ok:
-            row.step_status.update({"adsorbates": "Failed"})
-            update_row(DBComposition, row.uuid,{"status": "Failed", "step_status": row.step_status})
+            update_step_status_path(DBComposition, row.uuid, path, "Failed")
+            update_row(DBComposition, row.uuid, {"status": "Failed"})
             self.report("Adsorbates WorkChain failed")
             return self.exit_codes.ERROR_CALCULATION_FAILED
 
-        row.step_status.update({"adsorbates": "Done"})
-        update_row(DBComposition, row.uuid,{"status": "Done", "step_status": row.step_status})
+        update_step_status_path(DBComposition, row.uuid, path, "Done")
+        update_row(DBComposition, row.uuid, {"status": "Done"})
 
     def nano_generator(self):
         """Running NanoParticlesWorkChain"""
@@ -581,11 +582,12 @@ class MainWorkChain(WorkChain):
     def _construct_sqs_builder(self, request):
         """SQS WorkChain builder.
 
-        The request payload (parent structure, sublattices, composition_grid,
-        surfaces, defects) is taken verbatim from ``settings.inputs['SQS']
-        ['request']`` -- author it in input.yaml. Optional ``mu_O2`` (eV per
-        O2 molecule, MLIP-relaxed) and ``functional`` (elemental reference
-        set for the bulk hull) come from the same block.
+        The ``request`` payload (parent structure, sublattices,
+        composition_grid, surfaces, defects) is the ``sqs_request`` dict passed
+        through the submission entry (see run_dir/run.py), threaded here via
+        ``ctx.sqs_request``. Optional ``mu_O2`` (eV per O2 molecule,
+        MLIP-relaxed) and ``functional`` (elemental reference set for the bulk
+        hull) are keys inside that same request dict.
         """
         WorkChain = WorkflowFactory("sqs")
         builder = WorkChain.get_builder()

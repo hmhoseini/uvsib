@@ -8,6 +8,45 @@
 # tradition; expect ~0.02 eV scatter between substrates / functionals.
 # Bare-slab '*' is always 0.00 (no adsorbate-localised modes).
 #
+# =====================================================================
+# FREE-ENERGY CORRECTION STATUS  --  do we have all the species corrections?
+# (audited 2026-06-14)
+#
+# che_overpotential() adds (E_elec + value-here) per species; the values
+# below are ZERO-POINT energies ONLY, so each step is an enthalpy at 0 K,
+# NOT a 298 K free energy. Two further corrections matter for absolute eta:
+#
+#   * Thermal part  (ZPE + \int Cp dT - T S, 298 K):  YES, AVAILABLE.
+#     Tabulated/computable for every gas + adsorbed species from the cited
+#     literature. Replacing the gas-phase ZPE here with the full free-energy
+#     correction is a real improvement but only PARTIALLY removes the
+#     unphysical negative overpotentials.   STATUS: not yet applied (ZPE only).
+#
+#   * Electronic part  (per-molecule shift fixing the MLIP gas-reference
+#     error):  PARTIALLY ADDRESSED by the thermodynamic pin (below). The full
+#     per-molecule lookup is still NOT derived -- it is functional/head-specific
+#     (run the MACE head on molecular_references/* and match experimental
+#     formation energies; published RPBE/BEEF corrections do NOT transfer) and
+#     would also clear the gas-REACTANT error that the pin leaves in step 1.
+#     STATUS: per-molecule lookup not derived; gross bias removed by the pin.
+#
+# Done already:
+#   (1) U_eq audit (2026-06-14): per-reaction equilibrium potentials in
+#       co2rr.py / noxrr.py audited against standard formation free energies
+#       (e.g. NO->NH3 0.27 -> 0.70 V).
+#   (2) Thermodynamic pin (2026-06-15): che_overpotential(..., pin_total=True)
+#       now anchors each CO2RR/NOXRR pathway's integrated free energy to the
+#       experimental total G_total = +/- n_e * U_eq and back-solves the final
+#       (gas-product release) step -- exactly the OER closure on 4*1.23 eV,
+#       generalised. This removes the MLIP gas-reference error from the closed
+#       step and forces the correct overall thermodynamics, killing the gross
+#       negative eta (recomputed on the MACE-mh-1 run: co2_to_co best
+#       -2.16 -> +0.00 V; co2_to_hcooh -0.03 -> +0.00 V; positives shift up a
+#       little, e.g. no_to_nh3_noh 0.33 -> 0.51 V). Nominal n_e=0 paths
+#       (no_dissociative, no_to_n2o) are left unpinned. RESIDUAL: gas-reactant
+#       error still sits in non-closed steps -> needs the per-molecule lookup.
+# =====================================================================
+#
 # Conventions
 # -----------
 # * Gas-phase entries (e.g. 'H2O') hold the FULL harmonic ZPE of the

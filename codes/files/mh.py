@@ -62,10 +62,10 @@ def metal_mh_parameters():
     """MinimaHopping kwargs tuned to terminate on metals and to bound cost."""
     return dict(
         # --- cost caps per escape iteration (default 10000 each) -------------
-        md_max_steps=_envi("MH_MD_MAX_STEPS", 400),
-        opt_max_steps=_envi("MH_OPT_MAX_STEPS", 400),
+        md_max_steps=_envi("MH_MD_MAX_STEPS", 200),
+        opt_max_steps=_envi("MH_OPT_MAX_STEPS", 200),
         mdmin=_envi("MH_MDMIN", 2),          # stop MD after 2 minima (default 2; was 5)
-        fmax=_envf("MH_FMAX", 0.01),         # MLIP force noise makes 0.005 hard on metals
+        fmax=_envf("MH_FMAX", 0.05),         # MLIP force noise makes 0.005 hard on metals
         dt0=_envf("MH_DT0", 0.08),
         # --- make the escape test resolve metallic minima -------------------
         # energies of distinct metallic minima are tiny: keep the energy gate
