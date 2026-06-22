@@ -4,31 +4,52 @@ import signal
 import time
 import traceback
 from ase import Atoms
-from ase.io import read, write
+from ase.io import read
 from pymatgen.core import Lattice, Structure
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
 from pymatgen.analysis.structure_matcher import StructureMatcher
-from minimahopping.minhop import Minimahopping
+from ase.optimize.minimahopping import MinimaHopping
 
+# NOTE: the runner was migrated from the third-party ``minimahopping.minhop``
+# package to ASE's built-in ``ase.optimize.minimahopping.MinimaHopping``.  The
+# legacy engine and its metal-safe parameter set are preserved (commented out)
+# at the bottom of this file for reference -- see "LEGACY ENGINE".
+#
+# Why the switch:
+#   * the third-party package initialises mpi4py in the class body at import
+#     time, which silently hangs the job on HPC when launched without an MPI
+#     context; ASE's MinimaHopping uses the lazy ``ase.parallel`` world object
+#     and runs cleanly in serial.
+#   * it drops a hard runtime dependency on an external package and pins us to
+#     the ASE we already require everywhere else in the suite.
+#
+# BEHAVIOURAL DIFFERENCE (important): ASE MinimaHopping is *fixed-cell*.  Its MD
+# (VelocityVerlet) and the local optimisation both act on atomic positions only;
+# the lattice vectors of the input cell never change.  The legacy engine did
+# variable-cell hopping.  For bulk CSP this narrows the search to the
+# configurational (atom-rearrangement) subspace of the given cell -- acceptable
+# because the input minima already come from a cell-relaxed CSP/relax upstream,
+# but it will NOT discover a different lattice on its own.
 
 # ---------------------------------------------------------------------------
-# Caps and metal-safe defaults (kept here in the runner; the MinimaHopping
-# source tree is left untouched).
+# Caps and metal-safe defaults (kept here in the runner; ASE's source is left
+# untouched).
 #
-# Why these exist: on close-packed metals the MH escape loop (minhop._escape)
-# is the only unbounded loop in the algorithm.  Its exit test relies on the
-# OMFP fingerprint distinguishing near-degenerate minima, which it often cannot
-# for metallic environments -> the loop keeps re-running a full MD + geometry
-# optimization, each of which can run to md_max_steps / opt_max_steps (10000 by
-# default).  A handful of failed escapes then blows a >12 h walltime and SLURM
+# Why these exist: on close-packed metals the hopping escape can churn -- the MD
+# runs until ``mdmin`` local minima are passed and the local optimisation runs
+# to ``fmax`` with no step cap, so a handful of unproductive escapes (the MD
+# keeps falling back into the same basin) can blow a >12 h walltime and SLURM
 # kills the job before any result is written.
 #
 # Three independent guards are applied, all from the runner:
 #   1. hard wall-clock watchdog (SIGALRM) -> stop cleanly and salvage the
-#      accepted minima written so far, so the job never gets SIGTERM-killed;
-#   2. low per-escape cost: small md_max_steps / opt_max_steps;
-#   3. metal-appropriate fingerprint so escapes actually succeed
-#      (lower fingerprint_threshold, add p-orbitals, wider width_cutoff).
+#      minima written so far (minima.traj is flushed per acceptance), so the
+#      job never gets SIGTERM-killed;
+#   2. maxtemp passed to the hop -> ASE aborts once the searching temperature
+#      escalates past this ceiling (it climbs by beta1 on every failed escape),
+#      which bounds runs that would otherwise never converge on a metal;
+#   3. metal-appropriate acceptance/identity thresholds (Ediff0, mdmin,
+#      minima_threshold) so escapes actually register as new minima.
 #
 # Every knob below is overridable via an environment variable so the values can
 # be tuned per element/walltime without editing code (set them e.g. through the
@@ -58,44 +79,29 @@ MH_MAX_SECONDS = _envi("MH_MAX_SECONDS", 10000)
 MH_SALVAGE_MARGIN = _envi("MH_SALVAGE_MARGIN", 180)
 
 
-def metal_mh_parameters():
-    """MinimaHopping kwargs tuned to terminate on metals and to bound cost."""
+def ase_mh_parameters():
+    """Kwargs for ase.optimize.minimahopping.MinimaHopping.
+
+    Knobs are mapped from the legacy metal-safe set where an ASE equivalent
+    exists.  The OMFP-fingerprint knobs of the old engine (n_*_orbitals,
+    width_cutoff, fingerprint_threshold, symprec) have no ASE analogue: ASE
+    decides whether two minima are identical by comparing Cartesian positions
+    (ComparePositions, translation + permutation invariant) against
+    ``minima_threshold``, not by a fingerprint distance.
+    """
     return dict(
-        # --- cost caps per escape iteration (default 10000 each) -------------
-        md_max_steps=_envi("MH_MD_MAX_STEPS", 200),
-        opt_max_steps=_envi("MH_OPT_MAX_STEPS", 200),
-        mdmin=_envi("MH_MDMIN", 2),          # stop MD after 2 minima (default 2; was 5)
-        fmax=_envf("MH_FMAX", 0.05),         # MLIP force noise makes 0.005 hard on metals
-        dt0=_envf("MH_DT0", 0.08),
-        # --- make the escape test resolve metallic minima -------------------
-        # energies of distinct metallic minima are tiny: keep the energy gate
-        # tight so the fingerprint actually gets used, and lower the fingerprint
-        # threshold so close-packed minima count as "different".
-        energy_threshold=_envf("MH_ENERGY_THRESHOLD", 0.002),
-        fingerprint_threshold=_envf("MH_FP_THRESHOLD", 0.02),
-        n_S_orbitals=1,
-        n_P_orbitals=_envi("MH_N_P_ORBITALS", 1),   # richer OMFP than s-only (default 0)
-        width_cutoff=_envf("MH_WIDTH_CUTOFF", 6.0),  # more neighbour context (default 4.0)
-        T0=_envf("MH_T0", 1000.0),
-        symprec=0.05,
-        # --- in-loop budget (checked between hops); SIGALRM is the backstop --
-        run_time=_format_runtime(max(MH_MAX_SECONDS - MH_SALVAGE_MARGIN - 60, 60)),
-        # --- keep the run lean and self-contained ---------------------------
-        use_MPI=False,
-        new_start=True,
-        verbose_output=False,
-        collect_md_data=False,
-        write_graph_output=False,
+        # --- MD / relaxation cost knobs --------------------------------------
+        mdmin=_envi("MH_MDMIN", 2),            # stop each MD after this many minima
+        fmax=_envf("MH_FMAX", 0.05),           # eV/A; MLIP force noise makes 0.005 hard on metals
+        timestep=_envf("MH_TIMESTEP", 1.0),    # fs (legacy dt0 was in non-fs units; do not reuse)
+        T0=_envf("MH_T0", 1000.0),             # K, initial MD temperature
+        # --- acceptance / identity thresholds -------------------------------
+        Ediff0=_envf("MH_EDIFF0", 0.5),        # eV, initial energy-acceptance window
+        minima_threshold=_envf("MH_MINIMA_THRESHOLD", 0.5),  # A, identical-config distance
+        # --- bookkeeping ----------------------------------------------------
+        logfile="hop.log",
+        minima_traj="minima.traj",
     )
-
-
-def _format_runtime(seconds):
-    """Seconds -> MinimaHopping run_time string 'd-hh:mm:ss'."""
-    seconds = int(max(seconds, 0))
-    days, rem = divmod(seconds, 86400)
-    hours, rem = divmod(rem, 3600)
-    minutes, secs = divmod(rem, 60)
-    return "{:d}-{:02d}:{:02d}:{:02d}".format(days, hours, minutes, secs)
 
 
 class _WalltimeReached(Exception):
@@ -127,13 +133,13 @@ def pmg_to_ase(pmg_structure):
 
 
 def run_mh(calc, mh_steps):
-    """Run MinimaHopping under a hard wall-clock watchdog.
+    """Run ASE MinimaHopping under a hard wall-clock watchdog.
 
-    The accepted minima are appended to output/accepted_minima.extxyz by
-    MinimaHopping itself (and flushed per acceptance), so whatever has been
-    found is on disk even if we stop early.  This function therefore never
-    lets the job die by SLURM SIGTERM: when the budget is reached (or any
-    error occurs) it stops MH and returns, and the caller salvages the file.
+    The accepted minima are appended to minima.traj by MinimaHopping itself
+    (flushed per acceptance in _record_minimum), so whatever has been found is
+    on disk even if we stop early.  This function therefore never lets the job
+    die by SLURM SIGTERM: when the budget is reached (or any error occurs) it
+    stops MH and returns, and the caller salvages minima.traj.
     """
     with open("initial_structure.json", "r") as f:
         struct = json.load(f)
@@ -141,32 +147,22 @@ def run_mh(calc, mh_steps):
     init_conf = pmg_to_ase(pmg_structure)
     init_conf.calc = calc
 
-    params = metal_mh_parameters()
+    params = ase_mh_parameters()
+    maxtemp = _envf("MH_MAXTEMP", 12000.0)   # K; abort once searching T escalates past this
     budget = max(MH_MAX_SECONDS - MH_SALVAGE_MARGIN, 1)
-    print("MH runner: wall-clock budget {:d}s (alarm), params: {}".format(
-        budget, {k: params[k] for k in
-                 ("md_max_steps", "opt_max_steps", "mdmin", "fmax",
-                  "energy_threshold", "fingerprint_threshold",
-                  "n_P_orbitals", "width_cutoff", "run_time")}),
-        flush=True)
+    print("MH runner (ASE): wall-clock budget {:d}s (alarm), maxtemp {:.0f}K, "
+          "params: {}".format(budget, maxtemp, params), flush=True)
 
-    # NOTE: do not pre-create 'output/' here -- MinimaHopping creates output/,
-    # output/restart/ and minima/ together, and skips restart/ if output/
-    # already exists (which would crash on the first params.json write).
     signal.signal(signal.SIGALRM, _alarm_handler)
     signal.alarm(budget)
     t0 = time.time()
     try:
-        with Minimahopping(init_conf, **params) as mh:
-            try:
-                mh(totalsteps=int(mh_steps))
-            except _WalltimeReached:
-                print("MH runner: wall-clock budget reached after {:.0f}s; "
-                      "stopping and salvaging accepted minima.".format(time.time() - t0),
-                      flush=True)
+        hop = MinimaHopping(init_conf, **params)
+        hop(totalsteps=int(mh_steps), maxtemp=maxtemp)
     except _WalltimeReached:
-        # alarm fired during context enter/exit
-        print("MH runner: wall-clock budget reached during setup/teardown.", flush=True)
+        print("MH runner: wall-clock budget reached after {:.0f}s; "
+              "stopping and salvaging accepted minima.".format(time.time() - t0),
+              flush=True)
     except Exception:
         # any MH failure: still fall through to salvage so the AiiDA job
         # completes with whatever was found instead of hard-failing.
@@ -192,10 +188,10 @@ if __name__ == "__main__":
 
     run_mh(calc, args.mh_steps)
 
-    # Salvage: read whatever MinimaHopping accepted (flushed incrementally).
-    # accepted_minima[0] is the initial relaxed structure -> skip with [1:].
+    # Salvage: read whatever MinimaHopping accepted (minima.traj, flushed
+    # incrementally). minima[0] is the initial relaxed structure -> skip with [1:].
     try:
-        accepted_minima = read('output/accepted_minima.extxyz', index=':')
+        accepted_minima = read('minima.traj', index=':')
     except Exception:
         accepted_minima = []
 
@@ -230,3 +226,106 @@ if __name__ == "__main__":
 
     print("MH runner: wrote output.json with {:d} unique accepted minima.".format(len(structures)),
           flush=True)
+
+
+# ===========================================================================
+# LEGACY ENGINE -- third-party ``minimahopping.minhop.Minimahopping``.
+# Kept for reference only; replaced by ASE MinimaHopping above (see the module
+# docstring for the rationale). To revert, restore the import
+#   ``from minimahopping.minhop import Minimahopping``
+# and swap run_mh()/ase_mh_parameters() for the commented versions below, and
+# point the salvage read at 'output/accepted_minima.extxyz'.
+# ---------------------------------------------------------------------------
+#
+# def metal_mh_parameters():
+#     """MinimaHopping kwargs tuned to terminate on metals and to bound cost."""
+#     return dict(
+#         # --- cost caps per escape iteration (default 10000 each) -------------
+#         md_max_steps=_envi("MH_MD_MAX_STEPS", 200),
+#         opt_max_steps=_envi("MH_OPT_MAX_STEPS", 200),
+#         mdmin=_envi("MH_MDMIN", 2),          # stop MD after 2 minima (default 2; was 5)
+#         fmax=_envf("MH_FMAX", 0.05),         # MLIP force noise makes 0.005 hard on metals
+#         dt0=_envf("MH_DT0", 0.08),
+#         # --- make the escape test resolve metallic minima -------------------
+#         # energies of distinct metallic minima are tiny: keep the energy gate
+#         # tight so the fingerprint actually gets used, and lower the fingerprint
+#         # threshold so close-packed minima count as "different".
+#         energy_threshold=_envf("MH_ENERGY_THRESHOLD", 0.002),
+#         fingerprint_threshold=_envf("MH_FP_THRESHOLD", 0.02),
+#         n_S_orbitals=1,
+#         n_P_orbitals=_envi("MH_N_P_ORBITALS", 1),   # richer OMFP than s-only (default 0)
+#         width_cutoff=_envf("MH_WIDTH_CUTOFF", 6.0),  # more neighbour context (default 4.0)
+#         T0=_envf("MH_T0", 1000.0),
+#         symprec=0.05,
+#         # --- in-loop budget (checked between hops); SIGALRM is the backstop --
+#         run_time=_format_runtime(max(MH_MAX_SECONDS - MH_SALVAGE_MARGIN - 60, 60)),
+#         # --- keep the run lean and self-contained ---------------------------
+#         use_MPI=False,
+#         new_start=True,
+#         verbose_output=False,
+#         collect_md_data=False,
+#         write_graph_output=False,
+#     )
+#
+#
+# def _format_runtime(seconds):
+#     """Seconds -> MinimaHopping run_time string 'd-hh:mm:ss'."""
+#     seconds = int(max(seconds, 0))
+#     days, rem = divmod(seconds, 86400)
+#     hours, rem = divmod(rem, 3600)
+#     minutes, secs = divmod(rem, 60)
+#     return "{:d}-{:02d}:{:02d}:{:02d}".format(days, hours, minutes, secs)
+#
+#
+# def run_mh(calc, mh_steps):
+#     """Run MinimaHopping under a hard wall-clock watchdog.
+#
+#     The accepted minima are appended to output/accepted_minima.extxyz by
+#     MinimaHopping itself (and flushed per acceptance), so whatever has been
+#     found is on disk even if we stop early.  This function therefore never
+#     lets the job die by SLURM SIGTERM: when the budget is reached (or any
+#     error occurs) it stops MH and returns, and the caller salvages the file.
+#     """
+#     with open("initial_structure.json", "r") as f:
+#         struct = json.load(f)
+#     pmg_structure = Structure.from_dict(struct)
+#     init_conf = pmg_to_ase(pmg_structure)
+#     init_conf.calc = calc
+#
+#     params = metal_mh_parameters()
+#     budget = max(MH_MAX_SECONDS - MH_SALVAGE_MARGIN, 1)
+#     print("MH runner: wall-clock budget {:d}s (alarm), params: {}".format(
+#         budget, {k: params[k] for k in
+#                  ("md_max_steps", "opt_max_steps", "mdmin", "fmax",
+#                   "energy_threshold", "fingerprint_threshold",
+#                   "n_P_orbitals", "width_cutoff", "run_time")}),
+#         flush=True)
+#
+#     # NOTE: do not pre-create 'output/' here -- MinimaHopping creates output/,
+#     # output/restart/ and minima/ together, and skips restart/ if output/
+#     # already exists (which would crash on the first params.json write).
+#     signal.signal(signal.SIGALRM, _alarm_handler)
+#     signal.alarm(budget)
+#     t0 = time.time()
+#     try:
+#         with Minimahopping(init_conf, **params) as mh:
+#             try:
+#                 mh(totalsteps=int(mh_steps))
+#             except _WalltimeReached:
+#                 print("MH runner: wall-clock budget reached after {:.0f}s; "
+#                       "stopping and salvaging accepted minima.".format(time.time() - t0),
+#                       flush=True)
+#     except _WalltimeReached:
+#         # alarm fired during context enter/exit
+#         print("MH runner: wall-clock budget reached during setup/teardown.", flush=True)
+#     except Exception:
+#         # any MH failure: still fall through to salvage so the AiiDA job
+#         # completes with whatever was found instead of hard-failing.
+#         print("MH runner: stopped early on exception:", flush=True)
+#         traceback.print_exc()
+#     finally:
+#         signal.alarm(0)
+#
+# # Legacy salvage read (replace the ASE one in __main__):
+# #     accepted_minima = read('output/accepted_minima.extxyz', index=':')
+# ===========================================================================

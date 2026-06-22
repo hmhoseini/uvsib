@@ -5,12 +5,8 @@ from pymatgen.core.structure import Composition, Structure
 from pymatgen.entries.computed_entries import ComputedStructureEntry
 from pymatgen.analysis.structure_matcher import StructureMatcher
 from pymatgen.analysis.phase_diagram import PhaseDiagram
-from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
-from uvsib.codes.utils import (
-    get_element_entries,
-    get_structures_from_mpdb_by_composition,
-    get_mp_element_structures,
-)
+from pymatgen.symmetry.analyzer import SpacegroupAnalyzer, SymmetryUndeterminedError
+from uvsib.codes.utils import get_element_entries, get_structures_from_mpdb_by_composition
 from uvsib.db.utils import query_structure, add_structures
 from uvsib.db.session import get_session
 from uvsib.db.tables import DBStructure, DBStructureVersion
@@ -135,9 +131,13 @@ def get_primitive_cell(struct_dict):
     sga = SpacegroupAnalyzer(structure, symprec=0.05, angle_tolerance=5)
 
     try:
-        prim_struct = sga.get_primitive_standard_structure()
-    except:
-        prim_struct = sga.find_primitive() or structure
+        try:
+            prim_struct = sga.get_primitive_standard_structure()
+        except:
+            prim_struct = sga.find_primitive() or structure
+    except SymmetryUndeterminedError:
+        print('Symmetry reduction failed')
+        prim_struct = structure
 
     return prim_struct
 
