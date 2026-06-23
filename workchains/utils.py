@@ -1,5 +1,6 @@
 import os
 import yaml
+import numpy as np
 from aiida.orm import load_code
 from pymatgen.core.structure import Composition, Structure
 from pymatgen.entries.computed_entries import ComputedStructureEntry
@@ -11,6 +12,7 @@ from uvsib.db.utils import query_structure, add_structures
 from uvsib.db.session import get_session
 from uvsib.db.tables import DBStructure, DBStructureVersion
 from uvsib.workflows import settings
+
 
 EHULL_SCAN = settings.EHULL_SCAN
 
@@ -128,16 +130,17 @@ def get_primitive_cell(struct_dict):
     """Refine a structure dictionary into its primitive cell"""
     structure = Structure.from_dict(struct_dict)
 
-    sga = SpacegroupAnalyzer(structure, symprec=0.05, angle_tolerance=5)
-
     try:
-        try:
-            prim_struct = sga.get_primitive_standard_structure()
-        except:
-            prim_struct = sga.find_primitive() or structure
+        sga = SpacegroupAnalyzer(structure, symprec=0.05, angle_tolerance=5)
     except SymmetryUndeterminedError:
         print('Symmetry reduction failed')
-        prim_struct = structure
+        print(structure)
+        return structure
+
+    try:
+        prim_struct = sga.get_primitive_standard_structure()
+    except:
+        prim_struct = sga.find_primitive() or structure
 
     return prim_struct
 
@@ -234,8 +237,18 @@ def unique_low_energy_comp(chemical_formula, entries, method, ehull, min_n_retur
         if en.composition.reduced_formula != chemical_formula:
             continue
 
-        prim_struct = get_primitive_cell(en.structure.as_dict())
+        # adding the structure filter sanity checks here because this is where they all have to pass  -- janK
+        garbage = False
+        entry_structure = en.structure
+        for vec in entry_structure.lattice.matrix:
+            if np.any([np.abs(v) > 100 for v in vec]):
+                garbage = True
+        if garbage:
+            print('threw out garbage')
+            print(entry_structure)
+            continue
 
+        prim_struct = get_primitive_cell(en.structure.as_dict())
         if any(matcher.fit(prim_struct, s) for s in existing_structs):
             continue
 

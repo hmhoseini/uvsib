@@ -154,6 +154,46 @@ def _finite_T_config():
     return (settings.inputs.get("synthesizability", {}) or {}).get("finite_T", {}) or {}
 
 
+def _precursor_search_config():
+    """Config block for the precursor / synthesis-route literature search.
+
+    Opt-in sub-feature of synthesizability (mirrors ``finite_T``); read from
+    ``input.yaml`` -> ``synthesizability.precursor_search``. Disabled unless
+    ``enabled: true``."""
+    return (settings.inputs.get("synthesizability", {}) or {}).get("precursor_search", {}) or {}
+
+
+def _precursor_request_file(request):
+    """Stage the precursor-search request as request.json (SinglefileData)."""
+    path = os.path.join(tempfile.gettempdir(), "request.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(request, f)
+    return SinglefileData(file=path)
+
+
+def _precursor_options(ps):
+    """Scheduler options for the containerized precursor-search agent.
+
+    A light, CPU-only, network-capable job. Resources come from the
+    ``precursor_search`` code's ``job_script`` in config.yaml when present, else a
+    1-node / 1-task / 2-cpu / 1-hour fallback. The parser is set explicitly since
+    the CalcJob is submitted ad hoc (like the remote SQS job)."""
+    code_cfg = (settings.configs.get("codes", {}) or {}).get("precursor_search", {}) or {}
+    js = code_cfg.get("job_script", {}) or {}
+    options = {
+        "resources": {
+            "num_machines": int(js.get("nodes", 1)),
+            "num_mpiprocs_per_machine": int(js.get("ntasks", 1)),
+            "num_cores_per_mpiproc": int(js.get("cpus", 2)),
+        },
+        "max_wallclock_seconds": int(js.get("time", 3600)),
+        "parser_name": "precursor_search_parser",
+    }
+    if js.get("exclusive"):
+        options["custom_scheduler_commands"] = "#SBATCH --exclusive"
+    return options
+
+
 def _finite_T_sqs_request(formula, ft):
     """Build the request dict for the remote disordered-SQS generator."""
     return {
@@ -238,6 +278,13 @@ def _synthesizability_output(payload):
     return Dict(dict=payload.get_dict())
 
 
+@calcfunction
+def _precursor_search_output(payload):
+    """Provenance-tracked Dict node for the precursor-search results (see
+    ``_synthesizability_output`` for why the re-emit is needed)."""
+    return Dict(dict=payload.get_dict())
+
+
 class SynthesizabilityWorkChain(WorkChain):
     """Classify all generated structures by synthesizability (0 K or finite-T)."""
 
@@ -247,6 +294,7 @@ class SynthesizabilityWorkChain(WorkChain):
         spec.input("chemical_formula", valid_type=Str)
         spec.input("job_info", valid_type=Dict, required=False)
         spec.output("synthesizability", valid_type=Dict, required=False)
+        spec.output("precursor_search", valid_type=Dict, required=False)
 
         spec.outline(
             cls.setup,
@@ -258,6 +306,10 @@ class SynthesizabilityWorkChain(WorkChain):
                 cls.inspect_phonons,
             ),
             cls.classify,
+            if_(cls.should_search_precursors)(
+                cls.run_precursor_search,      # containerized literature/web-search agent
+                cls.inspect_precursor_search,  # store DOIs + synthesis routes
+            ),
             cls.results,
             cls.final_report,
         )
@@ -279,6 +331,9 @@ class SynthesizabilityWorkChain(WorkChain):
         self.ctx.sqs_uuids = []       # disordered SQS realizations
         self.ctx.sqsgen = None        # remote SQS-generation CalcJob node
         self.ctx.sqs_request = None   # request dict for that job (None -> skip)
+        self.ctx.psearch = _precursor_search_config()  # precursor-search config (opt-in)
+        self.ctx.precursor = None     # precursor-search CalcJob node
+        self.ctx.precursor_payload = None  # parsed agent response (DOIs + routes)
         self.report(f"Classifying synthesizability for {self.ctx.chemical_formula}")
 
     def build_hull(self):
@@ -562,9 +617,130 @@ class SynthesizabilityWorkChain(WorkChain):
         self.report(f"Synthesizability: {summary['counts']} over {summary['n_total']} "
                     f"structures (finite_T={summary['finite_T']})")
 
+    # ----------------------------------------------------------------------- #
+    # precursor / synthesis-route literature search (opt-in)
+    # ----------------------------------------------------------------------- #
+    def should_search_precursors(self):
+        """Gate for the containerized precursor-search agent.
+
+        Off unless ``synthesizability.precursor_search.enabled`` is true. By
+        default the (paid, networked) search is spent only on compositions with
+        at least one *synthesizable* candidate; set ``only_synthesizable: false``
+        to always search."""
+        if not bool(self.ctx.psearch.get("enabled", False)):
+            return False
+        out = getattr(self.ctx, "output", None)
+        if not out:
+            return False
+        if self.ctx.psearch.get("only_synthesizable", True):
+            counts = (out.get("summary", {}) or {}).get("counts", {}) or {}
+            if not counts.get("synthesizable", 0):
+                self.report("Precursor search: no synthesizable candidates; "
+                            "skipping literature search")
+                return False
+        return True
+
+    def _precursor_candidates(self, limit):
+        """Top synthesizable/maybe candidates handed to the agent as context."""
+        cands = []
+        for r in self.ctx.output.get("per_structure", []):
+            comb = r.get("combined")
+            if not comb or comb.get("label") not in ("synthesizable", "maybe"):
+                continue
+            cands.append({
+                "uuid": str(r.get("uuid")),
+                "formula": r.get("formula"),
+                "label": comb.get("label"),
+                "score": comb.get("score"),
+                "ehull_eV_per_atom": (r.get("thermo", {}) or {}).get("ehull_eV_per_atom"),
+            })
+        cands.sort(key=lambda c: (0 if c["label"] == "synthesizable" else 1,
+                                  -(c["score"] or 0.0)))
+        return cands[:limit]
+
+    def run_precursor_search(self):
+        """Submit the containerized literature/web-search agent for this comp.
+
+        Mirrors ``run_sqs``: builds a JSON request and submits a single CalcJob
+        ad hoc. Lazily resolves the entry point + code so a deployment that has
+        not registered the ``precursor_search`` plugin or configured the code
+        simply skips the search (the rest of the classification still stands)."""
+        from aiida.plugins import CalculationFactory
+        ps = self.ctx.psearch
+        formula = self.ctx.chemical_formula
+        comp = Composition(formula)
+
+        try:
+            PrecursorSearchCalculation = CalculationFactory("precursor_search")
+        except Exception:
+            self.report("Precursor search: 'precursor_search' CalcJob entry point not "
+                        "registered (reinstall uvsib / run `verdi plugin list`); skipping")
+            return
+        try:
+            code = get_code("precursor_search")
+        except Exception:
+            self.report("Precursor search: no 'precursor_search' code configured under "
+                        "config.yaml codes:; skipping")
+            return
+
+        request = {
+            "chemical_formula": formula,
+            "reduced_formula": comp.reduced_formula,
+            "elements": [el.symbol for el in comp.elements],
+            "candidates": self._precursor_candidates(int(ps.get("context_candidates", 5))),
+            "max_results": int(ps.get("max_results", 20)),
+            "since_year": int(ps.get("since_year", 2015)),
+            "include_preprints": bool(ps.get("include_preprints", True)),
+            "methods": ps.get("methods") or [
+                "solid-state", "sol-gel", "hydrothermal", "flux", "cvd", "precipitation"],
+        }
+        inputs = {
+            "code": code,
+            "request": _precursor_request_file(request),
+            "parameters": Dict(dict={
+                "cmdline_params": ["--request=request.json", "--output=output.json"],
+                "retrieve_list": ["output.json"],
+            }),
+            "metadata": {
+                "options": _precursor_options(ps),
+                "label": f"PrecursorSearch: {comp.reduced_formula}",
+            },
+        }
+        self.to_context(precursor=self.submit(PrecursorSearchCalculation, **inputs))
+        self.report(f"Precursor search: submitted web/literature search for "
+                    f"{comp.reduced_formula} (max {request['max_results']} results, "
+                    f"since {request['since_year']})")
+
+    def inspect_precursor_search(self):
+        """Collect the DOIs + synthesis routes and persist them for downstream use."""
+        node = self.ctx.precursor
+        if node is None:
+            return  # entry point / code missing -> search was skipped
+        if not node.is_finished_ok:
+            self.report("Precursor search: agent job failed; no synthesis routes stored")
+            return
+        payload = node.outputs.output_dict.get_dict()
+        results = payload.get("results", []) or []
+        n_dois = len({r.get("doi") for r in results if r.get("doi")})
+        n_routes = sum(len(r.get("synthesis_routes", []) or []) for r in results)
+        self.ctx.precursor_payload = payload
+        self.report(f"Precursor search: {len(results)} publication(s), {n_dois} DOI(s), "
+                    f"{n_routes} synthesis route(s) for {self.ctx.chemical_formula}")
+
+        try:
+            row = query_by_columns(DBComposition, {"composition": self.ctx.chemical_formula})[0]
+            attrs = dict(row.attributes or {})
+            attrs["precursor_search"] = payload
+            update_row(DBComposition, row.uuid, {"attributes": attrs})
+        except Exception:
+            self.report("Precursor search: could not update DBComposition attributes")
+
     def results(self):
         if "output" in self.ctx:
             self.out("synthesizability", _synthesizability_output(Dict(dict=self.ctx.output)))
+        if self.ctx.precursor_payload:
+            self.out("precursor_search",
+                     _precursor_search_output(Dict(dict=self.ctx.precursor_payload)))
 
     def final_report(self):
         self.report("SynthesizabilityWorkChain finished successfully")

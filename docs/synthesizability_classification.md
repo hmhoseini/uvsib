@@ -10,9 +10,12 @@ composition by synthesizability, using three independent views (the three the
 literature splits into). It runs after the phase diagram is built and before the
 surface/adsorbate stages, so the 0 K hull it needs already exists.
 
-It is post-processing only — no remote jobs. It reads the generated structures
-and their MLIP energies from the database, builds the hull, scores each
-structure, and writes the scores back.
+The core classification is post-processing only — no remote jobs. It reads the
+generated structures and their MLIP energies from the database, builds the hull,
+scores each structure, and writes the scores back. Two **opt-in** extensions go
+further and do submit remote work: the finite-temperature (Gibbs) hull (phonons,
+below) and the **precursor / synthesis-route literature search** — a
+containerized web-search agent (below).
 
 # Where it sits
 
@@ -166,6 +169,107 @@ cancels), DFT-spot-check before quoting absolute entropies; (2) for metals the
 **electronic** free energy (Fermi smearing, electron–phonon) is non-negligible
 at synthesis T and is **not** in `F_vib(T)` — a future term, not captured here.
 
+# Precursor / synthesis-route literature search (containerized agent)
+
+All of the above is *model energetics* — can it exist, is it accessible. When
+`synthesizability.precursor_search.enabled` is set, the stage adds one more
+opt-in sub-feature after classification that asks the complementary,
+*experimental* question: **has anyone actually made this, and how?** It launches
+a **containerized agent** that web-searches recent publications for *proven*
+synthesis routes of the target material and returns the **DOIs** and **synthesis
+paths** it finds, for downstream processing.
+
+## Where it sits
+
+```
+SynthesizabilityWorkChain
+  classify                       <- the three views (+ optional finite-T hull)
+  --> should_search_precursors   <- gate (opt-in; see below)
+      run_precursor_search       <- submit the containerized agent (one CalcJob)
+      inspect_precursor_search   <- store the DOIs + synthesis routes
+  results
+```
+
+It is modeled on the remote-SQS step (`run_sqs`): a single
+`PrecursorSearchCalculation` CalcJob is submitted ad hoc rather than a
+sub-workchain — the search is single-shot and **skips gracefully** (the rest of
+the classification still stands) if a given deployment has not registered the
+plugin entry point or the `precursor_search` code.
+
+## The agent
+
+`codes/precursor_search/container/` holds the real image: a minimal `debian-slim`
+(glibc + `ca-certificates` + `jq` + the self-contained Claude Code native binary;
+no Node/Python/git, ~310 MB) that runs **rootless under udocker** on the compute
+node. The `precursor-agent` wrapper drives Claude Code headless, restricted to
+the **`WebSearch` / `WebFetch`** tools (no filesystem access), and always writes
+a schema-valid `output.json` even if the model returns prose — so the parser
+never trips. The reference stub `codes/files/precursor_agent.py` documents the
+same contract for offline use.
+
+Because WebSearch/WebFetch run **server-side at Anthropic**, the only egress the
+compute node needs is HTTPS to the Anthropic API — not the open web.
+
+## I/O contract
+
+The CalcJob stages a `request.json` and retrieves an `output.json`:
+
+```
+precursor-agent --request=request.json --output=output.json
+```
+
+- **`request.json`** — the composition (`chemical_formula`, `reduced_formula`,
+  `elements`), the top synthesizable/maybe `candidates` for context, and the
+  search knobs (`max_results`, `since_year`, `include_preprints`, `methods`).
+- **`output.json`** — a dict with a `results` **list** (the only field the
+  parser requires). Each result carries a `doi`, `title`, `year`, `url`, and a
+  `synthesis_routes` list; each route gives `method`, `precursors`, `steps`,
+  `conditions` (temperature / time / atmosphere), `product`, a `confidence`, and
+  a verbatim `evidence` passage. The agent **never fabricates DOIs** — nothing
+  verifiable found ⇒ `results: []`.
+
+## Gating, output, configuration
+
+The gate `should_search_precursors` is off unless `precursor_search.enabled` is
+true and, by default, spends the (paid, networked) search only on compositions
+with at least one **synthesizable** candidate (`only_synthesizable: true`; set
+false to always search). `context_candidates` caps how many top polymorphs are
+handed to the agent as context.
+
+Results land in two places, next to the `synthesizability` summary: the
+workchain output node `precursor_search` (Dict), and
+`DBComposition.attributes["precursor_search"]` — the full payload, for downstream
+processing.
+
+```yaml
+# input.yaml — opt-in sub-feature of synthesizability
+synthesizability:
+  enabled: true
+  precursor_search:
+    enabled: false           # flip on to run the search
+    only_synthesizable: true # search only comps with a synthesizable candidate
+    context_candidates: 5    # top polymorphs passed to the agent as context
+    max_results: 20
+    since_year: 2015
+    include_preprints: true
+    # methods: [solid-state, sol-gel, hydrothermal, flux, cvd, precipitation]
+```
+
+```yaml
+# config.yaml — register the container as a (Containerized)Code
+codes:
+  precursor_search:
+    code_string: precursor_agent@<computer>
+    job_script: {nodes: 1, ntasks: 1, cpus: 4, time: 3600}
+```
+
+**Secrets stay out of provenance.** The agent reads `ANTHROPIC_API_KEY` (or
+`CLAUDE_CODE_OAUTH_TOKEN`) from the **Computer's** environment / `prepend_text`
+or baked into the image — *never* a CalcJob input, so no credential ever enters
+the AiiDA provenance graph. Deploy detail lives in
+`codes/precursor_search/README.md` (plugin + contract) and
+`codes/precursor_search/container/README.md` (image build / udocker import).
+
 # Status
 
 - Classifiers (`_synth_classifiers.py`): implemented, unit-tested on a metallic
@@ -177,5 +281,14 @@ at synthesis T and is **not** in `F_vib(T)` — a future term, not captured here
 - Phonon runner (`codes/files/phonon.py`) + `codes/phonon/` plugin: implemented;
   the runner end-to-end tested with EMT on fcc Cu (ZPE +0.033 eV/atom at 0 K →
   −0.51 eV/atom at 1200 K, thermal expansion, no imaginary modes).
+- Precursor search (`codes/precursor_search/` CalcJob + parser + workchain
+  wiring + entry points): implemented and offline-tested (parser accepts the
+  empty/populated contract, rejects malformed; agent honors `--request`/`--output`
+  and the inspect step counts DOIs/routes). The real container
+  (`codes/precursor_search/container/`, Claude Code headless WebSearch/WebFetch)
+  builds and passes its 13/13 offline plumbing test; the live end-to-end run
+  needs `ANTHROPIC_API_KEY` on the compute node and is still untested.
 - Open seams: trained PU model (`pu_model_path`); MLIP phonon fine-tuning for
-  quantitative absolute free energies; an electronic free-energy term for metals.
+  quantitative absolute free energies; an electronic free-energy term for metals;
+  a live end-to-end precursor-search run + downstream consumption of the stored
+  DOIs/synthesis routes.

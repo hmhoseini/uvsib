@@ -11,11 +11,7 @@ def is_data_available(chemical_systems, timeout=36000):
         missing_data = []
         for chemical_system in chemical_systems:
             try:
-                result = query_by_columns(DBChemsys,
-                                          {"chemsys": chemical_system,
-                                           "gen_structures": "Ready"
-                                           }
-                )
+                result = query_by_columns(DBChemsys,{"chemsys": chemical_system, "gen_structures": "Ready"})
                 if not result:
                     missing_data.append(chemical_system)
             except:

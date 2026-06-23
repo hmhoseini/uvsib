@@ -26,7 +26,8 @@
 		"mh = uvsib.codes.minimahopping.calculation:MinimaHoppingCalculation",
 		"similarity = uvsib.codes.similarity.calculation:SimilarityCalculation",
 		"sqs = uvsib.codes.sqs.calculation:SQSCalculation",
-		"phonon = uvsib.codes.phonon.calculation:PhononCalculation"
+		"phonon = uvsib.codes.phonon.calculation:PhononCalculation",
+		"precursor_search = uvsib.codes.precursor_search.calculation:PrecursorSearchCalculation"
 	],
 	"aiida.parsers": [
 		"mattergen_parser = uvsib.codes.mattergen.parser:MatterGenParser",
@@ -38,7 +39,8 @@
 		"minimahopping_parser = uvsib.codes.minimahopping.parser:MinimaHoppingParser",
 		"similarity_parser = uvsib.codes.similarity.parser:SimilarityParser",
 		"sqs_parser = uvsib.codes.sqs.parser:SQSParser",
-		"phonon_parser = uvsib.codes.phonon.parser:PhononParser"
+		"phonon_parser = uvsib.codes.phonon.parser:PhononParser",
+		"precursor_search_parser = uvsib.codes.precursor_search.parser:PrecursorSearchParser"
 	],
 	"aiida.workflows": [
 		"mattergen.base = uvsib.codes.mattergen.workchain:MatterGenBaseWorkChain",
