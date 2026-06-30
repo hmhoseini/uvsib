@@ -314,8 +314,7 @@ class SynthesizabilityWorkChain(WorkChain):
             cls.final_report,
         )
 
-        spec.exit_code(301, "ERROR_NO_HULL",
-                       message="Could not build a phase diagram for this composition")
+        spec.exit_code(301,"ERROR_NO_HULL", message="Could not build a phase diagram for this composition")
 
     def setup(self):
         self.ctx.chemical_formula = self.inputs.chemical_formula.value
@@ -337,7 +336,6 @@ class SynthesizabilityWorkChain(WorkChain):
         self.report(f"Classifying synthesizability for {self.ctx.chemical_formula}")
 
     def build_hull(self):
-        print('hull build')
         """Build the 0 K hull and select the near-hull set for phonons."""
         entries = gather_entries(self.ctx.chemical_formula, self.ctx.model)
         if not entries:

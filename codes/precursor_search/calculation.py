@@ -56,10 +56,15 @@ CalcJobs, so the downstream wiring is uniform.
 
 Secrets
 -------
-Search / LLM API keys MUST be provided to the container through the *remote*
-environment (the Computer's ``prepend_text`` / ``environment_variables``, a
-mounted secrets file, or baked into the image) and NOT through CalcJob inputs,
-so credentials never enter the AiiDA provenance graph.
+The LLM API key must reach the *container on the remote node* and MUST NOT enter
+the provenance graph. It is therefore injected at job runtime by the registered
+``ContainerizedCode`` -- preferably via the engine command's ``--env-file``
+pointing at a 0600 file on the node (udocker), or a Code/Computer ``prepend_text``
+that reads such a file (apptainer). It is NOT a CalcJob input and NOT a
+``metadata.options.environment_variables`` entry (both would be serialized onto
+the node), and NOT baked into the shipped image. Note that ``input.yaml`` /
+``config.yaml`` are read on the *submitter* only, so they cannot deliver the key
+to the remote container. See ``container/README.md`` -> *Secrets & network*.
 """
 
 from aiida.engine import CalcJob

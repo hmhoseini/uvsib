@@ -104,10 +104,8 @@ class AdsorbatesWorkChain(WorkChain):
             self.report(f"The reaction {self.ctx.reaction} is not known")
             return self.exit_codes.ERROR_CALCULATION_FAILED
 
-        self.report(f"Storing {self.ctx.reaction} ML results.")
-
+        # self.report(f"Storing {self.ctx.reaction} ML results.")
         calc_method, eta_threshold = reaction_map[self.ctx.reaction]
-
         slab_cache = {}
         for parent_key, adsorption_sets in self.ctx.ml_results.items():
             uuid_str, surface_id = parent_key.split("_")

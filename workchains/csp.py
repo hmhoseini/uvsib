@@ -85,7 +85,6 @@ class CSPWorkChain(WorkChain):
             if not csp_wch.is_finished_ok:
                 failed_jobs += 1
                 continue
-
             try:
                 self.ctx.csp_structures.extend(csp_wch.outputs.output_dict["structures"])
             except:
@@ -150,13 +149,9 @@ class CSPWorkChain(WorkChain):
         if missing:
             self.report(f"Warning: DFT-fallback elemental refs for {missing} (per-element offset risk)")
 
-        self.ctx.low_energy_entries_csp, _ = unique_low_energy_comp(
-                self.ctx.chemical_formula,
-                new_entries,
-                DFT_FUNC,
-                EHULL_ML,
-                min_n_return=self.ctx.n_mh,
-                element_entries=self.ctx.el_entries)
+        self.ctx.low_energy_entries_csp, _ = unique_low_energy_comp(self.ctx.chemical_formula, new_entries, DFT_FUNC,
+                                                                    EHULL_ML, min_n_return=self.ctx.n_mh,
+                                                                    element_entries=self.ctx.el_entries)
 
     def minimahopping(self):
         """Run MinimaHopping"""
@@ -188,24 +183,14 @@ class CSPWorkChain(WorkChain):
         if not all_entries or failed_jobs / n_mh > 0.5:
             return self.exit_codes.ERROR_MINIMAHOPPING_FAILED
 
-        self.ctx.low_energy_entries_mh, _ = unique_low_energy_comp(
-                self.ctx.chemical_formula,
-                new_entries,
-                DFT_FUNC,
-                EHULL_ML,
-                element_entries=self.ctx.el_entries
-        )
+        self.ctx.low_energy_entries_mh, _ = unique_low_energy_comp(self.ctx.chemical_formula, new_entries,
+                                                                   DFT_FUNC, EHULL_ML, element_entries=self.ctx.el_entries)
 
     def final_step(self):
         """Store structures"""
-        all_entries = self.ctx.low_energy_entries_csp  # + self.ctx.low_energy_entries_mh
-        low_energy_entries, _ = unique_low_energy_comp(
-                self.ctx.chemical_formula,
-                all_entries,
-                DFT_FUNC,
-                EHULL_ML,
-                element_entries=self.ctx.el_entries
-        )
+        all_entries = self.ctx.low_energy_entries_csp + self.ctx.low_energy_entries_mh
+        low_energy_entries, _ = unique_low_energy_comp(self.ctx.chemical_formula, all_entries, DFT_FUNC, EHULL_ML,
+                                                       element_entries=self.ctx.el_entries)
         structure_energy_pairs = []
 
         for entry in low_energy_entries:

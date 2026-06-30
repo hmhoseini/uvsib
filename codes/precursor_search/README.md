@@ -105,9 +105,16 @@ container code (e.g. `precursor_agent@<computer>`).
 
 - After adding the plugin, re-register the entry points so AiiDA sees them:
   `pip install -e .` (or `verdi plugin list aiida.calculations | grep precursor_search`).
-- Register the image as a `Code` / `ContainerizedCode` (apptainer / singularity /
-  docker / podman). AiiDA composes the container invocation; the CalcJob only
-  appends the cmdline.
-- The compute node needs **outbound network**. Provide search/LLM **API keys via
-  the Computer's `prepend_text` / environment or baked into the image — never via
-  CalcJob inputs**, so secrets never enter the provenance graph.
+- Register the image as a `core.code.containerized` `ContainerizedCode`. Its
+  `filepath_executable` is the **in-container** path `/usr/local/bin/precursor-agent`
+  (AiiDA does not check it against the remote filesystem for containerized codes);
+  the `engine_command` (with `{image_name}`) wraps it and the CalcJob appends only
+  `--request=… --output=…`.
+- The compute node needs **outbound network** (HTTPS to the Anthropic API only).
+- **API key:** it must reach the *container on the node* — `input.yaml` /
+  `config.yaml` are submit-side only and will **not** deliver it. Keep the key in a
+  0600 file on the node and inject it via the engine command's `--env-file`
+  (udocker) or a Code `prepend_text` that `cat`s it (apptainer). **Never** put it
+  in a CalcJob input or `metadata.options.environment_variables` — those land in
+  the provenance graph. Full recipe: [`container/README.md`](container/README.md)
+  → *Secrets & network*.

@@ -1,5 +1,4 @@
 import json
-
 from aiida.common import exceptions
 from aiida.parsers import Parser
 from aiida.orm import Dict

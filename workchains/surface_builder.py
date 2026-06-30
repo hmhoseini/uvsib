@@ -17,8 +17,7 @@ _SKIP_PD_VERIFICATION = settings._SKIP_PD_VERIFICATION #TODO for test
 # long, unpredictable relaxation.
 MAX_SLABS_PER_CHUNK = 250
 
-GNoMECalculation = CalculationFactory("gnome")  # generic v100 code (gnome@v100)
-
+FaceCalculation = CalculationFactory(str(settings.inputs["face_build"]["model"]).lower())
 
 def get_struct_uuid(chemical_formula, ml_model): #TODO: will correct after test
     """Query structures from the database by formula and return list of (structure_dict, uuid)"""
@@ -66,14 +65,13 @@ def _model_cmdline():
     ]
 
 
-def _gnome_options():
-    """Scheduler options for a slab job on the gnome@v100 code (generic parser).
-
+def _facebuild_options():
+    """Scheduler options for a slab job on the minimahopping code (generic parser).
     NOTE: the calculation ``label`` is NOT an option -- it lives at
     ``metadata.label`` (set by the callers). ``metadata.options`` is a fixed
     namespace and rejects unknown keys like 'label'.
     """
-    js = settings.configs["codes"]["GNoME"]["job_script"]
+    js = settings.configs["codes"][settings.inputs["face_build"]["model"]]["job_script"]
     options = {
         "resources": {
             "num_machines": js["nodes"],
@@ -140,6 +138,7 @@ class SurfaceBuilderWorkChain(WorkChain):
         inputs = {
             "code": get_code(settings.inputs["face_build"]["model"]),
             "parameters": Dict(dict={
+                "job_type": "face_build",
                 "cmdline_params": _model_cmdline() + [
                     f"--max_miller_idx={settings.inputs['face_build']['max_miller_idx']}"],
                 "staged_files": [["slab_generate.py", "aiida.py"],
@@ -148,11 +147,11 @@ class SurfaceBuilderWorkChain(WorkChain):
             }),
             "file": {"input_structures_file": _structures_file(payload)},
             "metadata": {
-                "options": _gnome_options(),
+                "options": _facebuild_options(),
                 "label": f"SlabGen: {self.ctx.chemical_formula} ({len(payload)} bulks)",
             },
         }
-        self.to_context(slabgen=self.submit(GNoMECalculation, **inputs))
+        self.to_context(slabgen=self.submit(FaceCalculation, **inputs))
 
     def inspect_slabgen(self):
         """Read epa + orthogonal slabs per bulk from the single gen job."""
@@ -192,6 +191,7 @@ class SurfaceBuilderWorkChain(WorkChain):
                 inputs = {
                     "code": get_code(settings.inputs['face_build']['model']),
                     "parameters": Dict(dict={
+                        "job_type": "face_relax",
                         "cmdline_params": _model_cmdline() + [
                             f"--epa={plan['epa']}",
                             f"--fmax={settings.inputs['face_build']['fmax']}",
@@ -202,11 +202,11 @@ class SurfaceBuilderWorkChain(WorkChain):
                     }),
                     "file": {"input_structures_file": _structures_file(chunk)},
                     "metadata": {
-                        "options": _gnome_options(),
+                        "options": _facebuild_options(),
                         "label": f"SlabRelax: {self.ctx.chemical_formula} ({uuid_str}) #{i}",
                     },
                 }
-                self.to_context(**{f"relax_{uuid_str}_{i}": self.submit(GNoMECalculation, **inputs)})
+                self.to_context(**{f"relax_{uuid_str}_{i}": self.submit(FaceCalculation, **inputs)})
 
     def inspect_relax(self):
         """Merge a structure's chunks, globally select the lowest-energy faces."""

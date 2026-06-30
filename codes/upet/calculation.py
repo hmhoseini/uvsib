@@ -26,7 +26,9 @@ class uPETCalculation(CalcJob):
         if job_type == 'relax':
             input_file = os.path.join(settings.files_path, 'relax.py')
         elif job_type == 'face_build':
-            input_file = os.path.join(settings.files_path, 'face_build.py')
+            input_file = os.path.join(settings.files_path, 'slab_generate.py')
+        elif job_type == 'face_relax':
+            input_file = os.path.join(settings.files_path, 'slab_relax.py')
         elif job_type == 'adsorbates':
             input_file = os.path.join(settings.files_path, 'adsorbates.py')
         elif job_type == 'nano_particles':
