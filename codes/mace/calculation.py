@@ -6,7 +6,6 @@ from uvsib.workflows import settings
 
 class MACECalculation(CalcJob):
     """AiiDA plugin for MACE"""
-
     @classmethod
     def define(cls, spec):
         super().define(spec)
@@ -19,19 +18,25 @@ class MACECalculation(CalcJob):
         spec.exit_code(303, "ERROR_OUTPUT_INCOMPLETE", message="The output file is incomplete.")
 
     def prepare_for_submission(self, folder):
-        """Create input files for MatterGen. Here, adding to the command line"""
+        """Create input files, adding to the command line"""
         parameters = self.inputs.parameters.get_dict()
         job_type = parameters['job_type']
         cmdline = parameters['cmdline_params']
 
         if job_type == 'relax':
-            input_file = os.path.join(settings.mace_files_path, 'relax.py')
+            input_file = os.path.join(settings.files_path, 'relax.py')
         elif job_type == 'face_build':
-            input_file = os.path.join(settings.mace_files_path, 'face_build.py')
+            input_file = os.path.join(settings.files_path, 'slab_generate.py')
+        elif job_type == 'face_relax':
+            input_file = os.path.join(settings.files_path, 'slab_relax.py')
         elif job_type == 'adsorbates':
-            input_file = os.path.join(settings.mace_files_path, 'adsorbates.py')
+            input_file = os.path.join(settings.files_path, 'adsorbates.py')
+        elif job_type == 'nano_particles':
+            input_file = os.path.join(settings.files_path, 'nano_particles.py')
+        elif job_type == 'sqs':
+            input_file = os.path.join(settings.files_path, 'sqs.py')
         else:
-            input_file = os.path.join(settings.mace_files_path, 'energy_forces.py')
+            raise NotImplementedError(f'{job_type} is not implemented.')
 
         with open(input_file, 'r', encoding='utf-8') as f:
             content = f.read()
@@ -40,11 +45,18 @@ class MACECalculation(CalcJob):
 
         # Ship the shared calculator factory alongside aiida.py — the script
         # does `from _calculators import make_calculator` at runtime.
-        helper_file = os.path.join(settings.mace_files_path, '_calculators.py')
+        helper_file = os.path.join(settings.files_path, '_calculators.py')
         with open(helper_file, 'r', encoding='utf-8') as f:
             content = f.read()
         with folder.open('_calculators.py', 'w', encoding='utf-8') as f:
             f.write(content)
+
+        # transfer the molecular reference files for computation
+        for mol_file in os.listdir(settings.molecular_reference_files):
+            with open(os.path.join(settings.molecular_reference_files, mol_file), 'r', encoding='utf-8') as f:
+                content = f.read()
+            with folder.open(mol_file, 'w', encoding='utf-8') as f:
+                f.write(content)
 
         # Code info
         codeinfo = CodeInfo()
@@ -53,7 +65,7 @@ class MACECalculation(CalcJob):
         # Calc info.
         calcinfo = CalcInfo()
         calcinfo.uuid = self.uuid
-        calcinfo.retrieve_list = ['output.json', 'total.txt', 'failed.txt']
+        calcinfo.retrieve_list = ['output.json', 'total.txt', 'failed.txt', 'rejected.json']
         calcinfo.codes_info = [codeinfo]
         calcinfo.local_copy_list = [(file.uuid, file.filename, file.filename) for file in self.inputs.file.values()]
         calcinfo.provenance_exclude_list = ['input_structures.extxyz']

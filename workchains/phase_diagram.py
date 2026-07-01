@@ -1,4 +1,4 @@
-from pymatgen.core.structure import Structure
+from pymatgen.core.structure import Structure, Composition
 from pymatgen.entries.computed_entries import ComputedStructureEntry
 from aiida.orm import Str, List, Bool
 from aiida.engine import WorkChain, if_
@@ -13,7 +13,7 @@ from uvsib.db.utils import (
         get_chemical_systems,
 #        add_version_to_existing_structure,
         query_structure)
-from uvsib.workchains.utils import unique_low_energy_comp
+from uvsib.workchains.utils import unique_low_energy_comp, element_reference_entries
 from uvsib.workchains.pythonjob_inputs import is_data_available
 from uvsib.workflows import settings
 
@@ -58,14 +58,11 @@ def get_entries_from_db(chemical_formula, method):
 
 class PhaseDiagramMLWorkChain(WorkChain):
     """Work chain for ML Phase Diagram calculations"""
-
     @classmethod
     def define(cls, spec):
         super().define(spec)
-
         spec.input("chemical_formula", valid_type=Str)
         spec.input("chemical_systems", valid_type=List)
-        spec.input("ML_model", valid_type=Str)
 
         spec.outline(
             cls.setup,
@@ -84,17 +81,12 @@ class PhaseDiagramMLWorkChain(WorkChain):
             cls.final_report
         )
 
-        spec.exit_code(300,
-            "ERROR_CALCULATION_FAILED",
-            message="The WorkChain did not finish successfully"
-        )
+        spec.exit_code(300,"ERROR_CALCULATION_FAILED", message="The WorkChain did not finish successfully")
 
     def setup(self):
         """Setup and report"""
         self.ctx.chemical_formula = self.inputs.chemical_formula.value
         self.ctx.chemical_systems = self.inputs.chemical_systems.get_list()
-        self.ctx.ML_model = self.inputs.ML_model.value
-#        self.local_list = list()
         self.report(f"Running PhaseDiagramML WorkChain for {self.ctx.chemical_formula}")
 
     def should_run_csp(self):
@@ -175,14 +167,18 @@ class PhaseDiagramMLWorkChain(WorkChain):
         """Return final structures"""
         chemical_formula = self.ctx.chemical_formula
         self.report(f"Constructing phase diagram for {chemical_formula}")
-        entries = get_entries_from_db(chemical_formula, self.ctx.ML_model)
+        entries = get_entries_from_db(chemical_formula, settings.inputs['bulk_relax']['model'])
 
         if not entries:
             self.report(f"Constructing phase diagram for {chemical_formula} failed")
             return self.exit_codes.ERROR_CALCULATION_FAILED
 
         uuid_list = []
-        unique_entries, _ = unique_low_energy_comp(chemical_formula, entries, DFT_FUNC, EHULL_ML, min_n_return=1)
+        model = settings.inputs['bulk_relax']['model']
+        el_entries, _ = element_reference_entries(
+            Composition(chemical_formula).chemical_system.split('-'), model)
+        unique_entries, _ = unique_low_energy_comp(
+            chemical_formula, entries, DFT_FUNC, EHULL_ML, min_n_return=1, element_entries=el_entries)
         for entry in unique_entries:
             uuid_list.append(str(entry.data["struct_uuid"]))
 #            self.local_list.append([entry.data["struct_uuid"],
@@ -210,7 +206,6 @@ class PhaseDiagramMLWorkChain(WorkChain):
         Workflow = WorkflowFactory("csp")
         builder = Workflow.get_builder()
         builder.chemical_formula = Str(self.ctx.chemical_formula)
-        builder.ML_model = Str(self.ctx.ML_model)
         builder.n_csp = settings.inputs["MatterGen_CSP"]["num_runs"]
         builder.n_mh = settings.inputs["MinimaHopping"]["num_runs"]
         return builder
@@ -219,5 +214,4 @@ class PhaseDiagramMLWorkChain(WorkChain):
         Workflow = WorkflowFactory("gen")
         builder = Workflow.get_builder()
         builder.chemical_systems = List(self.ctx.chemical_systems)
-        builder.ML_model = Str(self.ctx.ML_model)
         return builder

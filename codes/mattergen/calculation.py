@@ -20,9 +20,7 @@ class MatterGenCalculation(CalcJob):
         parameters = self.inputs.parameters.get_dict()
         cmdline_params = parameters['cmdline_params']
 
-        input_file = os.path.join(settings.mattergen_files_path, 'refine.py')
-
-        with open(input_file, 'r', encoding='utf-8') as f:
+        with open(os.path.join(settings.files_path, 'refine.py'), 'r', encoding='utf-8') as f:
             content = f.read()
         with folder.open('aiida.py', 'w', encoding='utf-8') as f:
             f.write(content)

@@ -8,7 +8,7 @@ and the workchain controls the backend + UMA task head via ``--ML_model`` and
 """
 
 _UMA_TASKS = ("omat", "oc20", "oc22", "omol", "odac", "omc")
-
+_MACE_TASKS = ("omat_pbe", "omol", "spice_wB97M", "rgd1_b3lyp", "oc20_usemppbe", "matpes_r2scan")
 
 def make_calculator(ml_model, *, model=None, model_path=None, device="cuda",
                     task_name=None):
@@ -32,8 +32,12 @@ def make_calculator(ml_model, *, model=None, model_path=None, device="cuda",
         ``{_UMA_TASKS}``.
     """
     if "MACE" in ml_model:
-        from mace.calculators import MACECalculator
-        return MACECalculator(model_paths=model_path, device=device)
+        if task_name not in _MACE_TASKS:
+            raise ValueError(f"Unknown MACE task_name '{task_name}'. Expected one of: {', '.join(_MACE_TASKS)}.")
+        from mace.calculators import mace_mp
+        return mace_mp(model=model_path, default_dtype="float64", device=device, head=task_name)
+        # from mace.calculators import MACECalculator
+        # return MACECalculator(model_paths=model_path, device=device)
 
     if "uPET" in ml_model:
         from upet.calculator import UPETCalculator
@@ -44,15 +48,12 @@ def make_calculator(ml_model, *, model=None, model_path=None, device="cuda",
         return MatterSimCalculator(load_path=model_path, device=device)
 
     if "UMA" in ml_model:
-        task = task_name or "omat"
-        if task not in _UMA_TASKS:
-            raise ValueError(
-                f"Unknown UMA task_name '{task}'. Expected one of: "
-                f"{', '.join(_UMA_TASKS)}.")
+        if task_name not in _UMA_TASKS:
+            raise ValueError(f"Unknown UMA task_name '{task_name}'. Expected one of: {', '.join(_UMA_TASKS)}.")
         from fairchem.core import pretrained_mlip
         from fairchem.core.calculate.ase_calculator import FAIRChemCalculator
         predictor = pretrained_mlip.get_predict_unit(model, device=device)
-        return FAIRChemCalculator(predictor, task_name=task)
+        return FAIRChemCalculator(predictor, task_name=task_name)
 
     raise ValueError(
         f"Unknown ML_model '{ml_model}'. Expected one of: "

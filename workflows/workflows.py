@@ -1,29 +1,55 @@
+from time import sleep, monotonic
 from pymatgen.core.structure import Composition
+from aiida.orm import QueryBuilder, WorkChainNode
 from uvsib.db.tables import DBFrontend, DBChemsys, DBComposition, DBSurfaceMLAdsorbate, DBNanoParticles
 from uvsib.db.utils import update_row, add_row, get_chemical_systems, query_by_columns
 from uvsib.workchains.submit import submit_mainworkchain
-from uvsib.workflows import settings
+
+
+def check_valid(reaction, reaction_path):
+    implemented_reactions = {'OER': ['default'],
+                             'CO2RR': ['co2_to_co', 'co2_to_hcooh', 'co_to_ch4', 'co_to_ch3oh'],
+                             'NOXRR': ['no_dissociative', 'no_to_nh3_noh', 'no_to_nh3_nhoh', 'no_to_n2o',
+                                       'no2_to_no', 'no3_to_nh3', 'no3_to_n2']}
+    if reaction not in implemented_reactions:
+        raise NotImplementedError(f"Reaction {reaction} not implemented.")
+    if reaction_path not in implemented_reactions[reaction]:
+        raise NotImplementedError(f"Path {reaction_path} not implemented for {reaction}.")
+    return
 
 def add_from_frontend(dict_from_frontend_list):
     """Process frontend submissions and update the database accordingly."""
+    # Count reactions per composition so we only gate (wait) when there are
+    # follower reactions that would benefit from reusing the shared steps.
+    reactions_per_comp = {}
+    for e in dict_from_frontend_list:
+        comp = Composition(e["chemical_formula"]).reduced_formula
+        reactions_per_comp[comp] = reactions_per_comp.get(comp, 0) + 1
+
+    # pioneered = set()   # compositions whose shared steps a pioneer reaction owns
     for entry in dict_from_frontend_list:
         chemical_formula = Composition(entry["chemical_formula"]).reduced_formula
         user = entry["user"]
         reaction = entry["reaction"]
         reaction_path = entry["reaction_path"]
-        mdata = entry["mdata"]
+        retry = entry['retry'] if 'retry' in entry else True
 
-        retry = mdata["retry"]
-
-        if "nano_particles" in mdata:
-            nano = mdata['nano_particles']
+        if "nano_particles" in entry:
+            nano = entry['nano_particles']
         else:
             nano = False
 
-        if "similarities" in mdata:
-            similars = mdata['similarities']
+        if "similarities" in entry:
+            similars = entry['similarities']
         else:
             similars = {}
+
+        # The SQS request payload (parent structure, sublattices, composition
+        # grid, surfaces, defects) rides through verbatim; {} means a normal
+        # (non-SQS) submission. submit_mainworkchain wraps it in an aiida Dict.
+        sqs = entry.get("sqs", {})
+
+        check_valid(reaction, reaction_path)
 
         existing_frontend_rows = query_by_columns(DBFrontend,{"composition": chemical_formula})
         user_already_exists = any(row.username == user for row in existing_frontend_rows)
@@ -48,29 +74,56 @@ def add_from_frontend(dict_from_frontend_list):
         if not existing_particles:
             add_row(DBNanoParticles,{"elements": elements})
 
-        if user_already_exists:
-            if existing_composition[0].status == "Running":
-                continue
-            if existing_composition[0].status == "Failed" and not retry:
-                continue
         # only new chemical systems
         new_chemsys = get_chemical_systems(chemical_formula, new=True)
         for chemsys in new_chemsys:
             add_row(DBChemsys, {"chemsys": chemsys})
 
-        # only for a new reaction and reaction path
+        # Per-(reaction, pathway) idempotency -- NOT per-composition. The old
+        # guard skipped on the composition status ("Running"), which silently
+        # dropped every reaction after the first in a batch as soon as the first
+        # one flipped the composition to "Running" (the "only 2 submitted" bug).
+        # Dedup the exact (composition, reaction, pathway) triple instead, so
+        # sibling reactions of the same composition are never blocked:
+
+        # (a) already finished -> a result row exists
         row = query_by_columns(DBSurfaceMLAdsorbate, {"composition": chemical_formula,
                                                       "reaction": reaction,
                                                       "reaction_path": reaction_path})
         if row:
             continue
-        model_bulk = settings.configs["model_bulk"] 
-        model_surface = settings.configs["model_surface"]
+
+        # (b) already in flight -> an active MainWorkChain carries this label;
+        # (c) failed + no retry  -> a terminated MainWorkChain carries this label.
+        # Label must match launch_calculations.get_inputs_and_processclass_from_extras.
+        if nano:
+            label = f"NanoParticleChain: {chemical_formula}"
+        else:
+            label = f"CatalystChain {reaction}:{reaction_path} on {chemical_formula}"
+        try:
+            active = QueryBuilder().append(
+                WorkChainNode,
+                filters={"label": label,
+                         "attributes.process_state": {"in": ["created", "running", "waiting"]}},
+            ).count()
+        except Exception:
+            active = 0
+        if active:
+            continue
+        if not retry:
+            ran_before = QueryBuilder().append(
+                WorkChainNode,
+                filters={"label": label,
+                         "attributes.process_state": {"in": ["finished", "excepted", "killed"]}},
+            ).count()
+            if ran_before:        # ran before without a result row -> failed
+                continue
 
         submit_mainworkchain(chemical_formula=chemical_formula, chemical_systems=new_chemsys,
-                             model_bulk=model_bulk, model_surface=model_surface, reaction=reaction, reaction_path=reaction_path,
-                             nano=nano, similarities=similars)
+                             reaction=reaction, reaction_path=reaction_path,
+                             nano=nano, similarities=similars, sqs=sqs)
         update_dbfrontend()
+
 
 def update_dbfrontend():
     """Updateing DBFrontend status"""

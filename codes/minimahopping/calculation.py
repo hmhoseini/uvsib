@@ -26,13 +26,13 @@ class MinimaHoppingCalculation(CalcJob):
         parameters = self.inputs.parameters.get_dict()
         cmdline_params = parameters['cmdline_params']
 
-        input_file = os.path.join(settings.minimahopping_files_path, 'mh.py')
+        input_file = os.path.join(settings.files_path, 'mh.py')
         with open(input_file, 'r', encoding='utf-8') as f:
             content = f.read()
         with folder.open('aiida.py', 'w', encoding='utf-8') as f:
             f.write(content)
 
-        helper_file = os.path.join(settings.minimahopping_files_path, '_calculators.py')
+        helper_file = os.path.join(settings.files_path, '_calculators.py')
         with open(helper_file, 'r', encoding='utf-8') as f:
             content = f.read()
         with folder.open('_calculators.py', 'w', encoding='utf-8') as f:

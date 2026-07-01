@@ -1,4 +1,3 @@
-import yaml
 from ase.io import jsonio
 from aiida.engine import WorkChain
 from aiida.plugins import WorkflowFactory
@@ -10,14 +9,11 @@ from uvsib.workchains.utils import get_code, get_model_device
 from uvsib.workchains.oer import calculate_oer_overpotential
 from uvsib.workchains.co2rr import calculate_co2rr_overpotential
 from uvsib.workchains.noxrr import calculate_noxrr_overpotential
+from uvsib.workchains.cer import calculate_cer_overpotential
+from uvsib.workchains.her import calculate_her_overpotential
+from uvsib.workchains.nrr import calculate_nrr_overpotential
+from uvsib.workchains.orr import calculate_orr_overpotential
 from uvsib.workflows import settings
-
-
-def read_yaml(file_path):
-    """Read yaml file"""
-    with open(file_path, "r", encoding="utf8") as fhandle:
-        data = yaml.safe_load(fhandle)
-    return data
 
 
 class AdsorbatesWorkChain(WorkChain):
@@ -25,9 +21,7 @@ class AdsorbatesWorkChain(WorkChain):
     @classmethod
     def define(cls, spec):
         super().define(spec)
-
         spec.input("chemical_formula", valid_type=Str)
-        spec.input("ML_model", valid_type=Str)
         spec.input("reaction", valid_type=Str)
         spec.input("reaction_path", valid_type=Str)
 
@@ -41,49 +35,54 @@ class AdsorbatesWorkChain(WorkChain):
 
         spec.exit_code(300,"ERROR_CALCULATION_FAILED", message="The calculation did not finish successfully")
         spec.exit_code(301,"ERROR_NO_STRUCTURES_FOUND", message="No structures were found for the given formula.")
+        spec.exit_code(302,"NO_CANDIDATES_WITHIN_ETA_LIMIT", message="No candidates we within the given eta limit")
 
     def setup(self):
         """Setup and report"""
         self.ctx.chemical_formula = self.inputs.chemical_formula.value
-        self.ctx.ML_model = self.inputs.ML_model.value
         self.ctx.reaction = self.inputs.reaction.value
         self.ctx.reaction_path = self.inputs.reaction_path.value
         self.ctx.structure_surface_rows = get_structure_uuid_surface_id(self.ctx.chemical_formula)
         if not self.ctx.structure_surface_rows:
             return self.exit_codes.ERROR_NO_STRUCTURES_FOUND
+        self.ctx.selected_surfaces = list()
         self.ctx.ml_results = {}
         self.ctx.candidates = 0
         self.ctx.relaxation_results = {}
         self.ctx.adsorption_sets = {}
-
         self.report(f"Running Adsorbates WorkChain for {self.ctx.chemical_formula}. "
                     f"Reaction: {self.ctx.reaction}, reaction_path: {self.ctx.reaction_path}")
 
     def run_adsorbs(self):
         """Run Adsorbates WorkChain"""
+        selected = list()
         for structure_uuid, surface_id in self.ctx.structure_surface_rows:
-            slab_row = query_by_columns(DBSurface, {"id":surface_id})[0]
-            uuid_str = str(structure_uuid)
-            parent_key = f"{uuid_str}_{surface_id}"
-            builder = self._construct_adsorbate_builder(slab_row.slab, self.ctx.ML_model, self.ctx.reaction, self.ctx.reaction_path)
+            slab_row = query_by_columns(DBSurface, {"id": surface_id})[0]
+            selected.append((slab_row.slab['energy'], slab_row, str(structure_uuid), surface_id))
+
+        selected.sort(key=lambda x: x[0])
+        for count, (en, row, uid, fid) in enumerate(selected):
+            self.ctx.selected_surfaces.append((f"{uid}", f"{fid}"))
+            builder = self._construct_adsorbate_builder(row.slab, self.ctx.reaction, self.ctx.reaction_path)
             future = self.submit(builder)
-            self.to_context(**{parent_key: future})
+            self.to_context(**{f"{uid}_{fid}": future})
+            if count == 9:
+                print('workchains/adsorbates.py: in run_adsorbs(): reached limit of 10 lowest-E surfaces to process')
+                return
 
     def inspect_adsorbs(self):
         """Inspect Adsorbates WorkChain"""
         failed = []
-        for structure_uuid, surface_id in self.ctx.structure_surface_rows:
-            uuid_str = str(structure_uuid)
-            parent_key = f"{uuid_str}_{surface_id}"
-            ads_wch = self.ctx[parent_key]
+        for uid, fid in self.ctx.selected_surfaces:
+            ads_wch = self.ctx[f"{uid}_{fid}"]
             if not ads_wch.is_finished_ok:
-                failed.append(f"{parent_key} (exit status: {ads_wch.exit_status})")
+                failed.append(f"{uid}_{fid} (exit status: {ads_wch.exit_status})")
                 continue
 
             output_dict = ads_wch.outputs.output_dict
-            self.ctx.ml_results[parent_key] = output_dict["structures"]
+            self.ctx.ml_results[f"{str(uid)}_{fid}"] = output_dict["structures"]
 
-        if len(failed) == len(self.ctx.structure_surface_rows):
+        if len(failed) == len(self.ctx.selected_surfaces):
             self.report("ERROR: all sub-workflows failed - no results to process.")
             return self.exit_codes.ERROR_CALCULATION_FAILED
         if failed:
@@ -93,18 +92,20 @@ class AdsorbatesWorkChain(WorkChain):
         """Store ML results """
         reaction_map = {
             "OER": (calculate_oer_overpotential, 2.0),
-            "CO2RR": (calculate_co2rr_overpotential, 2.5),
-            "NOXRR": (calculate_noxrr_overpotential, 2.5),
+            "CO2RR": (calculate_co2rr_overpotential, 2.0),
+            "CER": (calculate_cer_overpotential, 2.0),
+            "NRR": (calculate_nrr_overpotential, 2.0),
+            "NOXRR": (calculate_noxrr_overpotential, 2.0),
+            "HER": (calculate_her_overpotential, 2.0),
+            "ORR": (calculate_orr_overpotential, 2.0)
         }
 
         if self.ctx.reaction not in reaction_map:
             self.report(f"The reaction {self.ctx.reaction} is not known")
             return self.exit_codes.ERROR_CALCULATION_FAILED
 
-        self.report(f"Storing {self.ctx.reaction} ML results.")
-
+        # self.report(f"Storing {self.ctx.reaction} ML results.")
         calc_method, eta_threshold = reaction_map[self.ctx.reaction]
-
         slab_cache = {}
         for parent_key, adsorption_sets in self.ctx.ml_results.items():
             uuid_str, surface_id = parent_key.split("_")
@@ -119,15 +120,29 @@ class AdsorbatesWorkChain(WorkChain):
                 energy_set = {}
                 for ads_json in adsorb_set["structures"]:
                     adsorbed = jsonio.decode(ads_json)
-                    energy_set[adsorbed.info["adsorbate"]] = adsorbed.info['{}_energy'.format(str(self.ctx.ML_model).lower())]
+                    energy_set[adsorbed.info["adsorbate"]] = adsorbed.info['{}_energy'.format(str(settings.inputs['adsorbates']['model']).lower())]
 
-                eta, dG_steps, dG_cumulative = calc_method(energy_set, self.ctx.reaction_path, self.ctx.ML_model, settings.ML_FUNC)
-
-                if eta > eta_threshold:
+                try:
+                    eta, dG_steps, dG_cumulative = calc_method(energy_set, self.ctx.reaction_path)
+                except KeyError as missing:
+                    # A pathway intermediate is absent from the relaxed set -- e.g.
+                    # a fragile dimer like *N2O2 that dissociated during relaxation
+                    # and was dropped by the adsorbate validator. Skip THIS
+                    # candidate instead of crashing the whole workchain; other
+                    # sites/surfaces (and other pathways) are unaffected.
+                    self.report(
+                        f"Skipping {self.ctx.reaction}/{self.ctx.reaction_path} on "
+                        f"surface {surface_id} ({site_type}): missing intermediate "
+                        f"{missing.args[0]} in the relaxed set "
+                        f"(have: {sorted(energy_set)}).")
                     continue
+                # print(f"{self.ctx.chemical_formula}: {self.ctx.reaction} ({self.ctx.reaction_path}): {eta}")
+
+                # if eta > eta_threshold:  # TODO: remove?
+                #     continue
 
                 self.ctx.candidates += 1
-                add_surface_ml_adsorbate(existing_uuid=uuid_str, surf_id=surface_id, surface_miller_index= miller_index,
+                add_surface_ml_adsorbate(existing_uuid=uuid_str, surf_id=surface_id, surface_miller_index=miller_index,
                                          comp=self.ctx.chemical_formula,
                                          react=self.ctx.reaction, react_path=self.ctx.reaction_path,
                                          site_type=site_type, ads_coord=ads_coord, repeat=repeat,
@@ -136,14 +151,14 @@ class AdsorbatesWorkChain(WorkChain):
 
     def final_report(self):
         """Final report"""
-        self.report(f"AdsorbatesWorkChain for {self.ctx.chemical_formula} finished successfully.")
         if self.ctx.candidates == 0:
-            self.report(f"Warning: AdsorbatesWorkChain for {self.ctx.chemical_formula}: no candidates below eta threshold.")
+            self.report(f"AdsorbatesWorkChain for {self.ctx.chemical_formula}: no candidates below eta threshold.")
+            return self.exit_codes.NO_CANDIDATES_WITHIN_ETA_LIMIT
+        self.report(f"{self.ctx.reaction} WorkChain for {self.ctx.chemical_formula}: "
+                    f"{self.ctx.candidates} eta for {self.ctx.reaction_path}.")
 
-    def _construct_adsorbate_builder(self, slab, ML_model, reaction, pathway):
-        """
-        Builder for generating surface and surface optimiziation with MatterSim or MACE
-        """
+    def _construct_adsorbate_builder(self, slab, reaction, pathway):
+        ML_model = settings.inputs['adsorbates']['model']
         structure = [slab]
         slab_energy = slab["energy"]
         Workflow = WorkflowFactory(ML_model.lower())
@@ -162,15 +177,14 @@ class AdsorbatesWorkChain(WorkChain):
             "ML_model": ML_model,
             "model_name": model,
             "model_path": model_path,
+            "model_head": settings.inputs['adsorbates']['head'],
             "device": device,
             "slab_energy": slab_energy,
             "fmax": settings.inputs[relax_key]["fmax"],
             "max_steps": settings.inputs[relax_key]["max_steps"],
             "reaction": reaction,
-            "pathway": pathway,
-            "task_name": settings.inputs[relax_key].get("task_name", "oc20"),
+            "pathway": pathway
         }
 
         builder.job_info = Dict(job_info)
-
         return builder

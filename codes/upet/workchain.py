@@ -38,9 +38,7 @@ uPETCalculation = CalculationFactory('upet')
 
 class uPETWorkChain(BaseRestartWorkChain):
     """BaseRestartWorkChain to run uPETCalculation with automatic restarts."""
-
     _process_class = uPETCalculation
-
     @classmethod
     def define(cls, spec):
         super().define(spec)
@@ -61,11 +59,7 @@ class uPETWorkChain(BaseRestartWorkChain):
             cls.results,
         )
 
-        spec.exit_code(
-            400,
-            'ERROR_MAX_RESTARTS_EXCEEDED',
-            message='Maximum number of restarts exceeded for uPETWorkChain.'
-        )
+        spec.exit_code(400,'ERROR_MAX_RESTARTS_EXCEEDED', message='Maximum number of restarts exceeded for uPETWorkChain.')
 
     def setup(self):
         """Initialize context before first calculation."""

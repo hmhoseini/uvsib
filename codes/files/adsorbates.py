@@ -2,9 +2,10 @@ from __future__ import annotations
 import json
 import argparse
 import numpy as np
+from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Dict, List, Callable
-from ase.data import covalent_radii
+from ase.data import atomic_numbers, covalent_radii
 from ase import Atoms
 from ase.io import jsonio
 from ase.optimize.bfgslinesearch import BFGSLineSearch
@@ -15,178 +16,55 @@ from pymatgen.core.surface import Slab
 from pymatgen.analysis.adsorption import AdsorbateSiteFinder
 from scipy.spatial.distance import pdist, squareform
 
-def ase_to_pmg(atoms):
-    """Convert an ASE Atoms object to a pymatgen Structure"""
-    lattice = atoms.cell.array.tolist()
-    symbols = atoms.get_chemical_symbols()
-    frac_coords = atoms.get_scaled_positions().tolist()
-    lattice_obj = Lattice(lattice)
-    return Structure(lattice_obj,
-                          symbols,
-                          frac_coords,
-                          coords_are_cartesian=False)
-
-def pmg_to_ase(pmg_structure):
-    """Convert a pymatgen Structure to an ASE Atoms object"""
-    scaled_positions = pmg_structure.frac_coords
-    symbols = [str(site.specie) for site in pmg_structure.sites]
-    cell = pmg_structure.lattice.matrix
-
-    atoms = Atoms(
-        symbols=symbols,
-        scaled_positions=scaled_positions,
-        cell=cell,
-        pbc=True
-    )
-
-    if "selective_dynamics" in pmg_structure.site_properties:
-        sd = pmg_structure.site_properties["selective_dynamics"]
-        mask = [not any(flags) for flags in sd]
-        if any(mask):
-            atoms.set_constraint(FixAtoms(mask=mask))
-    return atoms
-
-def _create_gas_phase_references() -> Dict[str, Structure]:
-    """Create gas-phase reference molecules using ASE and convert to pymatgen.
-    
-    Generates isolated molecules in a large cell with typical equilibrium
-    geometries. All structures are converted from ASE to pymatgen format.
-    
-    Returns
-    -------
-    dict[str, Structure]
-        Dictionary mapping molecule names to pymatgen Structure objects.
-    """
-    # H2: bond length ~0.74 Å
-    h2_atoms = Atoms('H2', positions=[[0, 0, 0], [0.74, 0, 0]])
-
-    # O2: bond length ~1.21 Å
-    o2_atoms = Atoms('O2', positions=[[0, 0, 0], [1.21, 0, 0]])
-
-    # N2: bond length ~1.10 Å
-    n2_atoms = Atoms('N2', positions=[[0, 0, 0], [1.10, 0, 0]])
-
-    # Cl2: bond length ~1.99 Å
-    cl2_atoms = Atoms('Cl2', positions=[[0, 0, 0], [1.99, 0, 0]])
-
-    # H2O: O at origin, H-O-H angle ~104.5°
-    h2o_atoms = Atoms('H2O', positions=[
-        [0.0, 0.0, 0.0],      # O
-        [0.96, 0.0, 0.0],     # H
-        [-0.24, 0.93, 0.0]    # H
-    ])
-
-    # H2O2: Hydrogen peroxide
-    h2o2_atoms = Atoms('H2O2', positions=[
-        [0.0, 0.0, 0.0],      # O
-        [1.47, 0.0, 0.0],     # O
-        [-0.38, 0.38, 0.38],  # H
-        [1.85, 0.38, 0.38]    # H
-    ])
-
-    # NH3: Ammonia, trigonal pyramidal
-    nh3_atoms = Atoms('NH3', positions=[
-        [0.0, 0.0, 0.0],       # N
-        [0.94, 0.0, 0.0],      # H
-        [-0.47, 0.82, 0.0],    # H
-        [-0.47, -0.41, 0.71]   # H
-    ])
- 
-    # CH4: Methane, tetrahedral
-    ch4_atoms = Atoms('CH4', positions=[
-        [0.0, 0.0, 0.0],       # C
-        [0.63, 0.63, 0.63],    # H
-        [-0.63, -0.63, 0.63],  # H
-        [-0.63, 0.63, -0.63],  # H
-        [0.63, -0.63, -0.63]   # H
-    ])
-
-    # CO2: Carbon dioxide, linear
-    co2_atoms = Atoms('CO2', positions=[
-        [0.0, 0.0, 0.0],       # C
-        [-1.16, 0.0, 0.0],     # O
-        [1.16, 0.0, 0.0]       # O
-    ])
-
-    # N2O: Nitrous oxide, linear
-    n2o_atoms = Atoms('N2O', positions=[
-        [0.0, 0.0, 0.0],       # N
-        [1.13, 0.0, 0.0],      # N
-        [2.28, 0.0, 0.0]       # O
-    ])
-
-    # CH3OH: Methanol (C-H bond ~0.94 Å, C-O bond ~1.42 Å, O-H bond ~0.96 Å)
-    ch3oh_atoms = Atoms('CH3OH', positions=[
-        [0.0, 0.0, 0.0],        # C
-        [0.94, 0.0, 0.0],       # H (on C)
-        [-0.47, 0.82, 0.0],     # H (on C)
-        [-0.47, -0.41, 0.71],   # H (on C)
-        [0.0, -1.42, 0.0],      # O
-        [0.76, -1.95, 0.96]     # H (on O)
-    ])
-
-    # Set large cell for isolated molecules to avoid periodic interactions
-    molecules_ase = {
-        'h2': h2_atoms,
-        'o2': o2_atoms,
-        'n2': n2_atoms,
-        'cl2': cl2_atoms,
-        'h2o': h2o_atoms,
-        'h2o2': h2o2_atoms,
-        'nh3': nh3_atoms,
-        'ch4': ch4_atoms,
-        'co2': co2_atoms,
-        'n2o': n2o_atoms,
-        'ch3oh': ch3oh_atoms,
-    }
-
-    # Convert ASE to pymatgen and center molecules in 10x10x10 Å cells
-    structures = {}
-    for name, atoms in molecules_ase.items():
-        atoms.set_cell([[10, 0, 0], [0, 10, 0], [0, 0, 10]], scale_atoms=False)
-        atoms.center()
-        structures[name] = ase_to_pmg(atoms)
-
-    return structures
-
-# Create gas-phase reference structures
-_gas_refs = _create_gas_phase_references()
-h2_ref    = _gas_refs['h2']
-o2_ref    = _gas_refs['o2']
-n2_ref    = _gas_refs['n2']
-cl2_ref   = _gas_refs['cl2']
-h2o_ref   = _gas_refs['h2o']
-h2o2_ref  = _gas_refs['h2o2']
-nh3_ref   = _gas_refs['nh3']
-ch4_ref   = _gas_refs['ch4']
-co2_ref   = _gas_refs['co2']
-n2o_ref   = _gas_refs['n2o']
-ch3oh_ref = _gas_refs['ch3oh']
+ch3oh_ref = Structure.from_file("ch3oh.vasp")
+ch4_ref = Structure.from_file("ch4.vasp")
+co2_ref = Structure.from_file("co2.vasp")
+n2o_ref = Structure.from_file("n2o.vasp")
+nh3_ref = Structure.from_file("nh3.vasp")
+n2_ref = Structure.from_file("n2.vasp")
+h2_ref = Structure.from_file("h2.vasp")
+h2o_ref = Structure.from_file("h2o.vasp")
+cl2_ref = Structure.from_file("cl2.vasp")
+o2_ref = Structure.from_file("o2.vasp")
+h2o2_ref = Structure.from_file("h2o2.vasp")
+hcooh_ref = Structure.from_file("hcooh.vasp")
+c2h4_ref = Structure.from_file("c2h4.vasp")
+no_ref = Structure.from_file("no.vasp")
+no2_ref = Structure.from_file("no2.vasp")
+# NO3 is built as a neutral planar (D3h) radical. As a stand-in for the NO3-
+# reactant it carries no charge/solvation correction -- the same approximation
+# the former hard-coded references.yaml value used.
+no3_ref = Structure.from_file("no3.vasp")
 
 # Registry of gas-phase reference structures, keyed by the same name used
 # in `ReactionStep.released` and (after `_ADS_TO_GAS` translation) by the
 # pathway's initial reactant. `_pathway_required_refs` selects the subset
 # that actually needs to be relaxed for a given reaction/pathway.
 _GAS_REF_REGISTRY: Dict[str, Structure] = {
-    "H2":    h2_ref,
-    "H2O":   h2o_ref,
-    "N2":    n2_ref,
-    "NH3":   nh3_ref,
-    "N2O":   n2o_ref,
-    "CO2":   co2_ref,
-    "CH4":   ch4_ref,
+    "H2": h2_ref,
+    "H2O": h2o_ref,
+    "N2": n2_ref,
+    "NH3": nh3_ref,
+    "N2O": n2o_ref,
+    "CO2": co2_ref,
+    "CH4": ch4_ref,
     "CH3OH": ch3oh_ref,
-    "Cl2":   cl2_ref,
-    "O2":    o2_ref,
-    "H2O2":  h2o2_ref,
+    "Cl2": cl2_ref,
+    "O2": o2_ref,
+    "H2O2": h2o2_ref,
+    "HCOOH": hcooh_ref,
+    "C2H4": c2h4_ref,
+    "NO": no_ref,
+    "NO2": no2_ref,
+    "NO3": no3_ref,
 }
 
 # Map *_ads adsorbate names (which appear as the first ReactionStep.reactant
 # for many pathways) to the corresponding gas-phase reference name.
 _ADS_TO_GAS: Dict[str, str] = {
     "CO2_ads": "CO2",
-    "N2_ads":  "N2",
-    "O2_ads":  "O2",
+    "N2_ads": "N2",
+    "O2_ads": "O2",
 }
 
 
@@ -217,7 +95,7 @@ def _pathway_required_refs(reaction: str, pathway_obj) -> List[str]:
 
     if reaction == "OER":
         # 4 H+/e- transfers; product is O2 from 2 H2O.
-        return sorted(["H2", "H2O", "O2"])
+        return sorted({"H2", "H2O", "O2"})
 
     if pathway_obj is None:
         return ["H2", "H2O"]
@@ -235,8 +113,26 @@ def _pathway_required_refs(reaction: str, pathway_obj) -> List[str]:
         for sp in step.released:
             if sp in _GAS_REF_REGISTRY:
                 needed.add(sp)
+            elif sp == "O":
+                # Released atomic O is referenced to 1/2 O2 downstream
+                # (calculate_noxrr_overpotential sets E[O] = E[O2] / 2), so the
+                # O2 reference must be computed for any O-releasing pathway.
+                needed.add("O2")
 
     return sorted(needed)
+
+
+def _reference_molecule_count(atoms: Atoms, ref_name: str) -> int:
+    """Number of whole `ref_name` molecules packed into a reference cell.
+
+    The molecular_references/*.vasp cells hold several copies of a molecule
+    (e.g. h2o.vasp = 8 H2O, co2.vasp = 4 CO2, ch3oh.vasp = 1 CH3OH). The CHE
+    bookkeeping in the workchains expects *per-molecule* gas-phase energies, so
+    the relaxed cell energy is divided by this count before it is stored.
+    """
+    from ase.formula import Formula
+    atoms_per_molecule = len(Formula(ref_name))
+    return max(1, round(len(atoms) / atoms_per_molecule))
 
 
 def _create_adsorbate_with_dummy(species: List[str],
@@ -245,7 +141,7 @@ def _create_adsorbate_with_dummy(species: List[str],
                                  height: float = 2) -> Molecule:
     """
     Create a Pymatgen Molecule with a DummySpecies binding atom.
-    
+
     Parameters
     ----------
     species : list of str
@@ -254,7 +150,7 @@ def _create_adsorbate_with_dummy(species: List[str],
         Coordinates relative to binding site [in Angstroms].
     height : float, optional
         Length of X-Molecule bond (default: 2.0 Å).
-    
+
     Returns
     -------
     Molecule
@@ -268,6 +164,7 @@ def _create_adsorbate_with_dummy(species: List[str],
     )
     mol.properties = properties
     return mol
+
 
 def has_reasonable_distances(atoms: Atoms, scale: float = 0.5) -> bool:
     """
@@ -305,6 +202,246 @@ def has_reasonable_distances(atoms: Atoms, scale: float = 0.5) -> bool:
                 return False
     return True
 
+
+# ---------------------------------------------------------------------------
+# Post-relaxation sanity checks for ML-relaxed adsorbates.
+# See docs/sanity_checks.md for the full rationale and failure taxonomy.
+# Layers 0-2 (finite energy, atom overlap, surface binding, molecular
+# identity) run by default; slab-integrity (layer 3) and energy-outlier
+# (layer 4) are opt-in via run_relaxation flags.
+# ---------------------------------------------------------------------------
+
+# Bond cutoff used both to build the reference adsorbate graphs and to graph
+# the relaxed adsorbate. A bond connects i, j when their separation is within
+# _ADSORBATE_BOND_TOL * (r_cov_i + r_cov_j). Both sides MUST use the same value.
+# Calibrated at 1.25: at this value every bundled adsorbate's reference graph is
+# a single connected component, while spurious 1,3 bonds (e.g. in *OCCO/*ONNO)
+# only appear at >= 1.30. See docs/sanity_checks.md.
+_ADSORBATE_BOND_TOL = 1.25
+
+
+@dataclass
+class AdsorbateValidation:
+    """Outcome of validate_relaxed_adsorbate (ok + human-readable reason)."""
+    ok: bool
+    reason: str = ""
+
+
+def _bond_graph(numbers, positions, tol: float):
+    """Element-labelled covalent-bond graph for an isolated (non-periodic) set
+    of atoms. Used for the reference adsorbate geometries."""
+    import networkx as nx
+    g = nx.Graph()
+    for i, z in enumerate(numbers):
+        g.add_node(i, z=int(z))
+    n = len(numbers)
+    for i in range(n):
+        for j in range(i + 1, n):
+            d = float(np.linalg.norm(np.asarray(positions[i]) - np.asarray(positions[j])))
+            if d <= tol * (covalent_radii[numbers[i]] + covalent_radii[numbers[j]]):
+                g.add_edge(i, j)
+    return g
+
+
+def _subset_bond_graph(atoms: Atoms, idx, tol: float):
+    """Element-labelled covalent-bond graph for a subset of a periodic Atoms
+    object, using minimum-image distances (robust to wrapping across cell
+    boundaries)."""
+    import networkx as nx
+    numbers = atoms.get_atomic_numbers()
+    g = nx.Graph()
+    for k, i in enumerate(idx):
+        g.add_node(k, z=int(numbers[i]))
+    for a in range(len(idx)):
+        for b in range(a + 1, len(idx)):
+            i, j = idx[a], idx[b]
+            d = float(atoms.get_distance(i, j, mic=True))
+            if d <= tol * (covalent_radii[numbers[i]] + covalent_radii[numbers[j]]):
+                g.add_edge(a, b)
+    return g
+
+
+def _adsorbate_reference_graph(ads_molecule, tol: float = _ADSORBATE_BOND_TOL):
+    """Intramolecular bond graph of a reference adsorbate Molecule.
+
+    The DummySpecies 'X' binding marker is stripped first; the remaining atoms
+    are graphed exactly as the relaxed adsorbate is, so the two can be compared
+    by element-aware graph isomorphism.
+    """
+    numbers, positions = [], []
+    for site in ads_molecule:
+        sym = str(site.specie.symbol)
+        if sym == "X":
+            continue
+        numbers.append(atomic_numbers[sym])
+        positions.append(np.asarray(site.coords))
+    return _bond_graph(numbers, positions, tol)
+
+
+def validate_relaxed_adsorbate(atoms: Atoms, n_ads: int, expected_graph,
+                               energy, *, graph_tol: float = _ADSORBATE_BOND_TOL,
+                               bind_tol: float = 1.25, overlap_scale: float = 0.5,
+                               clean_slab_atoms: Atoms = None,
+                               slab_max_disp: float = 1.5) -> AdsorbateValidation:
+    """Validate a single relaxed adsorbate-on-slab structure.
+
+    The adsorbate is assumed to be the LAST ``n_ads`` atoms of ``atoms`` (this
+    is how generate_adsorbed_structures appends it). Returns early with ok=True
+    (skipping identity/binding) if that assumption cannot be verified, so a
+    bad index guess never causes a false rejection.
+
+    Layers
+    ------
+    0  finite energy; no atom overlap / explosion (has_reasonable_distances)
+    1  surface binding: an adsorbate atom is within bonding range of the slab
+    2  molecular identity: adsorbate's intramolecular bond graph is isomorphic
+       (element-aware) to the reference -- catches dissociation/isomerisation
+    3  (only if clean_slab_atoms given) slab has not reconstructed
+    """
+    import networkx as nx
+
+    # --- Layer 0: finite energy + no overlap/explosion ---
+    if energy is None or not np.isfinite(energy):
+        return AdsorbateValidation(False, "non-finite energy")
+    if not has_reasonable_distances(atoms, scale=overlap_scale):
+        return AdsorbateValidation(False, "atoms too close (overlap/explosion)")
+
+    n_total = len(atoms)
+    if not (0 < n_ads <= n_total):
+        return AdsorbateValidation(True, "")  # cannot locate adsorbate; skip 1-3
+
+    numbers = atoms.get_atomic_numbers()
+    ads_idx = list(range(n_total - n_ads, n_total))
+    slab_idx = list(range(0, n_total - n_ads))
+
+    # Safety: the last n_ads atoms must match the expected element multiset,
+    # otherwise the append-order assumption is wrong -- skip rather than reject.
+    exp_z = sorted(int(d['z']) for _, d in expected_graph.nodes(data=True))
+    got_z = sorted(int(numbers[i]) for i in ads_idx)
+    if exp_z != got_z:
+        return AdsorbateValidation(True, "")
+
+    # --- Layer 1: surface binding (PBC-aware) ---
+    if slab_idx:
+        bound = False
+        for i in ads_idx:
+            d = atoms.get_distances(i, slab_idx, mic=True)
+            rsum = np.array([covalent_radii[numbers[i]] + covalent_radii[numbers[j]]
+                             for j in slab_idx])
+            if np.any(d <= bind_tol * rsum):
+                bound = True
+                break
+        if not bound:
+            return AdsorbateValidation(False, "desorbed (no adsorbate-slab bond)")
+
+    # --- Layer 2: molecular identity (intramolecular bond graph) ---
+    got_graph = _subset_bond_graph(atoms, ads_idx, graph_tol)
+    # 2a: fragmentation -- an intact adsorbate is a single connected component.
+    if got_graph.number_of_nodes() > 1 and not nx.is_connected(got_graph):
+        return AdsorbateValidation(False, "dissociation (adsorbate fragmented)")
+    # 2b: isomerisation -- topology must match the reference (element-aware).
+    node_match = nx.algorithms.isomorphism.numerical_node_match('z', -1)
+    if not nx.is_isomorphic(got_graph, expected_graph, node_match=node_match):
+        return AdsorbateValidation(
+            False, "molecular identity changed (isomerisation)")
+
+    # --- Layer 3 (opt-in): slab integrity ---
+    if clean_slab_atoms is not None and slab_idx:
+        from ase.geometry import find_mic
+        n_slab = len(slab_idx)
+        if len(clean_slab_atoms) == n_slab:
+            disp = atoms.get_positions()[slab_idx] - clean_slab_atoms.get_positions()
+            mic_disp, _ = find_mic(disp, atoms.cell, atoms.pbc)
+            max_disp = float(np.linalg.norm(mic_disp, axis=1).max())
+            if max_disp > slab_max_disp:
+                return AdsorbateValidation(
+                    False, f"slab reconstructed (max displacement {max_disp:.2f} A)")
+
+    return AdsorbateValidation(True, "")
+
+
+def _flag_energy_outliers(relaxed_sets, model_key, factor: float):
+    """Layer 4 (opt-in): drop sets whose adsorbate energy is a MAD outlier.
+
+    For each adsorbate species, energies are pooled across all sites on this
+    slab; a set is rejected if any of its adsorbates deviates from the species
+    median by more than ``factor`` robust standard deviations (1.4826*MAD).
+    Returns (kept_sets, reject_records).
+    """
+    from collections import defaultdict
+    decoded = [[jsonio.decode(x) for x in s["structures"]] for s in relaxed_sets]
+
+    per_name = defaultdict(list)
+    for structs in decoded:
+        for a in structs:
+            nm = a.info.get('adsorbate', '')
+            if nm.startswith('*') and nm != '*':
+                e = a.info.get(model_key)
+                if e is not None:
+                    per_name[nm].append(e)
+
+    stats = {}
+    for nm, es in per_name.items():
+        arr = np.asarray(es, dtype=float)
+        if len(arr) < 4:  # too few sites for a robust band
+            continue
+        med = float(np.median(arr))
+        mad = float(np.median(np.abs(arr - med))) or 1e-9
+        stats[nm] = (med, mad)
+
+    kept, rejects = [], []
+    for s, structs in zip(relaxed_sets, decoded):
+        reason = None
+        for a in structs:
+            nm = a.info.get('adsorbate', '')
+            if nm in stats:
+                med, mad = stats[nm]
+                e = a.info.get(model_key)
+                if e is not None and abs(e - med) > factor * 1.4826 * mad:
+                    reason = (f"energy outlier for {nm}: {e:.3f} eV "
+                              f"(median {med:.3f}, MAD {mad:.3f})")
+                    break
+        if reason:
+            rejects.append({"site_type": s["site_type"], "ads_coord": s["ads_coord"],
+                            "repeat": s["repeat"], "reason": reason})
+        else:
+            kept.append(s)
+    return kept, rejects
+
+
+def ase_to_pmg(atoms):
+    """Convert an ASE Atoms object to a pymatgen Structure"""
+    lattice = atoms.cell.array.tolist()
+    symbols = atoms.get_chemical_symbols()
+    frac_coords = atoms.get_scaled_positions().tolist()
+    lattice_obj = Lattice(lattice)
+    return Structure(lattice_obj,
+                     symbols,
+                     frac_coords,
+                     coords_are_cartesian=False)
+
+
+def pmg_to_ase(pmg_structure):
+    """Convert a pymatgen Structure to an ASE Atoms object"""
+    scaled_positions = pmg_structure.frac_coords
+    symbols = [str(site.specie) for site in pmg_structure.sites]
+    cell = pmg_structure.lattice.matrix
+
+    atoms = Atoms(
+        symbols=symbols,
+        scaled_positions=scaled_positions,
+        cell=cell,
+        pbc=True
+    )
+
+    if "selective_dynamics" in pmg_structure.site_properties:
+        sd = pmg_structure.site_properties["selective_dynamics"]
+        mask = [not any(flags) for flags in sd]
+        if any(mask):
+            atoms.set_constraint(FixAtoms(mask=mask))
+    return atoms
+
+
 def average_minimum_distance_structure(structure):
     """"Compute the average nearest-neighbor distance"""
     positions = structure.cart_coords
@@ -313,11 +450,12 @@ def average_minimum_distance_structure(structure):
     minimums = np.min(ma, axis=0)
     return minimums.mean()
 
+
 def get_adsorption_sites(slab_pmg: Structure,
                          positions: List[str] = ['ontop', 'bridge', 'hollow']) -> tuple:
     """
     Get adsorption sites using pymatgen's AdsorbateSiteFinder.
-    
+
     Parameters
     ----------
     slab_pmg : pymatgen Structure
@@ -345,6 +483,7 @@ def get_adsorption_sites(slab_pmg: Structure,
 
     return sites_dict, asf
 
+
 # ==============================================================================
 # Reaction pathway data model (shared by all reaction types)
 # ==============================================================================
@@ -368,6 +507,7 @@ class ReactionStep:
     protons: int = 1
     released: List[str] = field(default_factory=list)
     notes: str = ""
+
 
 @dataclass
 class ReactionPathway:
@@ -397,6 +537,7 @@ class ReactionPathway:
         if last not in seen:
             seen.append(last)
         return seen
+
 
 def generate_oer_adsorbates():
     """Return a list of Pymatgen Molecule objects for the OER reaction"""
@@ -431,6 +572,7 @@ def generate_oer_adsorbates():
 
     return adsorbates
 
+
 def generate_co2rr_adsorbates(pathway_name: str) -> tuple:
     """CO2 electroreduction reaction pathways on metal surfaces.
 
@@ -453,7 +595,7 @@ def generate_co2rr_adsorbates(pathway_name: str) -> tuple:
     Returns
     -------
     tuple
-        (pathway, adsorbates_dict) where pathway is a ReactionPathway and 
+        (pathway, adsorbates_dict) where pathway is a ReactionPathway and
         adsorbates_dict maps intermediate names to Molecule objects.
 
     References
@@ -474,7 +616,7 @@ def generate_co2rr_adsorbates(pathway_name: str) -> tuple:
         return _create_adsorbate_with_dummy(
             ["C", "O"],
             [[0, 0, 0], [0, 0, 1.15]],
-            properties = {"adsorbate": "*CO"}
+            properties={"adsorbate": "*CO"}
         )
 
     def _cooh():
@@ -489,7 +631,7 @@ def generate_co2rr_adsorbates(pathway_name: str) -> tuple:
                 [1.10, 0.00, -0.60],
                 [1.94, 0.00, -0.12],
             ],
-            properties = {"adsorbate": "*COOH"}
+            properties={"adsorbate": "*COOH"}
         )
 
     def _ocho():
@@ -504,7 +646,7 @@ def generate_co2rr_adsorbates(pathway_name: str) -> tuple:
                 [0.00, 1.10, 1.85],
                 [0.00, -0.95, 1.98],
             ],
-            properties = {"adsorbate": "*OCHO"}
+            properties={"adsorbate": "*OCHO"}
         )
 
     def _co2_ads():
@@ -518,7 +660,7 @@ def generate_co2rr_adsorbates(pathway_name: str) -> tuple:
                 [float(d * np.sin(angle_rad)), 0.0, float(d * np.cos(angle_rad))],
                 [float(-d * np.sin(angle_rad)), 0.0, float(d * np.cos(angle_rad))]
             ],
-            properties = {"adsorbate": "*CO2"}
+            properties={"adsorbate": "*CO2"}
         )
 
     def _cho():
@@ -530,7 +672,7 @@ def generate_co2rr_adsorbates(pathway_name: str) -> tuple:
                 [0.00, 1.09, 0.63],
                 [1.05, 0.00, 0.85],
             ],
-            properties = {"adsorbate": "*CHO"}
+            properties={"adsorbate": "*CHO"}
         )
 
     def _choh():
@@ -543,7 +685,7 @@ def generate_co2rr_adsorbates(pathway_name: str) -> tuple:
                 [1.23, 0.00, 0.65],
                 [1.85, 0.00, 1.38],
             ],
-            properties = {"adsorbate": "*CHOH"}
+            properties={"adsorbate": "*CHOH"}
         )
 
     def _ch2o():
@@ -556,7 +698,7 @@ def generate_co2rr_adsorbates(pathway_name: str) -> tuple:
                 [-0.94, 0.00, 0.59],
                 [0.00, 1.10, 0.60],
             ],
-            properties = {"adsorbate": "*CH2O"}
+            properties={"adsorbate": "*CH2O"}
         )
 
     def _ch2oh():
@@ -570,7 +712,7 @@ def generate_co2rr_adsorbates(pathway_name: str) -> tuple:
                 [0.00, -1.22, 0.62],
                 [0.00, -1.90, 1.35],
             ],
-            properties = {"adsorbate": "*CH2OH"}
+            properties={"adsorbate": "*CH2OH"}
         )
 
     def _ch():
@@ -578,7 +720,7 @@ def generate_co2rr_adsorbates(pathway_name: str) -> tuple:
         return _create_adsorbate_with_dummy(
             ["C", "H"],
             [[0, 0, 0], [0, 0, 1.09]],
-            properties = {"adsorbate": "*CH"}
+            properties={"adsorbate": "*CH"}
         )
 
     def _ch2():
@@ -590,7 +732,7 @@ def generate_co2rr_adsorbates(pathway_name: str) -> tuple:
                 [0.94, 0.00, 0.70],
                 [-0.94, 0.00, 0.70],
             ],
-            properties = {"adsorbate": "*CH2"}
+            properties={"adsorbate": "*CH2"}
         )
 
     def _ch3():
@@ -603,7 +745,7 @@ def generate_co2rr_adsorbates(pathway_name: str) -> tuple:
                 [0.89, -0.51, 0.70],
                 [-0.89, -0.51, 0.70],
             ],
-            properties = {"adsorbate": "*CH3"}
+            properties={"adsorbate": "*CH3"}
         )
 
     def _oh():
@@ -611,7 +753,7 @@ def generate_co2rr_adsorbates(pathway_name: str) -> tuple:
         return _create_adsorbate_with_dummy(
             ["O", "H"],
             [[0, 0, 0], [0, 0, 0.97]],
-            properties = {"adsorbate": "*OH"}
+            properties={"adsorbate": "*OH"}
         )
 
     def _h():
@@ -619,7 +761,7 @@ def generate_co2rr_adsorbates(pathway_name: str) -> tuple:
         return _create_adsorbate_with_dummy(
             ["H"],
             [[0, 0, 0]],
-            properties = {"adsorbate": "*H"}
+            properties={"adsorbate": "*H"}
         )
 
     def _occo():
@@ -632,7 +774,7 @@ def generate_co2rr_adsorbates(pathway_name: str) -> tuple:
                 [0.00, 1.35, 1.25],
                 [0.00, 1.35, 2.50],
             ],
-            properties = {"adsorbate": "*OCCO"}
+            properties={"adsorbate": "*OCCO"}
         )
 
     def _ccho():
@@ -645,7 +787,7 @@ def generate_co2rr_adsorbates(pathway_name: str) -> tuple:
                 [0.00, 2.40, 1.30],
                 [0.00, 1.35, 1.76],
             ],
-            properties = {"adsorbate": "*CCHO"}
+            properties={"adsorbate": "*CCHO"}
         )
 
     def _c2h4():
@@ -660,7 +802,7 @@ def generate_co2rr_adsorbates(pathway_name: str) -> tuple:
                 [1.90, 0.92, 0.60],
                 [1.90, -0.92, 0.60],
             ],
-            properties = {"adsorbate": "C2H4"}
+            properties={"adsorbate": "C2H4"}
         )
 
     # Registry: name → factory function
@@ -942,7 +1084,7 @@ def generate_co2rr_adsorbates(pathway_name: str) -> tuple:
             )
         return _PATHWAYS[name]
 
-    skip_if_not_registered = {"CO"} #TODO not clear
+    skip_if_not_registered = {"CO"}  # TODO not clear
 
     pathway = get_co2rr_pathway(pathway_name)
     adsorbates = {}
@@ -955,6 +1097,7 @@ def generate_co2rr_adsorbates(pathway_name: str) -> tuple:
             adsorbates[name] = get_adsorbate(name)
 
     return pathway, adsorbates
+
 
 def generate_noxrr_adsorbates(pathway_name: str) -> tuple:
     """NOx electroreduction reaction pathways on metal surfaces.
@@ -977,7 +1120,7 @@ def generate_noxrr_adsorbates(pathway_name: str) -> tuple:
     Returns
     -------
     tuple
-        (pathway, adsorbates_dict) where pathway is a ReactionPathway and 
+        (pathway, adsorbates_dict) where pathway is a ReactionPathway and
         adsorbates_dict maps intermediate names to Molecule objects.
 
     References
@@ -998,7 +1141,7 @@ def generate_noxrr_adsorbates(pathway_name: str) -> tuple:
         return _create_adsorbate_with_dummy(
             ["N", "O"],
             [[0, 0, 0], [0, 0, 1.15]],
-            properties = {"adsorbate": "*NO"}
+            properties={"adsorbate": "*NO"}
         )
 
     def _no2():
@@ -1012,7 +1155,7 @@ def generate_noxrr_adsorbates(pathway_name: str) -> tuple:
                 [d * np.sin(half), 0, d * np.cos(half)],
                 [-d * np.sin(half), 0, d * np.cos(half)],
             ],
-            properties = {"adsorbate": "*NO2"}
+            properties={"adsorbate": "*NO2"}
         )
 
     def _no3():
@@ -1027,7 +1170,7 @@ def generate_noxrr_adsorbates(pathway_name: str) -> tuple:
                 [d * np.sin(np.radians(120)), -d * 0.5, h],
                 [-d * np.sin(np.radians(120)), -d * 0.5, h],
             ],
-            properties = {"adsorbate": "*NO3"}
+            properties={"adsorbate": "*NO3"}
         )
 
     def _noh():
@@ -1039,7 +1182,7 @@ def generate_noxrr_adsorbates(pathway_name: str) -> tuple:
                 [0.00, 0.00, 1.20],
                 [0.90, 0.00, 1.70],
             ],
-            properties = {"adsorbate": "*NOH"}
+            properties={"adsorbate": "*NOH"}
         )
 
     def _hno():
@@ -1051,7 +1194,7 @@ def generate_noxrr_adsorbates(pathway_name: str) -> tuple:
                 [0.00, 1.01, 0.42],
                 [1.10, 0.00, 0.75],
             ],
-            properties = {"adsorbate": "*HNO"}
+            properties={"adsorbate": "*HNO"}
         )
 
     def _n2o2():
@@ -1064,7 +1207,7 @@ def generate_noxrr_adsorbates(pathway_name: str) -> tuple:
                 [1.30, 0.00, 0.00],
                 [1.30, 0.00, 1.18],
             ],
-            properties = {"adsorbate": "*ONNO"}
+            properties={"adsorbate": "*ONNO"}
         )
 
     def _n2o():
@@ -1076,7 +1219,7 @@ def generate_noxrr_adsorbates(pathway_name: str) -> tuple:
                 [0.00, 0.00, 1.13],
                 [0.00, 0.00, 2.27],
             ],
-            properties = {"adsorbate": "*N2O"}
+            properties={"adsorbate": "*N2O"}
         )
 
     def _n_ads():
@@ -1084,7 +1227,7 @@ def generate_noxrr_adsorbates(pathway_name: str) -> tuple:
         return _create_adsorbate_with_dummy(
             ["N"],
             [[0, 0, 0]],
-            properties = {"adsorbate": "*N"}
+            properties={"adsorbate": "*N"}
         )
 
     def _nh():
@@ -1092,7 +1235,7 @@ def generate_noxrr_adsorbates(pathway_name: str) -> tuple:
         return _create_adsorbate_with_dummy(
             ["N", "H"],
             [[0, 0, 0], [0, 0, 1.01]],
-            properties = {"adsorbate": "*NH"}
+            properties={"adsorbate": "*NH"}
         )
 
     def _nh2():
@@ -1104,7 +1247,7 @@ def generate_noxrr_adsorbates(pathway_name: str) -> tuple:
                 [0.82, 0.00, 0.56],
                 [-0.82, 0.00, 0.56],
             ],
-            properties = {"adsorbate": "*NH2"}
+            properties={"adsorbate": "*NH2"}
         )
 
     def _nh3():
@@ -1117,7 +1260,7 @@ def generate_noxrr_adsorbates(pathway_name: str) -> tuple:
                 [0.82, -0.47, 0.34],
                 [-0.82, -0.47, 0.34],
             ],
-            properties = {"adsorbate": "*NH3"}
+            properties={"adsorbate": "*NH3"}
         )
 
     def _nhoh():
@@ -1130,7 +1273,7 @@ def generate_noxrr_adsorbates(pathway_name: str) -> tuple:
                 [1.25, 0.00, 0.65],
                 [1.85, 0.00, 1.40],
             ],
-            properties = {"adsorbate": "*NHOH"}
+            properties={"adsorbate": "*NHOH"}
         )
 
     def _nh2oh():
@@ -1144,7 +1287,7 @@ def generate_noxrr_adsorbates(pathway_name: str) -> tuple:
                 [1.22, 0.00, 0.75],
                 [1.82, 0.00, 1.50],
             ],
-            properties = {"adsorbate": "*NH2OH"}
+            properties={"adsorbate": "*NH2OH"}
         )
 
     def _o_ads():
@@ -1152,15 +1295,15 @@ def generate_noxrr_adsorbates(pathway_name: str) -> tuple:
         return _create_adsorbate_with_dummy(
             ["O"],
             [[0, 0, 0]],
-            properties = {"adsorbate": "*O"}
+            properties={"adsorbate": "*O"}
         )
 
     def _oh():
-        """*OH — O-down."""    
+        """*OH — O-down."""
         return _create_adsorbate_with_dummy(
             ["O", "H"],
             [[0, 0, 0], [0, 0, 0.97]],
-            properties = {"adsorbate": "*OH"}
+            properties={"adsorbate": "*OH"}
         )
 
     def _h2o():
@@ -1172,7 +1315,7 @@ def generate_noxrr_adsorbates(pathway_name: str) -> tuple:
                 [0.76, 0.00, 0.59],
                 [-0.76, 0.00, 0.59],
             ],
-            properties = {"adsorbate": "*H2O"}
+            properties={"adsorbate": "*H2O"}
         )
 
     # Registry
@@ -1514,7 +1657,7 @@ def generate_cer_adsorbates(pathway_name: str) -> tuple:
     dict
         Dictionary mapping repeat indices to adsorption sets with 'clean_slab'
         and 'adsorb_set' keys. Each adsorb_set contains structures with metadata.
-    
+
     Raises
     ------
     ValueError
@@ -2276,22 +2419,23 @@ def get_multipliers(slab_pmg):
         return [(1, 1, 1), (1, 2, 1), (1, 3, 1), (2, 2, 1)]
     return [(1, 1, 1), (2, 1, 1), (3, 1, 1), (2, 2, 1)]
 
+
 def generate_adsorbed_structures(reaction: str, pathway_name: str = "") -> dict:
     """Generate surface + adsorbate structures for specified reaction.
-    
+
     Parameters
     ----------
     reaction : str
         Reaction type: 'OER', 'CO2RR', 'NOXRR', 'CER', 'HER', 'ORR', or 'NRR'.
     pathway_name : str, optional
         Pathway name (required for everything except OER).
-    
+
     Returns
     -------
     dict
         Dict of adsorption sets, where each set is a list of ASE Atoms objects
         with site_type, ads_coord, and adsorbate info in the Atoms.info dict.
-    
+
     Raises
     ------
     ValueError
@@ -2347,7 +2491,7 @@ def generate_adsorbed_structures(reaction: str, pathway_name: str = "") -> dict:
     # Build slab + adsorbate
     site_types = ['ontop', 'bridge', 'hollow']
     adsorption_sets = {}
-    multipliers = [(1,1,1)] #get_multipliers(slab_pmg)
+    multipliers = [(1, 1, 1)]  # get_multipliers(slab_pmg)
     base_slab = pmg_to_ase(asf.slab).copy()
 
     for idx, repeat in enumerate(multipliers):
@@ -2380,12 +2524,29 @@ def generate_adsorbed_structures(reaction: str, pathway_name: str = "") -> dict:
                 if len(adsorb_set["structures"]) == len(adsorbates):
                     adsorption_sets[idx]["adsorb_set"].append(adsorb_set)
 
-    return {"sets": adsorption_sets, "gas_refs": gas_refs}
+    # Reference intramolecular bond graphs, keyed by adsorbate name, for the
+    # post-relaxation identity check in run_relaxation (see docs/sanity_checks.md).
+    expected_graphs = {
+        ads.properties['adsorbate']: _adsorbate_reference_graph(ads)
+        for ads in adsorbates
+    }
+
+    return {"sets": adsorption_sets, "gas_refs": gas_refs,
+            "expected_graphs": expected_graphs}
+
 
 def run_relaxation(ml_model: str, calc, fmax: float, max_steps: int,
-                   reaction: str, pathway: str) -> dict:
+                   reaction: str, pathway: str,
+                   validate_adsorbates: bool = True,
+                   check_slab_integrity: bool = False,
+                   check_energy_outliers: bool = False,
+                   bind_tol: float = 1.25,
+                   graph_tol: float = _ADSORBATE_BOND_TOL,
+                   slab_max_disp: float = 1.5,
+                   energy_mad_factor: float = 5.0,
+                   **relaxation_kwargs) -> dict:
     """Run geometry relaxation on adsorbate structures.
-    
+
     Parameters
     ----------
     ml_model : str
@@ -2400,6 +2561,20 @@ def run_relaxation(ml_model: str, calc, fmax: float, max_steps: int,
         Reaction type: 'OER', 'CO2RR', 'NOXRR', 'CER', 'HER', 'ORR', or 'NRR'.
     pathway : str
         Pathway name (required for everything except OER, which takes "").
+    validate_adsorbates : bool, optional
+        Run the default post-relaxation sanity checks (layers 0-2: finite
+        energy, atom overlap, surface binding, molecular identity). A relaxed
+        adsorbate that fails is treated exactly like a relaxation failure and
+        its set is dropped; the reason is recorded in rejected.json. Default True.
+    check_slab_integrity : bool, optional
+        Opt-in layer 3: also reject a set if its slab reconstructs (max slab
+        displacement vs the clean relaxed slab exceeds ``slab_max_disp``).
+    check_energy_outliers : bool, optional
+        Opt-in layer 4: after relaxation, drop sets whose adsorbate energy is a
+        MAD outlier across the sites computed on this slab.
+    bind_tol, graph_tol, slab_max_disp, energy_mad_factor : float, optional
+        Tolerances for the binding (layer 1), identity (layer 2), slab-integrity
+        (layer 3) and energy-outlier (layer 4) checks respectively.
 
     Notes
     -----
@@ -2409,8 +2584,12 @@ def run_relaxation(ml_model: str, calc, fmax: float, max_steps: int,
     alongside `clean_slab`. Downstream analysis routines find them by the
     `info['adsorbate']` key (e.g. 'H2O', 'O2', 'Cl2') in the same way they
     find '*' (clean slab) and surface intermediates ('*O', '*OH', …).
+
+    Adsorbate validation is documented in docs/sanity_checks.md. Rejected
+    structures (with reasons) are written to rejected.json.
     """
     relaxed_sets = []
+    rejected = []
     num_failed = 0
     total_number = 0
     model_key = f'{ml_model.lower()}_energy'
@@ -2418,6 +2597,7 @@ def run_relaxation(ml_model: str, calc, fmax: float, max_steps: int,
     result = generate_adsorbed_structures(reaction, pathway)
     adsorption_sets = result["sets"]
     gas_refs = result["gas_refs"]
+    expected_graphs = result.get("expected_graphs", {})
 
     # Relax each pathway-required gas reference once. These energies are
     # appended (in the same JSON-encoded form) to every relaxed_set below, so
@@ -2435,7 +2615,11 @@ def run_relaxation(ml_model: str, calc, fmax: float, max_steps: int,
         if not relax.converged:
             raise RuntimeError(f"Gas-phase reference '{name}' did not converge in {max_steps} steps")
 
-        atoms.info[model_key] = atoms.get_potential_energy()
+        # Store the PER-MOLECULE energy: the reference cells pack several
+        # molecules (e.g. 8 H2O, 4 CO2), but the CHE bookkeeping downstream
+        # consumes one molecule per stoichiometric unit.
+        n_molecules = _reference_molecule_count(atoms, name)
+        atoms.info[model_key] = atoms.get_potential_energy() / n_molecules
         relaxed_refs_json.append(jsonio.encode(atoms))
         total_number += 1
 
@@ -2443,7 +2627,7 @@ def run_relaxation(ml_model: str, calc, fmax: float, max_steps: int,
         # Relax clean slab once per repeat configuration
         clean_slab = set_data['clean_slab']
         clean_slab.calc = calc
-        relax_clean = BFGSLineSearch(clean_slab, maxstep=0.1, logfile='opt.log')
+        relax_clean = BFGSLineSearch(clean_slab, **relaxation_kwargs)
 
         try:
             relax_clean.run(fmax=fmax, steps=max_steps)
@@ -2473,6 +2657,29 @@ def run_relaxation(ml_model: str, calc, fmax: float, max_steps: int,
 
                 ads_energy = adsorbed.get_potential_energy()
                 adsorbed.info[model_key] = ads_energy
+
+                # Post-relaxation sanity checks (layers 0-2 by default, +3 opt-in).
+                # A failure is treated like a relaxation failure: the set is
+                # dropped and the reason logged to rejected.json.
+                if validate_adsorbates:
+                    name = adsorbed.info.get('adsorbate')
+                    exp_graph = expected_graphs.get(name)
+                    if exp_graph is not None:
+                        verdict = validate_relaxed_adsorbate(
+                            adsorbed, exp_graph.number_of_nodes(), exp_graph,
+                            ads_energy, graph_tol=graph_tol, bind_tol=bind_tol,
+                            clean_slab_atoms=(clean_slab if check_slab_integrity else None),
+                            slab_max_disp=slab_max_disp)
+                        if not verdict.ok:
+                            rejected.append({
+                                "adsorbate": name,
+                                "site_type": site_type,
+                                "ads_coord": ads_coords.tolist(),
+                                "repeat": list(adsorb_set["repeat"]),
+                                "reason": verdict.reason})
+                            num_failed += 1
+                            break
+
                 relaxed_structures.append(jsonio.encode(adsorbed))
                 total_number += 1
 
@@ -2487,6 +2694,12 @@ def run_relaxation(ml_model: str, calc, fmax: float, max_steps: int,
                                    + [jsonio.encode(clean_slab)])}
                 relaxed_sets.append(relaxed_set)
 
+    # Layer 4 (opt-in): ensemble energy-outlier rejection across sites.
+    if check_energy_outliers and relaxed_sets:
+        relaxed_sets, outlier_rejects = _flag_energy_outliers(relaxed_sets, model_key, energy_mad_factor)
+        rejected.extend(outlier_rejects)
+        num_failed += len(outlier_rejects)
+
     # Write output files
     output = {'structures': relaxed_sets}
     with open('output.json', 'w') as f:
@@ -2498,19 +2711,31 @@ def run_relaxation(ml_model: str, calc, fmax: float, max_steps: int,
     with open('failed.txt', 'w') as f:
         f.write(str(num_failed))
 
+    # Structures rejected by the sanity checks, with reasons (see
+    # docs/sanity_checks.md). Empty list when nothing was rejected.
+    with open('rejected.json', 'w') as f:
+        json.dump(rejected, f)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--ML_model", type=str)
     parser.add_argument("--model", type=str)
     parser.add_argument("--model_path", type=str)
-    parser.add_argument("--device", type=str)
     parser.add_argument("--task_name", type=str, default=None)
+    parser.add_argument("--device", type=str)
     parser.add_argument("--fmax", type=float)
     parser.add_argument("--max_steps", type=int)
     parser.add_argument("--slab_energy", type=float)
     parser.add_argument("--reaction", type=str)
     parser.add_argument("--pathway", type=str)
+    # Post-relaxation sanity checks (see docs/sanity_checks.md).
+    parser.add_argument("--no-validate", action="store_true",
+                        help="disable default adsorbate validation (layers 0-2)")
+    parser.add_argument("--check-slab-integrity", action="store_true",
+                        help="opt-in layer 3: reject sets where the slab reconstructs")
+    parser.add_argument("--check-energy-outliers", action="store_true",
+                        help="opt-in layer 4: reject MAD-outlier adsorption energies")
     args = parser.parse_args()
 
     from _calculators import make_calculator
@@ -2518,4 +2743,7 @@ if __name__ == "__main__":
                            device=args.device, task_name=args.task_name)
 
     run_relaxation(ml_model=args.ML_model, calc=calc, fmax=args.fmax, max_steps=args.max_steps,
-                   reaction=args.reaction, pathway=args.pathway)
+                   reaction=args.reaction, pathway=args.pathway,
+                   validate_adsorbates=not args.no_validate,
+                   check_slab_integrity=args.check_slab_integrity,
+                   check_energy_outliers=args.check_energy_outliers)

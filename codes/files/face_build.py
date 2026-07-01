@@ -160,18 +160,16 @@ def run_surface_builder(calc, fmax, max_steps, max_miller_idx, max_num_surf):
         return
 
     slab_data.sort(key=lambda x: x["surface_formation_energy"])
-
     num_to_select = min(max_num_surf, len(slab_data))
     selected_faces = slab_data[:num_to_select]
-
     if num_to_select < max_num_surf:
         print(f"Warning: Only {num_to_select} slabs converged, requested {max_num_surf}")
 
     built_faces = []
     for entry in selected_faces:
+        print(entry["atoms"])
         at = entry["atoms"]
         built_faces.append(ase_to_pmg(at).as_dict())
-
 
     to_dump = dict({'slabs': built_faces})
 
@@ -183,6 +181,7 @@ def run_surface_builder(calc, fmax, max_steps, max_miller_idx, max_num_surf):
 
     with open('failed.txt', 'w') as f:
         f.write(str(num_failed))
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -201,7 +200,4 @@ if __name__ == "__main__":
     calc = make_calculator(args.ML_model, model=args.model, model_path=args.model_path,
                            device=args.device, task_name=args.task_name)
 
-    run_surface_builder(calc,
-                        args.fmax, args.max_steps,
-                        args.max_miller_idx,
-                        args.max_num_surf)
+    run_surface_builder(calc, args.fmax, args.max_steps, args.max_miller_idx, args.max_num_surf)

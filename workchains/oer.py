@@ -4,11 +4,13 @@ OER (Oxygen Evolution Reaction) overpotential calculator.
 Uses the computational hydrogen electrode (CHE) model for the 4-electron
 acidic mechanism: 2H2O → O2 + 4H+ + 4e-
 
-Reference energies and ZPE corrections are loaded once at module import
-from references.yaml and zpe_corrections.yaml.
+Gas-phase references (H2, H2O) arrive inside adsorption_energies as raw
+per-molecule electronic energies (computed from molecular_references/*.vasp);
+their ZPE is added here from zpe_corrections.yaml, matching the convention
+used by the other reaction calculators.
 """
 
-from uvsib.workchains.utils import load_references, load_zpe
+from uvsib.workchains.utils import load_zpe
 
 # ---------------------------------------------------------------------------
 # Module-level constants (loaded once at import)
@@ -23,7 +25,7 @@ G_OER_TOTAL = 4.92  # eV
 U_OER_EQ = 1.23  # V vs RHE
 
 
-def calculate_oer_overpotential(adsorption_energies, pathway_name, method, func):
+def calculate_oer_overpotential(adsorption_energies, pathway_name):
     """Calculate OER overpotential using the CHE model (4e acidic mechanism).
 
     Parameters
@@ -34,10 +36,6 @@ def calculate_oer_overpotential(adsorption_energies, pathway_name, method, func)
     pathway_name : str
         Currently only '4e_mechanism' is supported. Parameter is accepted
         for API consistency with CO2RR/NOXRR functions.
-    method : str
-        'dft' or ML model name (e.g. 'uPET', 'mace', 'mattersim').
-    func : str
-        Functional / reference set, e.g. 'r2SCAN'.
 
     Returns
     -------
@@ -50,22 +48,26 @@ def calculate_oer_overpotential(adsorption_energies, pathway_name, method, func)
 
     Raises
     ------
-    NotImplementedError
-        If the method/func combination has no defined references.
     KeyError
-        If a required adsorbate key is missing from adsorption_energies.
+        If a required adsorbate or gas-phase reference key is missing from
+        adsorption_energies (e.g. '*', '*OH', '*O', '*OOH', 'H2', 'H2O').
     """
-    refs = load_references(method, func)
-    local_energy = adsorption_energies.copy()
-    local_energy.update(refs)
+    # Gas-phase references (H2, H2O) are computed per-molecule from
+    # molecular_references/*.vasp and arrive inside adsorption_energies
+    # alongside the surface intermediates and the clean slab.
+    local_energy = adsorption_energies
 
     zpe = _ZPE
     DELTA_OH  = zpe['*OH']
     DELTA_O   = zpe['*O']
     DELTA_OOH = zpe['*OOH']
 
-    half_H2 = 0.5 * local_energy['H2']
-    E_H2O   = local_energy['H2O']
+    # The stored gas energies are raw electronic; add their full ZPE here so
+    # OER matches the other reactions, which add _ZPE per species. O2 is never
+    # referenced directly -- step 4 uses the energy-conserving closure below
+    # (G_OER_TOTAL), which avoids DFT's O2 overbinding error.
+    half_H2 = 0.5 * (local_energy['H2'] + zpe['H2'])
+    E_H2O   = local_energy['H2O'] + zpe['H2O']
     E_star  = local_energy['*']
     E_OH    = local_energy['*OH']
     E_O     = local_energy['*O']

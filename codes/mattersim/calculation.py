@@ -41,20 +41,24 @@ class MatterSimCalculation(CalcJob):
         cmdline = parameters['cmdline_params']
 
         if job_type == 'relax':
-            input_file = os.path.join(settings.mattersim_files_path, 'relax.py')
+            input_file = os.path.join(settings.files_path, 'relax.py')
         elif job_type == 'face_build':
-            input_file = os.path.join(settings.mattersim_files_path, 'face_build.py')
+            input_file = os.path.join(settings.files_path, 'slab_generate.py')
+        elif job_type == 'face_relax':
+            input_file = os.path.join(settings.files_path, 'slab_relax.py')
         elif job_type == 'adsorbates':
-            input_file = os.path.join(settings.mattersim_files_path, 'adsorbates.py')
+            input_file = os.path.join(settings.files_path, 'adsorbates.py')
+        elif job_type == 'sqs':
+            input_file = os.path.join(settings.files_path, 'sqs.py')
         else:
-            input_file = os.path.join(settings.mattersim_files_path, 'energy_forces.py')
+            raise NotImplementedError(f'{job_type} is not implemented.')
 
         with open(input_file, 'r', encoding='utf-8') as f:
             content = f.read()
         with folder.open('aiida.py', 'w', encoding='utf-8') as f:
             f.write(content)
 
-        helper_file = os.path.join(settings.mattersim_files_path, '_calculators.py')
+        helper_file = os.path.join(settings.files_path, '_calculators.py')
         with open(helper_file, 'r', encoding='utf-8') as f:
             content = f.read()
         with folder.open('_calculators.py', 'w', encoding='utf-8') as f:
@@ -67,7 +71,7 @@ class MatterSimCalculation(CalcJob):
         # Calc info.
         calcinfo = CalcInfo()
         calcinfo.uuid = self.uuid
-        calcinfo.retrieve_list = ['output.json', 'total.txt', 'failed.txt']
+        calcinfo.retrieve_list = ['output.json', 'total.txt', 'failed.txt', 'rejected.json']
         calcinfo.codes_info = [codeinfo]
         calcinfo.local_copy_list = [
             (file.uuid, file.filename, file.filename)

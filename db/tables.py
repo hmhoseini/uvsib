@@ -137,16 +137,8 @@ class DBSurfaceMLAdsorbate(Base):
     __tablename__ = "db_surface_ml_adsorbate"
 
     id = Column(Integer, primary_key=True)
-    structure_uuid = Column(
-        UUID(as_uuid=True),
-        ForeignKey("db_structure.uuid", ondelete="CASCADE"),
-        nullable=False
-    )
-    surface_id = Column(
-        Integer,
-        ForeignKey("db_surface.id", ondelete="CASCADE"),
-        nullable=False
-    )
+    structure_uuid = Column(UUID(as_uuid=True), ForeignKey("db_structure.uuid", ondelete="CASCADE"), nullable=False)
+    surface_id = Column(Integer, ForeignKey("db_surface.id", ondelete="CASCADE"), nullable=False)
     surface_miller_index = Column(JSONB, nullable=False)
     composition = Column(String, nullable=True)
     reaction = Column(String, nullable=False)

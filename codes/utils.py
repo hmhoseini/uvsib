@@ -10,23 +10,11 @@ from uvsib.workflows import settings
 
 def get_cmdline(job_info):
     """Construct command line"""
-
     cmdline = []
     cmdline.append(f"--ML_model={job_info['ML_model']}")
-
-    model_name = job_info.get("model_name")
-    model_path = job_info.get("model_path")
-    # device = job_info.get("device")
-
-    if model_name:
-        cmdline.append(f"--model={model_name}")
-    if model_path:
-        cmdline.append(f"--model_path={model_path}")
-
-    task_name = job_info.get("task_name")
-    if task_name:
-        cmdline.append(f"--task_name={task_name}")
-
+    cmdline.append(f"--model={job_info['model_name']}")
+    cmdline.append(f"--model_path={job_info['model_path']}")
+    cmdline.append(f"--task_name={job_info['model_head']}")
     cmdline.append(f"--device={job_info['device']}")
 
     job_type = job_info['job_type']
@@ -36,6 +24,10 @@ def get_cmdline(job_info):
             f"--fmax={job_info['fmax']}",
             f"--max_steps={job_info['max_steps']}"]
         )
+    elif job_type == 'hopping':
+        cmdline.extend([
+            f"--mh_steps={job_info['mh_steps']}"
+        ])
     elif job_type == 'face_build':
         cmdline.extend([
             f"--fmax={job_info['fmax']}",
@@ -49,7 +41,8 @@ def get_cmdline(job_info):
             f"--fmax={job_info['fmax']}",
             f"--max_steps={job_info['max_steps']}",
             f"--reaction={job_info['reaction']}",
-            f"--pathway={job_info['pathway']}"]
+            f"--pathway={job_info['pathway']}",
+            f"--no-validate"]
         )
     elif job_type == 'nano_particles':
         cmdline.extend([
@@ -60,6 +53,7 @@ def get_cmdline(job_info):
             '--max_natoms={}'.format(job_info['particles_range'].split('-')[1]),
             '--generator={}'.format(job_info['generator'])]
         )
+    # print('DBG codes/utils: ', cmdline)
     return cmdline
 
 def get_element_entries(chemsys_list, functional):
@@ -125,6 +119,29 @@ def get_structures_from_mpdb_by_composition(chemical_formula, e_hull):
         if summary.energy_above_hull <= e_hull:
             stable_structures.append(summary.structure.as_dict())
     return stable_structures
+
+def get_mp_element_structures(elements):
+    """Stable elemental ground-state structures from the Materials Project.
+
+    Returns ``{element_symbol: structure_dict}`` with the lowest-e_above_hull
+    elemental polymorph per element -- the seed crystals to be relaxed with the
+    project MLIP so the hull's elemental endpoints are on-method.
+    """
+    out = {}
+    with MPRester(settings.api_key) as mpr:
+        for el in elements:
+            try:
+                docs = mpr.materials.summary.search(
+                    chemsys=el, fields=["structure", "energy_above_hull"])
+            except Exception:
+                continue
+            docs = [d for d in docs if getattr(d, "energy_above_hull", None) is not None]
+            if not docs:
+                continue
+            best = min(docs, key=lambda d: d.energy_above_hull)
+            out[el] = best.structure.as_dict()
+    return out
+
 
 def get_entries_from_mpdb(chemical_formula, run_type, ehull):
     """Get structures entry from the MPDB

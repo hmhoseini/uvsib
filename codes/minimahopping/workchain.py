@@ -1,7 +1,9 @@
 from aiida.engine import BaseRestartWorkChain, while_
 from aiida.orm import Dict, Code, Str
 from aiida.plugins import DataFactory, CalculationFactory
+from uvsib.codes.utils import get_cmdline
 from uvsib.workflows import settings
+
 
 StructureData = DataFactory('core.structure')
 
@@ -22,29 +24,6 @@ def get_options():
         options.update({'custom_scheduler_commands' : '#SBATCH --exclusive'})
     return options
 
-def get_cmdline(job_info):
-    """Construct MinimaHopping command line"""
-    cmdline = []
-
-    cmdline.append(f"--ML_model={job_info['ML_model']}")
-
-    model_name = job_info.get("model_name")
-    model_path = job_info.get("model_path")
-
-    if model_name:
-        cmdline.append(f"--model={model_name}")
-    if model_path:
-        cmdline.append(f"--model_path={model_path}")
-
-    task_name = job_info.get("task_name")
-    if task_name:
-        cmdline.append(f"--task_name={task_name}")
-
-    cmdline.extend([
-        f"--mh_steps={job_info['mh_steps']}",
-        f"--device={job_info['device']}"]
-        )
-    return cmdline
 
 MinimaHoppingCalculation = CalculationFactory('mh')
 
@@ -58,23 +37,21 @@ class MinimaHoppingWorkChain(BaseRestartWorkChain):
         spec.input("code", valid_type=Code)
         spec.input('job_info', valid_type=Dict)
         spec.input('this_label', valid_type=Str)
+        spec.expose_outputs(MinimaHoppingCalculation)
+
         spec.outline(
             cls.setup,
             while_(cls.should_run_process)(
                 cls.run_process,
                 cls.inspect_process,
             ),
-            cls.results,
+            cls.results
         )
-
-        spec.expose_outputs(MinimaHoppingCalculation)
-
         spec.exit_code(400,'ERROR_MAX_RESTARTS_EXCEEDED', message='Maximum number of restarts exceeded for MinimaHoppingWorkChain.')
 
     def setup(self):
         """Initialize context before first calculation."""
         super().setup()
-
         structure = self.inputs.structure
         job_info = self.inputs.job_info
 
