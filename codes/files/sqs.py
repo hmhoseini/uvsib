@@ -116,6 +116,7 @@ import random
 import numpy as np
 from ase.io import read as ase_read
 from ase.optimize import BFGSLineSearch
+from ase.filters import FrechetCellFilter as _CellFilter
 from icet import ClusterSpace
 from icet.tools.structure_generation import generate_sqs
 from itertools import product
@@ -158,8 +159,7 @@ def _build_chemical_symbols(parent_atoms, sublattices):
                 allowed = list(spec["species"])
                 if atom.symbol not in allowed:
                     allowed = [atom.symbol] + allowed
-                # icet expects sorted-by-symbol allowed list for stable
-                # sublattice identity
+                # icet expects sorted-by-symbol allowed list for stable sublattice identity
                 chem.append(sorted(allowed))
                 assigned = label
                 break
@@ -238,8 +238,7 @@ def _is_pure_composition(comp_point):
 def _pure_endpoint_atoms(parent_atoms, sublattices, comp_point, supercell):
     """Build the parent supercell with each sublattice set to its lone species."""
     repeat = tuple(supercell) if isinstance(supercell, (list, tuple)) else \
-             (int(round(supercell ** (1/3))), int(round(supercell ** (1/3))),
-              int(round(supercell ** (1/3))))
+             (int(round(supercell ** (1/3))), int(round(supercell ** (1/3))), int(round(supercell ** (1/3))))
     repeat = tuple(max(1, r) for r in repeat)
     decorated = parent_atoms.copy()
     for lab, spec in sublattices.items():
@@ -471,6 +470,26 @@ def process_request(req, request_index):
                         "sqs_seed": v_seed,
                     })
 
+    # Elemental reference seeds the workchain shipped with the request (MP
+    # ground-state polymorphs for elements missing an on-method reference).
+    # They ride through relax_requests with the same calculator as everything
+    # else; kind="element_ref" keeps them out of split_by_kind's buckets.
+    for ref in req.get("element_refs", []) or []:
+        structures.append(ref["structure"])
+        metadata.append({
+            "parent_label": parent_label,
+            "kind": "element_ref",
+            "element": ref["element"],
+            "composition": {},
+            "n_parent_atoms": len(parent_atoms),
+            "natoms": len(Structure.from_dict(ref["structure"])),
+            "miller": None,
+            "slab_thickness": None,
+            "vacuum": None,
+            "vacancy_frac": 0.0,
+            "sqs_seed": None,
+        })
+
     return structures, metadata
 
 def relax_requests(calculator, structures, metadata):
@@ -479,7 +498,11 @@ def relax_requests(calculator, structures, metadata):
     for structure, meta in zip(structures, metadata):
         atoms = AseAtomsAdaptor.get_atoms(Structure.from_dict(structure))
         atoms.calc = calculator
-        relax = BFGSLineSearch(atoms)
+        # Elemental hull endpoints must sit at the MLIP's own lattice
+        # constant, not MP's DFT one -> variable-cell relax for them only;
+        # SQS bulks/slabs keep their fixed cells as before.
+        target = _CellFilter(atoms) if meta.get("kind") == "element_ref" else atoms
+        relax = BFGSLineSearch(target)
         relax.run(fmax=0.05, steps=200)
         if relax.converged():
             atoms.info['predicted_energy'] = atoms.get_potential_energy()

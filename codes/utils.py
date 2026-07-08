@@ -108,7 +108,7 @@ def get_structures_from_mpdb_by_composition(chemical_formula, e_hull):
     """Get the most stable structures from the MPDB"""
     stable_structures = []
     api_key = settings.api_key
-    with MPRester(api_key) as mpr:
+    with MPRester(api_key, mute_progress_bars=True) as mpr:
         summaries = mpr.materials.summary.search(
                 formula=chemical_formula,
                 fields=["structure", "energy_above_hull"]
@@ -128,7 +128,7 @@ def get_mp_element_structures(elements):
     project MLIP so the hull's elemental endpoints are on-method.
     """
     out = {}
-    with MPRester(settings.api_key) as mpr:
+    with MPRester(settings.api_key, mute_progress_bars=True) as mpr:
         for el in elements:
             try:
                 docs = mpr.materials.summary.search(
@@ -150,7 +150,7 @@ def get_entries_from_mpdb(chemical_formula, run_type, ehull):
     entries = []
     api_key = settings.api_key
 
-    with MPRester(api_key) as mpr:
+    with MPRester(api_key, mute_progress_bars=True) as mpr:
         material_data = mpr.materials.summary.search(
                 formula=chemical_formula,
                 fields=["material_id", "energy_above_hull", "task_ids"]
@@ -175,7 +175,7 @@ def get_energy_per_atom(functional):
                 "Rb","Sr","Y","Zr","Nb","Mo","Tc","Ru","Rh","Pd","Ag","Cd","In","Sn","Sb","Te","I","Xe",
                 "Cs","Ba","La","Ce","Pr","Nd","Pm","Sm","Eu","Gd","Tb","Dy","Ho","Er","Tm","Yb","Lu","Hf","Ta",
                 "W","Re","Os","Ir","Pt","Au","Hg","Tl","Pb","Bi","Ac","Th","Pa","U","Np","Pu"]
-    with MPRester(settings.api_key) as mpr:
+    with MPRester(settings.api_key, mute_progress_bars=True) as mpr:
         entries = mpr.materials.thermo.search(
                 chemsys=elements,
                 thermo_types=[functional],

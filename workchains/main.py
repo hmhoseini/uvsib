@@ -11,16 +11,6 @@ from uvsib.workflows import settings
 _SKIP_PD_VERIFICATION = settings._SKIP_PD_VERIFICATION  #TODO for test
 
 
-def _ads_status(step_status, reaction, reaction_path):
-    """Per-(reaction, pathway) adsorbates status from the nested step_status.
-
-    ``step_status["adsorbates"]`` is keyed reaction -> reaction_path -> state so
-    that catalyst chains running in parallel for one composition (e.g. CO2RR and
-    NOXRR) do not share a single flat 'adsorbates' flag.
-    """
-    return ((step_status or {}).get("adsorbates") or {}).get(
-        reaction, {}).get(reaction_path)
-
 class MainWorkChain(WorkChain):
     """ Main WorkChain"""
     @classmethod
@@ -128,9 +118,19 @@ class MainWorkChain(WorkChain):
         base. Scoped to the composition-level steps; adsorbates re-queries its
         own per-(reaction, pathway) status.
         """
-        row = query_by_columns(DBComposition, {"composition": self.ctx.chemical_formula})[0]
+        row = query_by_columns(DBComposition,{"composition": self.ctx.chemical_formula})[0]
         self.ctx.dbcomposition_row = row
-        return row.step_status or {}
+        return row.step_status
+
+    @staticmethod
+    def _ads_status(step_status, reaction, reaction_path):
+        """Per-(reaction, pathway) adsorbates status from the nested step_status.
+        ``step_status["adsorbates"]`` is keyed reaction -> reaction_path -> state so
+        that catalyst chains running in parallel for one composition (e.g. CO2RR and
+        NOXRR) do not share a single flat 'adsorbates' flag.
+        """
+        # return ((step_status or {}).get("adsorbates") or {}).get(reaction, {}).get(reaction_path)
+        return ((step_status.get("adsorbates") or {}).get(reaction) or {}).get(reaction_path) or {}
 
     def should_run_pd_ml(self):
         """Check whether should run PhaseDiagramML"""
@@ -203,23 +203,13 @@ class MainWorkChain(WorkChain):
         reaction_path = self.ctx.reaction_path.value
         # Re-query for a fresh status: the setup-time row snapshot would not see
         # a sibling chain's transition. Status is per-(reaction, pathway).
-        comp_row = query_by_columns(DBComposition, {"composition": self.ctx.chemical_formula})[0]
-        if _ads_status(comp_row.step_status, reaction, reaction_path) in ["Done"]:
-            row = query_by_columns(DBSurfaceMLAdsorbate, {"composition": self.ctx.chemical_formula,
-                                                          "reaction": reaction,
-                                                          "reaction_path": reaction_path})
+        comp_row = query_by_columns(DBComposition,{"composition": self.ctx.chemical_formula})[0]
+        if self._ads_status(comp_row.step_status, reaction, reaction_path) in ["Done"]:
+            row = query_by_columns(DBSurfaceMLAdsorbate,{"composition": self.ctx.chemical_formula,
+                                                         "reaction": reaction, "reaction_path": reaction_path})
             if row:
                 return False
         return True
-
-#    def should_run_band_alignment(self):
-#        """Check whether should run BandAlignment"""
-#        if self.ctx.nano_generator:
-#            return False
-#        band_alignment_step_status = self._fresh_step_status().get("band_alignment")
-#        if band_alignment_step_status in ["Done"]:
-#            return False
-#        return True
 
     def should_run_nano_generator(self):
         """Check whether should run Nano Particles routines"""
@@ -300,7 +290,7 @@ class MainWorkChain(WorkChain):
         reaction = self.ctx.reaction.value
         reaction_path = self.ctx.reaction_path.value
         comp_row = query_by_columns(DBComposition, {"composition": self.ctx.chemical_formula})[0]
-        if _ads_status(comp_row.step_status, reaction, reaction_path) in ["Running"]:
+        if self._ads_status(comp_row.step_status, reaction, reaction_path) in ["Running"]:
             self.ctx.sts = f"adsorbates:{reaction}:{reaction_path}"
             return True
         return False
@@ -592,7 +582,7 @@ class MainWorkChain(WorkChain):
         WorkChain = WorkflowFactory("sqs")
         builder = WorkChain.get_builder()
         builder.request = Dict(dict=request)
-        builder.local_label = Str('SQS for {}'.format(request['parent_label']))
+        builder.local_label = Str('{}'.format(request['parent_label']))
         # if "mu_O2" in settings.inputs['SQS']:
         #     from aiida.orm import Float
         #     builder.mu_O2 = Float(float(settings.inputs['SQS']["mu_O2"]))

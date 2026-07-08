@@ -217,7 +217,7 @@ class CSPWorkChain(WorkChain):
                 "num_batches": settings.inputs["MatterGen_CSP"]["num_batches"],
             }
         )
-        builder.max_iterations = Int(2)
+        # builder.max_iterations = Int(2)
         return builder
 
     def _construct_gnome_csp_builder(self):
@@ -235,7 +235,7 @@ class CSPWorkChain(WorkChain):
             ji.update({"model_name": model, "model_path": model_path, "device": device})
 
         builder.job_info = Dict(ji)
-        builder.max_iterations = Int(2)
+        # builder.max_iterations = Int(2)
         return builder
 
     def _construct_ML_relax_builder(self, structures):

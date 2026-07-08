@@ -33,36 +33,22 @@ from pymatgen.core import Composition
 from pymatgen.core.structure import Structure
 from pymatgen.entries.computed_entries import ComputedStructureEntry
 from pymatgen.analysis.phase_diagram import PhaseDiagram
-
-from aiida.orm import Str, Dict, List, Int, Float, SinglefileData
+from aiida.orm import Str, Dict, List, SinglefileData
 from aiida.engine import WorkChain, if_, calcfunction
 from aiida.plugins import WorkflowFactory, CalculationFactory
-
 from uvsib.db.tables import DBStructure, DBStructureVersion, DBComposition
 from uvsib.db.session import get_session
-from uvsib.db.utils import (
-    update_row,
-    query_by_columns,
-    get_chemical_systems,
-    update_version_attributes,
-)
-from uvsib.codes.utils import get_element_entries
+from uvsib.db.utils import update_row, query_by_columns, get_chemical_systems, update_version_attributes
 from uvsib.workchains.utils import get_code, get_model_device, element_reference_entries
 from uvsib.workchains.phase_diagram import get_entries_from_db
-from uvsib.workchains._synth_classifiers import (
-    classify_entries,
-    summarize,
-    load_pu_model,
-    finite_T_entry,
-    DEFAULTS,
-)
+from uvsib.workchains._synth_classifiers import classify_entries, summarize, load_pu_model, finite_T_entry, DEFAULTS
 from uvsib.workflows import settings
+
 
 DFT_FUNC = settings.DFT_FUNC
 _GENERATED_SOURCES = ("generated", "csp")
 
-# The disordered-SQS generator runs remotely on the gnome@v100 code (reused as
-# the generic v100 Python code), driven through the GNoME CalcJob with the
+# The disordered-SQS generator runs remotely, driven through the GNoME CalcJob with the
 # runner + parser overridden via parameters/options. No new entry point needed.
 GNoMECalculation = CalculationFactory("gnome")
 
@@ -151,7 +137,7 @@ def _classifier_params(job_info):
 
 
 def _finite_T_config():
-    return (settings.inputs.get("synthesizability", {}) or {}).get("finite_T", {}) or {}
+    return settings.inputs.get("synthesizability").get("finite_T")
 
 
 def _precursor_search_config():
@@ -160,7 +146,7 @@ def _precursor_search_config():
     Opt-in sub-feature of synthesizability (mirrors ``finite_T``); read from
     ``input.yaml`` -> ``synthesizability.precursor_search``. Disabled unless
     ``enabled: true``."""
-    return (settings.inputs.get("synthesizability", {}) or {}).get("precursor_search", {}) or {}
+    return settings.inputs.get("synthesizability").get("precursor_search")
 
 
 def _precursor_request_file(request):
@@ -217,7 +203,7 @@ def _sqs_request_file(request):
 
 def _sqs_options():
     """Scheduler options for the remote SQS generator on the gnome@v100 code."""
-    js = settings.configs["codes"]["GNoME"]["job_script"]
+    js = settings.configs["codes"][settings.inputs["synthesizability"]["finite_T"]["code"]]["job_script"]
     options = {
         "resources": {
             "num_machines": js["nodes"],
@@ -232,8 +218,7 @@ def _sqs_options():
     return options
 
 
-def make_disordered_sqs(formula, supercell_atoms=32, lattice="fcc", n_steps=2000,
-                        random_seed=None):
+def make_disordered_sqs(formula, supercell_atoms=32, lattice="fcc", n_steps=2000, random_seed=None):
     """Disordered SQS at the target composition (icet) -- the disordered partner
     for the vibrational entropy of ordering. ``random_seed`` selects the
     realization (vary it to average over independent SQS). Returns a pymatgen
@@ -243,13 +228,11 @@ def make_disordered_sqs(formula, supercell_atoms=32, lattice="fcc", n_steps=2000
     SQS *remotely* on the gnome@v100 code via ``run_sqs`` (the icet search is too
     slow to run inline in a daemon step). ``codes/files/sqs_disordered.py`` is the
     remote twin of this routine."""
-    try:
-        from ase.build import bulk
-        from icet import ClusterSpace
-        from icet.tools.structure_generation import generate_sqs
-        from pymatgen.io.ase import AseAtomsAdaptor
-    except Exception:
-        return None
+    from ase.build import bulk
+    from icet import ClusterSpace
+    from icet.tools.structure_generation import generate_sqs
+    from pymatgen.io.ase import AseAtomsAdaptor
+
     comp = Composition(formula)
     els = [el.symbol for el in comp.elements]
     if len(els) < 2:
@@ -300,7 +283,7 @@ class SynthesizabilityWorkChain(WorkChain):
             cls.setup,
             cls.build_hull,
             if_(cls.should_run_phonons)(
-                cls.run_sqs,        # remote disordered-SQS generation (gnome@v100)
+                cls.run_sqs,        # remote disordered-SQS generation
                 cls.inspect_sqs,    # fold the SQS realizations into the phonon set
                 cls.run_phonons,
                 cls.inspect_phonons,
@@ -396,13 +379,12 @@ class SynthesizabilityWorkChain(WorkChain):
             # folded into the phonon set afterwards (inspect_sqs). Only
             # meaningful for multi-element compositions.
             if len(Composition(self.ctx.chemical_formula).elements) >= 2:
-                self.ctx.sqs_request = _finite_T_sqs_request(
-                    self.ctx.chemical_formula, self.ctx.ft)
+                self.ctx.sqs_request = _finite_T_sqs_request(self.ctx.chemical_formula, self.ctx.ft)
                 self.report(
                     f"Synthesizability: will generate "
                     f"{self.ctx.sqs_request['n_realizations']} disordered SQS "
                     f"realization(s) ({self.ctx.sqs_request['sqs_size']} atoms) "
-                    "remotely on gnome@v100 for the vibrational entropy of ordering")
+                    "remotely for the vibrational entropy of ordering")
             else:
                 self.report("Synthesizability: single-element composition; no "
                             "disordered SQS / vibrational entropy of ordering")
@@ -420,7 +402,7 @@ class SynthesizabilityWorkChain(WorkChain):
             return
         req = self.ctx.sqs_request
         inputs = {
-            "code": get_code("SQS_gen_phonon"),
+            "code": get_code(settings.inputs["synthesizability"]["finite_T"]["code"]),
             "parameters": Dict(dict={
                 "cmdline_params": ["--request=sqs_request.json"],
                 "staged_files": [["sqs_disordered.py", "aiida.py"]],
@@ -436,7 +418,7 @@ class SynthesizabilityWorkChain(WorkChain):
         self.report(
             f"Synthesizability: submitted remote SQS generation "
             f"({req['n_realizations']} realizations x {req['sqs_size']} atoms, "
-            f"{req['sqs_steps']} MC steps) on gnome@v100")
+            f"{req['sqs_steps']} MC steps)")
 
     def inspect_sqs(self):
         """Fold the remote SQS realizations into the phonon set."""
@@ -456,7 +438,7 @@ class SynthesizabilityWorkChain(WorkChain):
             self.ctx.phonon_items.append({"uuid": uid, "structure": struct})
         if self.ctx.sqs_uuids:
             self.report(f"Synthesizability: received {len(self.ctx.sqs_uuids)} "
-                        "disordered SQS realization(s) from gnome@v100 for the "
+                        "disordered SQS realization(s) for the "
                         "vibrational entropy of ordering")
         else:
             self.report("Synthesizability: remote SQS returned no structures; "
@@ -465,7 +447,7 @@ class SynthesizabilityWorkChain(WorkChain):
     def run_phonons(self):
         """Submit one PhononWorkChain for the selected structures."""
         ft = self.ctx.ft
-        model = ft.get("model", "MACE")              # conservative MLIP for phonons
+        model = ft.get("model")
         mname, mpath, device = get_model_device(model)
         job_info = {
             "ML_model": model, "model_name": mname, "model_path": mpath,
@@ -484,7 +466,7 @@ class SynthesizabilityWorkChain(WorkChain):
         builder.code = get_code(model)
         builder.job_info = Dict(dict=job_info)
         builder.local_label = Str(self.ctx.chemical_formula)
-        builder.max_iterations = Int(2)
+        # builder.max_iterations = Int(2)
         self.to_context(phonon=self.submit(builder))
 
     def inspect_phonons(self):
@@ -561,7 +543,6 @@ class SynthesizabilityWorkChain(WorkChain):
             return
 
         pu_model = load_pu_model(self.ctx.pu_model_path)
-
         finite_T = None
         if self.ctx.corr:
             target_T = float(self.ctx.ft.get("temperature", 1000.0))
@@ -600,8 +581,7 @@ class SynthesizabilityWorkChain(WorkChain):
             summary["n_sqs_used"] = info["n_sqs_used"]
             summary["n_sqs_imaginary"] = info["n_sqs_imaginary"]
             summary["ordered_imaginary_modes"] = info["ordered_imaginary"]
-            summary["ordering_pair"] = {"ordered_uuid": info["ordered_uuid"],
-                                        "sqs_uuids": info["sqs_uuids"]}
+            summary["ordering_pair"] = {"ordered_uuid": info["ordered_uuid"], "sqs_uuids": info["sqs_uuids"]}
         self.ctx.output = {"per_structure": results, "summary": summary}
 
         try:
@@ -612,8 +592,8 @@ class SynthesizabilityWorkChain(WorkChain):
         except Exception:
             self.report("Synthesizability: could not update DBComposition attributes")
 
-        self.report(f"Synthesizability: {summary['counts']} over {summary['n_total']} "
-                    f"structures (finite_T={summary['finite_T']})")
+        # self.report(f"Synthesizability: {summary['counts']} over {summary['n_total']} "
+        #             f"structures (finite_T={summary['finite_T']})")
 
     # ----------------------------------------------------------------------- #
     # precursor / synthesis-route literature search (opt-in)

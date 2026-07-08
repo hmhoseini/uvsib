@@ -87,11 +87,7 @@ def add_slab(existing_uuid, comp, slab_dict):
 
 ####################################
 
-def add_structures(
-        source,
-        method,
-        structure_energy_pairs
-    ):
+def add_structures(source, method, structure_energy_pairs):
     """Add new structures and associated energies to the database"""
     with get_session() as session:
         db_structures = []
@@ -121,7 +117,9 @@ def add_structures(
             db_structures.append(db_structure)
 
         session.add_all(db_versions)
+        new_uuids = [str(s.uuid) for s in db_structures]
         session.commit()
+    return new_uuids
 
 def add_version_to_existing_structure(
         existing_uuid,

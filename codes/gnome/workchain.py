@@ -106,7 +106,15 @@ class _GNoMEWorkChainBase(BaseRestartWorkChain):
         self.ctx.inputs = {
             'code': self.inputs.code,
             'file': {'templates_file': _templates_file(templates)},
-            'parameters': Dict(dict={'cmdline_params': _get_cmdline(self._mode, target, ji)}),
+            'parameters': Dict(dict={
+                'cmdline_params': _get_cmdline(self._mode, target, ji),
+                'staged_files': [("gnome_generate.py", "aiida.py"),   # the runner becomes aiida.py
+                                 ("_saps.py", "_saps.py"),            # symmetry-aware partial substitution
+                                 ("refine.py", "refine.py"),          # charge-neutral + primitive dedup (shared w/ MatterGen)
+                                 ("_calculators.py", "_calculators.py"),  # ASE calculator factory for the GNN screen
+                                 ],
+                "retrieve_list": ["output.json"],
+            }),
             'metadata': {
                 'options': get_options(),
                 'label': f'GNoME: {self._mode} for {target}',

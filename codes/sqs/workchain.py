@@ -10,7 +10,7 @@ from uvsib.codes.utils import get_cmdline
 
 def get_options():
     """Return scheduler options"""
-    job_script = settings.configs['codes']['SQS']['job_script']
+    job_script = settings.configs['codes']['sqs']['job_script']
     resources = {
         'num_machines': job_script['nodes'],
         'num_mpiprocs_per_machine': job_script['ntasks'],

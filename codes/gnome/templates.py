@@ -19,9 +19,7 @@ from itertools import combinations
 
 from pymatgen.core import Composition, Element, Species, Structure
 from pymatgen.entries.computed_entries import ComputedStructureEntry
-from pymatgen.analysis.structure_prediction.substitution_probability import (
-    SubstitutionPredictor,
-)
+from pymatgen.analysis.structure_prediction.substitution_probability import SubstitutionPredictor
 
 from uvsib.workflows import settings
 
@@ -82,7 +80,7 @@ def _analog_formulas(comp, k):
 def _mp_by_chemsys(systems, ehull, cap):
     from mp_api.client import MPRester
     structures = []
-    with MPRester(settings.api_key) as mpr:
+    with MPRester(settings.api_key, mute_progress_bars=True) as mpr:
         for chemsys in systems:
             try:
                 docs = mpr.materials.summary.search(
@@ -99,7 +97,7 @@ def _mp_by_chemsys(systems, ehull, cap):
 def _mp_by_formula(formulas, ehull, cap):
     from mp_api.client import MPRester
     structures = []
-    with MPRester(settings.api_key) as mpr:
+    with MPRester(settings.api_key, mute_progress_bars=True) as mpr:
         for formula in formulas:
             try:
                 docs = mpr.materials.summary.search(

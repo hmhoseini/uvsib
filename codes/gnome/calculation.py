@@ -4,14 +4,6 @@ from aiida.orm import Dict, SinglefileData
 from aiida.common.datastructures import CalcInfo, CodeInfo
 from uvsib.workflows import settings
 
-# runner + sidecars staged next to aiida.py on the compute node
-_STAGED = [
-    ("gnome_generate.py", "aiida.py"),   # the runner becomes aiida.py
-    ("_saps.py", "_saps.py"),            # symmetry-aware partial substitution
-    ("refine.py", "refine.py"),          # charge-neutral + primitive dedup (shared w/ MatterGen)
-    ("_calculators.py", "_calculators.py"),  # ASE calculator factory for the GNN screen
-]
-
 
 class GNoMECalculation(CalcJob):
     """AiiDA plugin for the GNoME-style SAPS generator.
@@ -47,7 +39,7 @@ class GNoMECalculation(CalcJob):
 
         # Default to the SAPS runner + sidecars; allow a caller to stage a
         # different runner (e.g. the disordered-SQS generator) on the same code.
-        staged = parameters.get('staged_files') or _STAGED
+        staged = parameters.get('staged_files')
         for src, dst in staged:
             with open(os.path.join(settings.files_path, src), 'r', encoding='utf-8') as f:
                 content = f.read()
@@ -60,9 +52,7 @@ class GNoMECalculation(CalcJob):
 
         calcinfo = CalcInfo()
         calcinfo.uuid = self.uuid
-        calcinfo.retrieve_list = parameters.get('retrieve_list') or ['output.json']
+        calcinfo.retrieve_list = parameters.get('retrieve_list')
         calcinfo.codes_info = [codeinfo]
-        calcinfo.local_copy_list = [
-            (f.uuid, f.filename, f.filename) for f in self.inputs.file.values()
-        ]
+        calcinfo.local_copy_list = [(f.uuid, f.filename, f.filename) for f in self.inputs.file.values()]
         return calcinfo

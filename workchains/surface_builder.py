@@ -12,12 +12,10 @@ from uvsib.workflows import settings
 
 _SKIP_PD_VERIFICATION = settings._SKIP_PD_VERIFICATION #TODO for test
 
-# Slabs are relaxed in balanced batches of at most this many per CalcJob, so a
-# structure that generates many faces is spread over several jobs instead of one
-# long, unpredictable relaxation.
-MAX_SLABS_PER_CHUNK = 250
+MAX_SLABS_PER_CHUNK = 50
 
 FaceCalculation = CalculationFactory(str(settings.inputs["face_build"]["model"]).lower())
+
 
 def get_struct_uuid(chemical_formula, ml_model): #TODO: will correct after test
     """Query structures from the database by formula and return list of (structure_dict, uuid)"""
@@ -29,8 +27,9 @@ def get_struct_uuid(chemical_formula, ml_model): #TODO: will correct after test
             if len(filtered_results) == 10:
                 break
         return filtered_results
-    results = query_structure({"composition": chemical_formula}, method = "r2SCAN") or []
+    results = query_structure({"composition": chemical_formula}, method="r2SCAN") or []
     return [(row.structure, str(row.structure_uuid)) for row in results]
+
 
 def read_yaml(file_path):
     """Read a yaml file"""
@@ -39,12 +38,10 @@ def read_yaml(file_path):
 
 
 def _chunk(seq, size):
-    """Split a list into consecutive chunks of at most ``size`` items."""
     return [seq[i:i + size] for i in range(0, len(seq), size)]
 
 
 def _structures_file(payload):
-    """Stage ``payload`` (a JSON-serialisable list) as input_structures.json."""
     path = os.path.join(tempfile.mkdtemp(), "input_structures.json")
     with open(path, "w", encoding="utf-8") as f:
         json.dump(payload, f)
@@ -52,7 +49,6 @@ def _structures_file(payload):
 
 
 def _model_cmdline():
-    """Model/calculator CLI args for the face-build MLIP on the v100 code."""
     ml_model = settings.inputs["face_build"]["model"]
     model_name, model_path, device = get_model_device(ml_model)
     head = settings.inputs["face_build"]["head"]
@@ -66,11 +62,6 @@ def _model_cmdline():
 
 
 def _facebuild_options():
-    """Scheduler options for a slab job on the minimahopping code (generic parser).
-    NOTE: the calculation ``label`` is NOT an option -- it lives at
-    ``metadata.label`` (set by the callers). ``metadata.options`` is a fixed
-    namespace and rejects unknown keys like 'label'.
-    """
     js = settings.configs["codes"][settings.inputs["face_build"]["model"]]["job_script"]
     options = {
         "resources": {
@@ -87,17 +78,6 @@ def _facebuild_options():
 
 
 class SurfaceBuilderWorkChain(WorkChain):
-    """SurfaceBuilder WorkChain.
-
-    Slab enumeration (``generate_all_slabs``, now bounded -- see
-    ``codes/files/slab_generate.py`` "Robustness": symprec-ladder standardize +
-    ``max_normal_search=1`` + size/symmetry skip + per-bulk walltime cap) and slab
-    relaxation are two separate CalcJobs on the gnome@v100 code: one
-    generation job per bulk structure, then its orthogonal slabs are split into
-    balanced chunks (<= MAX_SLABS_PER_CHUNK) and relaxed in parallel. The global
-    lowest-surface-energy faces (up to settings.MAX_NUM_SURF) are selected here
-    after a structure's chunks all return.
-    """
     @classmethod
     def define(cls, spec):
         super().define(spec)
@@ -119,15 +99,14 @@ class SurfaceBuilderWorkChain(WorkChain):
 
     def setup(self):
         """Setup and report"""
-        self.report("Running SurfaceBuilder WorkChain")
         self.ctx.chemical_formula = self.inputs.chemical_formula.value
         self.ctx.struct_uuid = get_struct_uuid(self.ctx.chemical_formula, settings.inputs['bulk_relax']['model']) #TODO update
         if not self.ctx.struct_uuid:
             self.report(f"No structures were found for {self.ctx.chemical_formula}")
             return self.exit_codes.ERROR_NO_STRUCTURES_FOUND
-        self.ctx.slabs_uuid = []
-        # uuid -> {"epa": float, "n_chunks": int} after the generation phase.
+        self.ctx.slabs_uuid = []  # uuid -> {"epa": float, "n_chunks": int} after the generation phase.
         self.ctx.relax_plan = {}
+        self.report("Running SurfaceBuilder WorkChain for {}".format(self.ctx.chemical_formula))
 
     def run_slabgen(self):
         """Submit a SINGLE slab-generation CalcJob covering all bulk structures.
@@ -148,7 +127,7 @@ class SurfaceBuilderWorkChain(WorkChain):
             "file": {"input_structures_file": _structures_file(payload)},
             "metadata": {
                 "options": _facebuild_options(),
-                "label": f"SlabGen: {self.ctx.chemical_formula} ({len(payload)} bulks)",
+                "label": f"Faces: {self.ctx.chemical_formula} ({len(payload)} bulks)",
             },
         }
         self.to_context(slabgen=self.submit(FaceCalculation, **inputs))

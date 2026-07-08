@@ -57,8 +57,7 @@ from icet import ClusterSpace
 from icet.tools.structure_generation import generate_sqs
 
 
-def make_disordered_sqs(formula, supercell_atoms, lattice, a, cutoffs, n_steps,
-                        random_seed):
+def make_disordered_sqs(formula, supercell_atoms, lattice, a, cutoffs, n_steps, random_seed):
     """One disordered SQS at the target composition; pymatgen dict or None."""
     comp = Composition(formula)
     els = [el.symbol for el in comp.elements]

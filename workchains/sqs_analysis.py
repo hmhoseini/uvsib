@@ -126,7 +126,11 @@ def _dedup(entries, bucket_key):
 # bulk hull
 # ---------------------------------------------------------------------------
 
-def analyse_bulk(bulk_items, functional):
+def analyse_bulk(bulk_items, functional, element_entries=None):
+    """``element_entries``: on-method elemental hull endpoints (from
+    ``element_reference_entries``). Without them PhaseDiagram lacks terminal
+    entries for any multi-element space, the try/except below eats the error
+    and every ehull/eform comes out NaN -- pass them for real hull flags."""
     entries = _dedup(
         _make_entries(bulk_items),
         bucket_key=lambda e: (e.data["parent_label"], e.data["comp_key"]),
@@ -138,8 +142,7 @@ def analyse_bulk(bulk_items, functional):
 
     results = []
     for parent, ents in by_parent.items():
-        elements = sorted({el.symbol for e in ents for el in e.composition.elements})
-        ref = get_element_entries(elements, functional) or []
+        ref = list(element_entries) if element_entries else []
         try:
             pd = PhaseDiagram(ents + ref)
         except Exception:

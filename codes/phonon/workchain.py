@@ -9,11 +9,11 @@ from aiida.plugins import CalculationFactory
 from uvsib.workflows import settings
 
 
-def get_options(job_info):
+def get_options():
     """Scheduler options. Uses a dedicated ``Phonon`` codes block if present,
     else falls back to the chosen MLIP's block (phonons want longer walltime)."""
     codes = settings.configs['codes']
-    job_script = codes.get('Phonon', codes[job_info['ML_model']])['job_script']
+    job_script = codes.get('synth_phonon')['job_script']
     resources = {
         'num_machines': job_script['nodes'],
         'num_mpiprocs_per_machine': job_script['ntasks'],
@@ -107,6 +107,6 @@ class PhononWorkChain(BaseRestartWorkChain):
                 'job_type': 'phonon',
                 'cmdline_params': get_cmdline(ji)}),
             'metadata': {
-                'options': get_options(ji),
+                'options': get_options(),
                 'label': f'Phonon: {label}'},
         }
