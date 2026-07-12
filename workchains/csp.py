@@ -2,16 +2,12 @@ import random
 from aiida.engine import WorkChain
 from aiida.orm import Str, List, Dict, Int
 from aiida.plugins import DataFactory, WorkflowFactory
-from pymatgen.core import Composition
 from uvsib.workchains.utils import (
         unique_low_energy_comp,
         get_output_as_entry,
+        get_ref_entries,
         get_code,
-        get_model_device,
-        element_reference_entries,
-        missing_element_references,
-        split_relax_output)
-from uvsib.codes.utils import get_mp_element_structures
+        get_model_device)
 from uvsib.db.utils import add_structures
 from uvsib.workflows import settings
 
@@ -29,6 +25,7 @@ class CSPWorkChain(WorkChain):
         spec.input("chemical_formula", valid_type=Str)
         spec.input("n_csp", valid_type=Int)
         spec.input("n_mh", valid_type=Int)
+        spec.input("ML_model", valid_type=Str)
 
         spec.outline(
             cls.setup,
@@ -51,9 +48,10 @@ class CSPWorkChain(WorkChain):
         self.ctx.chemical_formula = self.inputs.chemical_formula.value
         self.ctx.n_csp = self.inputs.n_csp.value
         self.ctx.n_mh = self.inputs.n_mh.value
+        self.ctx.ML_model = self.inputs.ML_model.value
         self.ctx.csp_structures = []
-#        self.ctx.inputs = {"metadata": {"label": "CSP for {}".format(self.ctx.chemical_formula)}}
         self.report(f"Launching CSPWorkChain for {self.ctx.chemical_formula}")
+        self.ctx.ref_entries, _ = get_ref_entries(self.ctx.chemical_formula, self.ctx.ML_model)
 
     def run_csp(self):
         """Run MatterGen CSP and/or GNoME (SAPS) CSP in parallel, per input.yaml
@@ -74,7 +72,7 @@ class CSPWorkChain(WorkChain):
                 self.to_context(**{f"gnome_{i}": self.submit(gbuilder)})
 
         if self.ctx.n_csp_jobs == 0 and self.ctx.n_gnome == 0:
-            self.report("No CSP generator enabled (mattergen + gnome both off)")
+            self.report("No CSP generator enabled (mattergen and gnome both off)")
             return self.exit_codes.ERROR_CSP_FAILED
 
     def inspect_csp_calcs(self):
@@ -109,49 +107,24 @@ class CSPWorkChain(WorkChain):
             return self.exit_codes.ERROR_CSP_FAILED
 
     def predict_ml_energies(self):
-        """One MLIP relax over the CSP structures, bundled with any missing
-        elemental references (from MP) so the model is loaded once instead of in
-        a separate reference CalcJob. The references are appended after the CSP
-        structures; collect_ml_energies peels them back off by input index."""
-        model = settings.inputs['bulk_relax']['model']
-        elements = Composition(self.ctx.chemical_formula).chemical_system.split('-')
-        missing = missing_element_references(elements, model)
-        ref_structs = []
-        if missing:
-            structs = get_mp_element_structures(missing)
-            ref_structs = list(structs.values())
-            if not structs:
-                self.report(f"Warning: no MP elemental structures for {missing}; "
-                            "hull will fall back to DFT references")
+        """Predict the energies of the structures with the given ML model"""
         self.ctx.n_main = len(self.ctx.csp_structures)
-        builder = self._construct_ML_relax_builder(self.ctx.csp_structures + ref_structs)
+        builder = self._construct_ML_relax_builder(self.ctx.csp_structures)
         self.to_context(**{"ml_e": self.submit(builder)})
 
     def collect_ml_energies(self):
-        """Split the bundled relax: store the elemental references, then hull the
-        CSP structures (references stored first so the hull picks them up)."""
+        """ML energies"""
         wch = self.ctx.ml_e
         if not wch.is_finished_ok:
             return self.exit_codes.ERROR_ML_RELAX_FAILED
         try:
-            new_entries, ref_entries = split_relax_output(wch, self.ctx.n_main)
+            new_entries = get_output_as_entry(wch)
         except Exception:
             return self.exit_codes.ERROR_ML_RELAX_FAILED
 
-        model = settings.inputs['bulk_relax']['model']
-        if ref_entries:
-            pairs = [(e.structure.as_dict(), e.energy) for e in ref_entries]
-            add_structures("reference", model, pairs)
-            self.report(f"Stored {len(pairs)} MLIP elemental reference(s)")
-
-        self.ctx.el_entries, missing = element_reference_entries(
-            Composition(self.ctx.chemical_formula).chemical_system.split('-'), model)
-        if missing:
-            self.report(f"Warning: DFT-fallback elemental refs for {missing} (per-element offset risk)")
-
         self.ctx.low_energy_entries_csp, _ = unique_low_energy_comp(self.ctx.chemical_formula, new_entries, DFT_FUNC,
                                                                     EHULL_ML, min_n_return=self.ctx.n_mh,
-                                                                    element_entries=self.ctx.el_entries)
+                                                                    element_entries=self.ctx.ref_entries)
 
     def minimahopping(self):
         """Run MinimaHopping"""
@@ -184,19 +157,20 @@ class CSPWorkChain(WorkChain):
             return self.exit_codes.ERROR_MINIMAHOPPING_FAILED
 
         self.ctx.low_energy_entries_mh, _ = unique_low_energy_comp(self.ctx.chemical_formula, new_entries,
-                                                                   DFT_FUNC, EHULL_ML, element_entries=self.ctx.el_entries)
+                                                                   DFT_FUNC, EHULL_ML, element_entries=self.ctx.ref_entries)
 
     def final_step(self):
         """Store structures"""
+        ML_model = self.ctx.ML_model
         all_entries = self.ctx.low_energy_entries_csp + self.ctx.low_energy_entries_mh
         low_energy_entries, _ = unique_low_energy_comp(self.ctx.chemical_formula, all_entries, DFT_FUNC, EHULL_ML,
-                                                       element_entries=self.ctx.el_entries)
+                                                       element_entries=self.ctx.ref_entries)
         structure_energy_pairs = []
 
         for entry in low_energy_entries:
             structure_energy_pairs.append((entry.structure.as_dict(), entry.energy))
 
-        add_structures("csp", settings.inputs['bulk_relax']['model'], structure_energy_pairs)
+        add_structures("csp", ML_model, structure_energy_pairs)
 
     def final_report(self):
         """Final report"""

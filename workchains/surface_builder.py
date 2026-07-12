@@ -10,27 +10,31 @@ from uvsib.workchains.utils import get_code, get_model_device
 from uvsib.workflows import settings
 
 
-_SKIP_PD_VERIFICATION = settings._SKIP_PD_VERIFICATION #TODO for test
+_PD_VERIFICATION = settings._PD_VERIFICATION #TODO for test
 
 # Slabs are relaxed in balanced batches of at most this many per CalcJob, so a
 # structure that generates many faces is spread over several jobs instead of one
 # long, unpredictable relaxation.
 MAX_SLABS_PER_CHUNK = 250
 
+MAX_NUM_BULK = settings.MAX_NUM_BULK
+
 FaceCalculation = CalculationFactory(str(settings.inputs["face_build"]["model"]).lower())
 
-def get_struct_uuid(chemical_formula, ml_model): #TODO: will correct after test
+def get_struct_uuid(chemical_formula): #TODO: will correct after test
     """Query structures from the database by formula and return list of (structure_dict, uuid)"""
-    if _SKIP_PD_VERIFICATION:
-        results = query_structure({"composition": chemical_formula}, method=ml_model)
-        filtered_results = list()
+    if _PD_VERIFICATION:
+        results = query_structure({"composition": chemical_formula}, method = "r2SCAN") or []
+        return [(row.structure, str(row.structure_uuid)) for row in results] #TODO it retruns DFT optimized structures
+    else:
+        model = settings.inputs['bulk_relax']['model']
+        results = query_structure({"composition": chemical_formula}, method=model)
+        filtered_results = []
         for s, u in sorted([(row.structure, str(row.structure_uuid)) for row in results], key=lambda x: x[1]):
             filtered_results.append([s, u])
-            if len(filtered_results) == 10:
+            if len(filtered_results) == MAX_NUM_BULK:
                 break
         return filtered_results
-    results = query_structure({"composition": chemical_formula}, method = "r2SCAN") or []
-    return [(row.structure, str(row.structure_uuid)) for row in results]
 
 def read_yaml(file_path):
     """Read a yaml file"""
@@ -121,7 +125,7 @@ class SurfaceBuilderWorkChain(WorkChain):
         """Setup and report"""
         self.report("Running SurfaceBuilder WorkChain")
         self.ctx.chemical_formula = self.inputs.chemical_formula.value
-        self.ctx.struct_uuid = get_struct_uuid(self.ctx.chemical_formula, settings.inputs['bulk_relax']['model']) #TODO update
+        self.ctx.struct_uuid = get_struct_uuid(self.ctx.chemical_formula) #TODO update
         if not self.ctx.struct_uuid:
             self.report(f"No structures were found for {self.ctx.chemical_formula}")
             return self.exit_codes.ERROR_NO_STRUCTURES_FOUND

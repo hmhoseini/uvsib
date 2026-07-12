@@ -1,4 +1,4 @@
-from aiida.orm import Str, List, Dict
+from aiida.orm import Bool, Str, List, Dict
 from aiida_submission_controller import BaseSubmissionController
 from uvsib.workchains.main import MainWorkChain
 

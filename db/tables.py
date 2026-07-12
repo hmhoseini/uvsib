@@ -1,12 +1,9 @@
 import uuid
 from sqlalchemy import create_engine, Column, String, Text, Integer, DateTime, ForeignKey, UniqueConstraint, Float
 from sqlalchemy.dialects.postgresql import UUID, JSONB, DOUBLE_PRECISION
-from sqlalchemy.orm import declarative_base
 from sqlalchemy.sql import func
 from uvsib.db.db_url import DB_URL
-
-
-Base = declarative_base()
+from uvsib.db.session import Base
 
 
 class DBChemsys(Base):
@@ -28,7 +25,6 @@ class DBChemsys(Base):
         UniqueConstraint("chemsys", name="_list_formula_uc"),
     )
 
-
 class DBComposition(Base):
     """Composition table """
     __tablename__ = "db_composition"
@@ -42,15 +38,14 @@ class DBComposition(Base):
     )
     composition = Column(String, nullable=True)
     status = Column(String, nullable=False, default="Created")
-    step_status = Column(JSONB, nullable=False, default={})
+    step_status = Column(JSONB, nullable=False, default=dict)
     stable_struct = Column(JSONB, nullable=True)
     attributes = Column(JSONB, nullable=True)
     ctime = Column(DateTime(timezone=True), server_default=func.now())
     mtime = Column(DateTime(timezone=True), onupdate=func.now())
 
     def __repr__(self):
-        return f"<db_test(uuid={self.uuid}, label={self.label})>"
-
+        return f"<DBComposition(uuid={self.uuid}, composition={self.composition})>"
 
 class DBStructure(Base):
     __tablename__ = "db_structure"
@@ -67,7 +62,6 @@ class DBStructure(Base):
     ctime = Column(DateTime(timezone=True), server_default=func.now())
     mtime = Column(DateTime(timezone=True), onupdate=func.now())
 
-
 class DBStructureVersion(Base):
     __tablename__ = 'db_structure_version'
 
@@ -77,8 +71,8 @@ class DBStructureVersion(Base):
         ForeignKey("db_structure.uuid", ondelete="CASCADE"),
         nullable=False
     )
+    source = Column(String, nullable=False)
     method = Column(String, nullable=False)
-    source = Column(String, nullable=True)
     structure = Column(JSONB, nullable=False)
     energy = Column(DOUBLE_PRECISION, nullable=True)
     ehull = Column(DOUBLE_PRECISION, nullable=True)
@@ -87,7 +81,6 @@ class DBStructureVersion(Base):
     attributes = Column(JSONB, nullable=True)
     ctime = Column(DateTime(timezone=True), server_default=func.now())
     mtime = Column(DateTime(timezone=True), onupdate=func.now())
-
 
 class DBSurface(Base):
     __tablename__ = "db_surface"
@@ -105,33 +98,32 @@ class DBSurface(Base):
     mtime = Column(DateTime(timezone=True), onupdate=func.now())
 
 
-class DBSurfaceAdsorbate(Base):
-    __tablename__ = "db_surface_adsorbate"
-
-    id = Column(Integer, primary_key=True)
-    structure_uuid = Column(
-        UUID(as_uuid=True),
-        ForeignKey("db_structure.uuid", ondelete="CASCADE"),
-        nullable=False
-    )
-    surface_id = Column(
-        Integer,
-        ForeignKey("db_surface.id", ondelete="CASCADE"),
-        nullable=False
-    )
-    composition = Column(String, nullable=True)
-    reaction = Column(String, nullable=False)
-    reaction_path = Column(String, nullable=False)
-    site_type = Column(String, nullable=False)
-    ads_coord = Column(Text, nullable=False)
-    repeat = Column(Text, nullable=False)
-    eta = Column(DOUBLE_PRECISION, nullable=True)
-    dG = Column(JSONB, nullable=True)
-    adsorb_set = Column(JSONB, nullable=False) # structures & energies
-    attributes = Column(JSONB, nullable=True)
-    ctime = Column(DateTime(timezone=True), server_default=func.now())
-    mtime = Column(DateTime(timezone=True), onupdate=func.now())
-
+#class DBSurfaceAdsorbate(Base):
+#    __tablename__ = "db_surface_adsorbate"
+#
+#    id = Column(Integer, primary_key=True)
+#    structure_uuid = Column(
+#        UUID(as_uuid=True),
+#        ForeignKey("db_structure.uuid", ondelete="CASCADE"),
+#        nullable=False
+#    )
+#    surface_id = Column(
+#        Integer,
+#        ForeignKey("db_surface.id", ondelete="CASCADE"),
+#        nullable=False
+#    )
+#    composition = Column(String, nullable=True)
+#    reaction = Column(String, nullable=False)
+#    reaction_path = Column(String, nullable=False)
+#    site_type = Column(String, nullable=False)
+#    ads_coord = Column(Text, nullable=False)
+#    repeat = Column(Text, nullable=False)
+#    eta = Column(DOUBLE_PRECISION, nullable=True)
+#    dG = Column(JSONB, nullable=True)
+#    adsorb_set = Column(JSONB, nullable=False) # structures & energies
+#    attributes = Column(JSONB, nullable=True)
+#    ctime = Column(DateTime(timezone=True), server_default=func.now())
+#    mtime = Column(DateTime(timezone=True), onupdate=func.now())
 
 class DBSurfaceMLAdsorbate(Base):
     __tablename__ = "db_surface_ml_adsorbate"
@@ -153,7 +145,6 @@ class DBSurfaceMLAdsorbate(Base):
     attributes = Column(JSONB, nullable=True)
     ctime = Column(DateTime(timezone=True), server_default=func.now())
     mtime = Column(DateTime(timezone=True), onupdate=func.now())
-
 
 class DBFrontend(Base):
     """Frontend table"""
@@ -178,8 +169,7 @@ class DBFrontend(Base):
     mtime = Column(DateTime(timezone=True), onupdate=func.now())
 
     def __repr__(self):
-        return f"<db_test(uuid={self.uuid}, label={self.label})>"
-
+        return f"<DBFrontend(uuid={self.uuid}, username={self.username})>"
 
 class DBNanoParticles(Base):
     """Frontend table"""
@@ -198,11 +188,10 @@ class DBNanoParticles(Base):
     structure = Column(JSONB, nullable=True)
     model = Column(String, nullable=True)
     status = Column(String, nullable=False, default="Created")
-    step_status = Column(JSONB, nullable=False, default=dict({}))
+    step_status = Column(JSONB, nullable=False, default=dict)
     attributes = Column(JSONB, nullable=True)
     ctime = Column(DateTime(timezone=True), server_default=func.now())
     mtime = Column(DateTime(timezone=True), onupdate=func.now())
-
 
 class DBSimilarities(Base):
     __tablename__ = "db_similarities"
@@ -215,12 +204,6 @@ class DBSimilarities(Base):
     reference_material_id = Column(String, nullable=True)
     mtime = Column(DateTime(timezone=True), onupdate=func.now())
     ctime = Column(DateTime(timezone=True), server_default=func.now())
-
-
-if __name__ == "__main__":
-    engine = create_engine(DB_URL, echo=False)
-    Base.metadata.create_all(engine)
-
 
 if __name__ == "__main__":
     engine = create_engine(DB_URL, echo=False)

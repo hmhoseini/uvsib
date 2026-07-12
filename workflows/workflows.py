@@ -1,12 +1,12 @@
-from time import sleep, monotonic
 from pymatgen.core.structure import Composition
 from aiida.orm import QueryBuilder, WorkChainNode
 from uvsib.db.tables import DBFrontend, DBChemsys, DBComposition, DBSurfaceMLAdsorbate, DBNanoParticles
-from uvsib.db.utils import update_row, add_row, get_chemical_systems, query_by_columns
+from uvsib.db.utils import update_row, add_row, delete_row, get_chemical_systems, query_by_columns
 from uvsib.workchains.submit import submit_mainworkchain
 
 
 def check_valid(reaction, reaction_path):
+    """Check if reaction and reaction path are implemented"""
     implemented_reactions = {'OER': ['default'],
                              'CO2RR': ['co2_to_co', 'co2_to_hcooh', 'co_to_ch4', 'co_to_ch3oh'],
                              'NOXRR': ['no_dissociative', 'no_to_nh3_noh', 'no_to_nh3_nhoh', 'no_to_n2o',
@@ -15,7 +15,6 @@ def check_valid(reaction, reaction_path):
         raise NotImplementedError(f"Reaction {reaction} not implemented.")
     if reaction_path not in implemented_reactions[reaction]:
         raise NotImplementedError(f"Path {reaction_path} not implemented for {reaction}.")
-    return
 
 def add_from_frontend(dict_from_frontend_list):
     """Process frontend submissions and update the database accordingly."""
@@ -32,7 +31,8 @@ def add_from_frontend(dict_from_frontend_list):
         user = entry["user"]
         reaction = entry["reaction"]
         reaction_path = entry["reaction_path"]
-        retry = entry['retry'] if 'retry' in entry else True
+
+        retry = entry["retry"] if "retry" in entry else False
 
         if "nano_particles" in entry:
             nano = entry['nano_particles']
@@ -64,9 +64,9 @@ def add_from_frontend(dict_from_frontend_list):
             )
 
         # check if a composition is already processed
-        existing_composition = query_by_columns(DBComposition,{"composition": chemical_formula})
+        existing_composition = query_by_columns(DBComposition, {"composition": chemical_formula})
         if not existing_composition:
-            add_row(DBComposition,{"composition": chemical_formula})
+            add_row(DBComposition, {"composition": chemical_formula})
 
         # check if elements are processes for nano particles
         elements = '-'.join(sorted(list([str(el) for el in Composition(chemical_formula).elements])))
@@ -74,17 +74,26 @@ def add_from_frontend(dict_from_frontend_list):
         if not existing_particles:
             add_row(DBNanoParticles,{"elements": elements})
 
+#        # remove crashed chemical systems
+#        chemical_systems, _ = get_chemical_systems(chemical_formula)
+#        for chemsys in chemical_systems:
+#            r = query_by_columns(DBChemsys, {"chemsys": chemsys})
+#            if r:
+#                row = r[0]
+#                if not row.gen_structures:
+#                    label = f"CatalystChain {reaction}:{reaction_path} on {chemical_formula}"
+#                    killed = QueryBuilder().append(
+#                        WorkChainNode,
+#                        filters={"label": label,
+#                                 "attributes.process_state": {"in": ["killed"]}},
+#                    ).all()
+#                    if killed:
+#                        pass
+
         # only new chemical systems
-        new_chemsys = get_chemical_systems(chemical_formula, new=True)
+        _, new_chemsys = get_chemical_systems(chemical_formula)
         for chemsys in new_chemsys:
             add_row(DBChemsys, {"chemsys": chemsys})
-
-        # Per-(reaction, pathway) idempotency -- NOT per-composition. The old
-        # guard skipped on the composition status ("Running"), which silently
-        # dropped every reaction after the first in a batch as soon as the first
-        # one flipped the composition to "Running" (the "only 2 submitted" bug).
-        # Dedup the exact (composition, reaction, pathway) triple instead, so
-        # sibling reactions of the same composition are never blocked:
 
         # (a) already finished -> a result row exists
         row = query_by_columns(DBSurfaceMLAdsorbate, {"composition": chemical_formula,
@@ -123,7 +132,6 @@ def add_from_frontend(dict_from_frontend_list):
                              reaction=reaction, reaction_path=reaction_path,
                              nano=nano, similarities=similars, sqs=sqs)
         update_dbfrontend()
-
 
 def update_dbfrontend():
     """Updateing DBFrontend status"""

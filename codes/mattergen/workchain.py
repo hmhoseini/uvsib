@@ -90,6 +90,7 @@ class MatterGenBaseWorkChain(BaseRestartWorkChain):
     def setup(self):
         """Initialize context before first calculation."""
         super().setup()
+        self.report(f"launching MatterGenCalculation for {self.inputs.chemical_system.value}")
 
         chemical_system = self.inputs.chemical_system.value
         job_info = self.inputs.job_info

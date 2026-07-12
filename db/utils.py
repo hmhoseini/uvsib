@@ -4,28 +4,28 @@ from sqlalchemy import inspect, delete, select, text
 from sqlalchemy.orm import aliased
 from pymatgen.core import Composition, Structure
 from uvsib.db.session import get_session
-from uvsib.db.tables import (DBChemsys, DBStructure, DBStructureVersion, DBSurface, DBSurfaceAdsorbate,
+from uvsib.db.tables import (DBChemsys, DBStructure, DBStructureVersion, DBSurface,
                              DBSurfaceMLAdsorbate, DBNanoParticles)
 
 
-def add_surface_adsorbate(existing_uuid, surf_id, comp, react, react_path, site_type, ads_coord, e, dg, ad_set):
-    """Store a new DBSurfaceAdsorbate row corresponding to a given DBStructure UUID and surface ID"""
-    with get_session() as session:
-        adsorb = DBSurfaceAdsorbate(
-                structure_uuid=existing_uuid,
-                surface_id=surf_id,
-                composition=comp,
-                reaction=react,
-                reaction_path=react_path,
-                site_type=site_type,
-                ads_coord=ads_coord,
-                eta=e,
-                dG=dg,
-                adsorb_set=ad_set
-        )
-        session.add(adsorb)
-        session.commit()
-    return True
+#def add_surface_adsorbate(existing_uuid, surf_id, comp, react, react_path, site_type, ads_coord, e, dg, ad_set):
+#    """Store a new DBSurfaceAdsorbate row corresponding to a given DBStructure UUID and surface ID"""
+#    with get_session() as session:
+#        adsorb = DBSurfaceAdsorbate(
+#                structure_uuid=existing_uuid,
+#                surface_id=surf_id,
+#                composition=comp,
+#                reaction=react,
+#                reaction_path=react_path,
+#                site_type=site_type,
+#                ads_coord=ads_coord,
+#                eta=e,
+#                dG=dg,
+#                adsorb_set=ad_set
+#        )
+#        session.add(adsorb)
+#        session.commit()
+#    return True
 
 
 def add_surface_ml_adsorbate(existing_uuid, surf_id, surface_miller_index, comp, react, react_path, site_type, ads_coord, repeat, e, dG_steps, dG_cumulative, ad_set):
@@ -90,7 +90,8 @@ def add_slab(existing_uuid, comp, slab_dict):
 def add_structures(
         source,
         method,
-        structure_energy_pairs
+        structure_energy_pairs,
+        attributes={}
     ):
     """Add new structures and associated energies to the database"""
     with get_session() as session:
@@ -105,6 +106,7 @@ def add_structures(
             db_structure = DBStructure(
                 composition=composition,
                 chemsys=chemical_system,
+                attributes=attributes
             )
             session.add(db_structure)
             session.flush()
@@ -303,29 +305,26 @@ def query_by_columns(table_class, filters):
 
 ####################################
 
-def get_chemical_systems(chemical_formula, new=True):
+def get_chemical_systems(chemical_formula):
     """Given a chemical formula, return either all or new chemical systems"""
     comp = Composition(chemical_formula)
     elements = sorted(el.symbol for el in comp.elements)
 
-    subsystems = []
-    repeated_chemsys = []
+    chemical_systems = []
     new_chemsys = []
 
     for n in range(1, len(elements) + 1):
         for combo in combinations(elements, n):
             subsystem = "-".join(combo)
-            subsystems.append(subsystem)
+            chemical_systems.append(subsystem)
 
-    for subsystem in subsystems:
+    for subsystem in chemical_systems:
         result = query_by_columns(DBChemsys,{"chemsys": subsystem})
         if result:
-            repeated_chemsys.append(subsystem)
+            continue
         else:
             new_chemsys.append(subsystem)
-    if new:
-        return new_chemsys
-    return subsystems
+    return chemical_systems, new_chemsys
 
 ####################################
 

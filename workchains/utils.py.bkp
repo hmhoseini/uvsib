@@ -8,12 +8,13 @@ from pymatgen.analysis.structure_matcher import StructureMatcher
 from pymatgen.analysis.phase_diagram import PhaseDiagram
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer, SymmetryUndeterminedError
 from uvsib.codes.utils import get_element_entries, get_structures_from_mpdb_by_composition
-from uvsib.db.utils import query_structure, add_structures
+from uvsib.db.utils import query_structure, add_structures, query_by_columns
+from uvsib.db.session import get_session
+from uvsib.db.tables import DBStructure, DBStructureVersion
 from uvsib.workflows import settings
 
 
 EHULL_SCAN = settings.EHULL_SCAN
-DFT_FUNC = settings.DFT_FUNC
 
 matcher = StructureMatcher(
     ltol=0.3,
@@ -38,6 +39,7 @@ def load_zpe(reaction):
         return dict(_ZPE_ALL[reaction])
     except:
         return None
+
 
 def che_overpotential(steps, local_energy, zpe, equilibrium_potential,
                       reduction=True, n_electrons=None, pin_total=False):
@@ -267,14 +269,16 @@ def unique_low_energy_comp(chemical_formula, entries, method, ehull, min_n_retur
                 ehulls.append(eh)
     return stable_entries, ehulls
 
+
 def add_from_mpdb(chemical_formula):
     """Add missing stable and experimental structures and their reference elements from MPDB."""
-    results = query_structure({"composition": chemical_formula}, method = "DFT")
-    existing_sources = {result.source for result in results}
+    results = query_by_columns(DBStructure, {"composition": chemical_formula})
+    attrbts = []
+    for r in results:
+        attrbts.extend(r.attributes)
 
-    missing_stb = "MPDB_stb" not in existing_sources
-    missing_exp = "MPDB_exp" not in existing_sources
-
+    missing_stb = "stb" not in attrbts
+    missing_exp = "exp" not in attrbts
     exp_structures = []
     stb_structures = []
     if missing_stb or missing_exp:
@@ -286,27 +290,27 @@ def add_from_mpdb(chemical_formula):
         )
     if missing_stb and stb_structures:
         structures = [(get_primitive_cell(structure).as_dict(), None) for structure in stb_structures ]
-        add_structures("MPDB_stb", "DFT", structures)
+        add_structures("MPDB", "DFT", structures, attributes=["stb"])
     if missing_exp and exp_structures:
         structures = [(get_primitive_cell(structure).as_dict(), None) for structure in exp_structures ]
-        add_structures("MPDB_exp", "DFT", structures)
-    # add reference structures (elements)
+        add_structures("MPDB", "DFT", structures, attributes=["exp"])
+    # add reference structures
     missing_el = []
-    elements = Composition(chemical_formula).chemical_system.split('-')
+    elements = [element.symbol for element in Composition(chemical_formula).elements]
     for el in elements:
-        row = query_structure({"composition": el}, method = "DFT")
+        row = query_by_columns(DBStructure, {"composition": el})
         if not row:
             missing_el.append(el)
         else:
             for r in row:
-                if r.source == "MPDB_ref":
+                if "ref" in r.attributes:
                     break
             else:
                 missing_el.append(el)
 
-    el_entries = get_element_entries(missing_el, DFT_FUNC)
+    el_entries = get_element_entries(missing_el, "GGA")
     structures = [(e.structure.as_dict(), None) for e in el_entries]
-    add_structures("MPDB_ref", "DFT", structures)
+    add_structures("MPDB", "DFT", structures, attributes=["ref"])
 
 def get_code(model_key):
     """
@@ -323,26 +327,6 @@ def get_model_device(ML_model):
 
     return model, model_path, device
 
-def get_ref_entries(chemical_formula, ML_model):
-    el_entries = []
-    missing = []
-    elements = Composition(chemical_formula).chemical_system.split("-")
-    for el in elements:
-        r = query_structure({"chemsys": el}, method = ML_model, source = "MPDB_ref")
-        if r:
-            row = r[0]
-            struct = Structure.from_dict(row.structure)
-            el_entries.append(
-                    ComputedStructureEntry(
-                    structure=struct,
-                    energy=row.energy,
-                    data={"struct_uuid": row.structure_uuid})
-            )
-        else:
-            missing.append(el)
-    if missing:
-        el_entries.extend(get_element_entries(missing, DFT_FUNC))
-    return el_entries, missing
 
 # --------------------------------------------------------------------------- #
 # on-method elemental hull references
@@ -357,72 +341,73 @@ def get_ref_entries(chemical_formula, ML_model):
 # get_entries_from_db filters only on method, they are then picked up as hull
 # vertices automatically wherever the hull is built from the DB.
 # --------------------------------------------------------------------------- #
-
-#def get_ml_element_entries(elements, model):
-#    """Lowest-energy stored MLIP elemental reference per element (source='reference')."""
-#    refs = []
-#    with get_session() as session:
-#        for el in elements:
-#            row = (
-#                session.query(DBStructureVersion)
-#                .join(DBStructure)
-#                .filter(DBStructure.chemsys == el)
-#                .filter(DBStructureVersion.method == model)
-#                .filter(DBStructureVersion.source == "reference")
-#                .order_by(DBStructureVersion.energy.asc())
-#                .first()
-#            )
-#            if row is None:
-#                continue
-#            refs.append(ComputedStructureEntry(
-#                structure=Structure.from_dict(row.structure),
-#                energy=row.energy,
-#                data={"reference": True, "element": el},
-#            ))
-#    return refs
-
-#def missing_element_references(elements, model):
-#    """Elements that have no MLIP reference stored yet (need computing)."""
-#    have = {e.data.get("element") for e in get_ml_element_entries(elements, model)}
-#    return [el for el in elements if el not in have]
+def get_ml_element_entries(elements, model):
+    """Lowest-energy stored MLIP elemental reference per element (source='reference')."""
+    refs = []
+    with get_session() as session:
+        for el in elements:
+            row = (
+                session.query(DBStructureVersion)
+                .join(DBStructure)
+                .filter(DBStructure.chemsys == el)
+                .filter(DBStructureVersion.method == model)
+                .filter(DBStructureVersion.source == "reference")
+                .order_by(DBStructureVersion.energy.asc())
+                .first()
+            )
+            if row is None:
+                continue
+            refs.append(ComputedStructureEntry(
+                structure=Structure.from_dict(row.structure),
+                energy=row.energy,
+                data={"reference": True, "element": el},
+            ))
+    return refs
 
 
-#def element_reference_entries(elements, model):
-#    """(entries, missing) elemental hull endpoints on the MLIP method.
-#
-#    Uses the cached MLIP references; any element not yet computed is filled with
-#    the bundled DFT reference so the hull still builds -- ``missing`` lists those
-#    DFT-filled elements (a per-element offset for them only), which the caller
-#    should log. In steady state (references computed) ``missing`` is empty and
-#    every endpoint is on-method.
-#    """
-#    refs = get_ml_element_entries(elements, model)
-#    have = {e.data.get("element") for e in refs}
-#    missing = [el for el in elements if el not in have]
-#    if missing:
-#        refs = list(refs) + get_element_entries(missing, settings.DFT_FUNC)
-#    return refs, missing
+def missing_element_references(elements, model):
+    """Elements that have no MLIP reference stored yet (need computing)."""
+    have = {e.data.get("element") for e in get_ml_element_entries(elements, model)}
+    return [el for el in elements if el not in have]
 
-#def construct_reference_relax_builder(structures, model):
-#    """Builder that ML-relaxes elemental reference structures with the SAME model
-#    and head as ``bulk_relax`` (so the references are on-method)."""
-#    from aiida.plugins import WorkflowFactory
-#    from aiida.orm import List, Str, Dict
-#
-#    Workflow = WorkflowFactory(model.lower())
-#    builder = Workflow.get_builder()
-#    builder.input_structures = List(list(structures))
-#    builder.code = get_code(model)
-#    builder.local_label = Str("element references")
-#    model_name, model_path, device = get_model_device(model)
-#    builder.job_info = Dict({
-#        "job_type": "relax",
-#        "ML_model": model,
-#        "model_name": model_name,
-#        "model_path": model_path,
-#        "model_head": settings.inputs["bulk_relax"]["head"],
-#        "device": device,
-#        "fmax": settings.inputs["bulk_relax"]["fmax"],
-#        "max_steps": settings.inputs["bulk_relax"]["max_steps"],
-#    })
-#    return builder
+
+def element_reference_entries(elements, model):
+    """(entries, missing) elemental hull endpoints on the MLIP method.
+
+    Uses the cached MLIP references; any element not yet computed is filled with
+    the bundled DFT reference so the hull still builds -- ``missing`` lists those
+    DFT-filled elements (a per-element offset for them only), which the caller
+    should log. In steady state (references computed) ``missing`` is empty and
+    every endpoint is on-method.
+    """
+    refs = get_ml_element_entries(elements, model)
+    have = {e.data.get("element") for e in refs}
+    missing = [el for el in elements if el not in have]
+    if missing:
+        refs = list(refs) + get_element_entries(missing, settings.DFT_FUNC)
+    return refs, missing
+
+
+def construct_reference_relax_builder(structures, model):
+    """Builder that ML-relaxes elemental reference structures with the SAME model
+    and head as ``bulk_relax`` (so the references are on-method)."""
+    from aiida.plugins import WorkflowFactory
+    from aiida.orm import List, Str, Dict
+
+    Workflow = WorkflowFactory(model.lower())
+    builder = Workflow.get_builder()
+    builder.input_structures = List(list(structures))
+    builder.code = get_code(model)
+    builder.local_label = Str("element references")
+    model_name, model_path, device = get_model_device(model)
+    builder.job_info = Dict({
+        "job_type": "relax",
+        "ML_model": model,
+        "model_name": model_name,
+        "model_path": model_path,
+        "model_head": settings.inputs["bulk_relax"]["head"],
+        "device": device,
+        "fmax": settings.inputs["bulk_relax"]["fmax"],
+        "max_steps": settings.inputs["bulk_relax"]["max_steps"],
+    })
+    return builder

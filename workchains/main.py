@@ -8,7 +8,7 @@ from uvsib.db.utils import update_row, query_by_columns, update_step_status_path
 from uvsib.workchains.pythonjob_inputs import wait_sleep
 from uvsib.workflows import settings
 
-_SKIP_PD_VERIFICATION = settings._SKIP_PD_VERIFICATION  #TODO for test
+_PD_VERIFICATION = settings._PD_VERIFICATION
 
 
 def _ads_status(step_status, reaction, reaction_path):
@@ -117,16 +117,9 @@ class MainWorkChain(WorkChain):
                         f"reaction {self.ctx.reaction.value} path {self.ctx.reaction_path.value}")
 
     def _fresh_step_status(self):
-        """Re-query the composition row so the shared-step gates observe a
+        """
+        Re-query the composition row so the shared-step gates observe a
         sibling chain's transitions.
-
-        The row cached in setup() is a frozen SELECT * snapshot; reading it in a
-        wait loop would never see a 'Running' -> 'Done' transition (the chain
-        would wait forever) and would let a late chain miss a finished step
-        instead of skipping it and reusing the result (e.g. the surfaces).
-        Refreshing the cached row also gives the run/inspect writes a fresher
-        base. Scoped to the composition-level steps; adsorbates re-queries its
-        own per-(reaction, pathway) status.
         """
         row = query_by_columns(DBComposition, {"composition": self.ctx.chemical_formula})[0]
         self.ctx.dbcomposition_row = row
@@ -149,7 +142,7 @@ class MainWorkChain(WorkChain):
             return False
         if self.ctx.nano_generator:
             return False
-        if _SKIP_PD_VERIFICATION: #TODO remove after test
+        if not _PD_VERIFICATION:
             return False
         step_status = self._fresh_step_status().get("pd_verification")
         if step_status in ["Done"]:
@@ -393,7 +386,7 @@ class MainWorkChain(WorkChain):
         update_row(DBComposition, row.uuid, {"status": "Running", "step_status": row.step_status})
 
     def sqs(self):
-        """Running PhaseDiagramML WorkChain"""
+        """Running SQS WorkChain"""
         row = self.ctx.dbcomposition_row
         # update row status in DBComposition table
         row.step_status.update({"sqs": "Running"})
@@ -403,7 +396,7 @@ class MainWorkChain(WorkChain):
         self.to_context(**{"sqs": future})
 
     def inspect_sqs(self):
-        """Inspecting PhaseDiagramML WorkChain"""
+        """Inspecting SQS WorkChain"""
         wch = self.ctx.sqs
         row = self.ctx.dbcomposition_row
         if not wch.is_finished_ok:
@@ -529,6 +522,7 @@ class MainWorkChain(WorkChain):
         builder = PhaseDiagramMLWorkChain.get_builder()
         builder.chemical_formula = Str(self.ctx.chemical_formula)
         builder.chemical_systems = self.ctx.chemical_systems
+        builder.ML_model = Str(settings.inputs['bulk_relax']['model'])
         return builder
 
     def _construct_pd_verification_builder(self):

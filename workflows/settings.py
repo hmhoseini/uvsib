@@ -25,7 +25,6 @@ MAX_NUM_SURF = 10
 EHULL_ML = 0.05
 EHULL_SCAN = 0.1
 DFT_FUNC = "GGA"  # MP naming: GGA == PBE (bundled refs key on "GGA"/"r2SCAN", not "PBE")
-# ML_FUNC = "r2SCAN"
 
 # Run the GNoME (SAPS) generator in parallel with MatterGen in the gen + csp
 # paths. Opt-in via input.yaml (`gnome: {enabled: true}`); defaults off so
@@ -50,7 +49,9 @@ SYNTH_ENABLED = bool(inputs.get('synthesizability', {}).get('enabled', False))
 # false -> the full pipeline runs as before.
 SOFT_STOP_BEFORE_SURFACE = bool(inputs.get('soft_stop', {}).get('before_surface_builder', False))
 
-_SKIP_PD_VERIFICATION = True
+_PD_VERIFICATION = False
+_SKIP_CSP = False
+_SKIP_GEN = False
 
 code_folder_path =  os.path.join(uvsib_directory, 'codes')
 files_path = os.path.join(code_folder_path, 'files')

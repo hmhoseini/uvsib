@@ -8,7 +8,7 @@ from aiida.engine import WorkChain
 from uvsib.codes.vasp.workchains import construct_vasp_builder
 from uvsib.db.tables import DBComposition
 from uvsib.db.utils import query_structure, add_version_to_existing_structure, query_by_columns
-from uvsib.workchains.utils import get_primitive_cell, unique_low_energy_comp, add_from_mpdb
+from uvsib.workchains.utils import get_primitive_cell, unique_low_energy_comp
 from uvsib.workflows import settings
 
 EHULL_SCAN = settings.EHULL_SCAN
@@ -20,11 +20,10 @@ def read_yaml(file_path):
         data = yaml.safe_load(fhandle)
     return data
 
-def get_struct_uuid(chemical_formula, method):
+def get_struct_uuid(chemical_formula, model):
     """
-    Query structures from the database by formula and method.
+    Query structures from the database by formula.
     Return list of (structure, uuid), keeping only unique structures.
-    MPDB results (if exist) are always preserved.
     """
     matcher = StructureMatcher(
         ltol=0.3,
@@ -37,20 +36,11 @@ def get_struct_uuid(chemical_formula, method):
     )
 
     struct_uuid = []
-
-    mpdb_results = query_structure(
-        {"composition": chemical_formula},
-        source="MPDB"
-    )
-    if mpdb_results:
-        for result in mpdb_results:
-            struct_uuid.append((result.structure, "MPDB", result.structure_uuid))
-
     row = query_by_columns(DBComposition, {"composition": chemical_formula})[0]
     uuid_list = row.stable_struct.get("ml_uuid_list", [])
 
     for uuid_str in uuid_list:
-        result = query_structure({"uuid": uuid_str}, method=method)
+        result = query_structure({"uuid": uuid_str}, method=model)
         structure = result[0].structure
         source = result[0].source
 
@@ -81,7 +71,6 @@ class PDVerificationWorkChain(WorkChain):
         super().define(spec)
 
         spec.input("chemical_formula", valid_type=Str)
-        spec.input("ML_model", valid_type=Str)
 
         spec.outline(
             cls.setup,
@@ -104,19 +93,17 @@ class PDVerificationWorkChain(WorkChain):
         """Setup and report"""
         self.report("Running PDVerification WorkChain")
         self.ctx.chemical_formula = self.inputs.chemical_formula.value
-        self.ctx.ML_model = self.inputs.ML_model.value
-        add_from_mpdb(self.ctx.chemical_formula)
-
-        self.ctx.struct_uuid = get_struct_uuid(self.ctx.chemical_formula, self.ctx.ML_model)
+        model = settings.inputs['bulk_relax']['model']
+        self.ctx.struct_uuid = get_struct_uuid(self.ctx.chemical_formula, model)
         if not self.ctx.struct_uuid:
-            self.report(f"No structures were found for {self.ctx.chemical_formula}")
+            self.report(f"No structures were found for {self.ctx.chemical_formula} and {model}")
             return self.exit_codes.ERROR_NO_STRUCTURES_FOUND
 
         self.ctx.protocol = read_yaml(
-                os.path.join(settings.vasp_files_path, "protocol.yaml")
+                os.path.join(settings.code_folder_path, "files", "protocol.yaml")
         )
         self.ctx.potential_family = settings.configs["codes"]["VASP"]["potential_family"]
-        potential_mapping = read_yaml(os.path.join(settings.vasp_files_path, "potential_mapping.yaml"))
+        potential_mapping = read_yaml(os.path.join(settings.code_folder_path, "files", "potential_mapping.yaml"))
         self.ctx.potential_mapping = potential_mapping["potential_mapping"]
         self.ctx.vasp_code = load_code(
                 settings.configs["codes"]["VASP"]["code_string"]

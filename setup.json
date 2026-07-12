@@ -11,7 +11,7 @@
     "python_requires": ">=3.10",
     "install_requires": [
         "aiida-submission-controller==0.1.2", "mp-api","aiida-pythonjob==0.4.8", "aiida-vasp==4.1.0",
-		"ase", "cluskit==4.2.0", "dscribe==2.1.2",
+		"ase",
 		"phonopy", "icet", "pymatgen"
     ],
     "entry_points": {
@@ -51,6 +51,7 @@
 		"upet = uvsib.codes.upet.workchain:uPETWorkChain",
 		"uma = uvsib.codes.uma.workchain:UMAWorkChain",
 		"minimahopping = uvsib.codes.minimahopping.workchain:MinimaHoppingWorkChain",
+		"mpdbml = uvsib.workchains.mpdb_ml:MPDBMLWorkChain",
 		"phasediagram = uvsib.workchains.phase_diagram:PhaseDiagramMLWorkChain",
 		"pdverification = uvsib.workchains.pd_verification:PDVerificationWorkChain",
 		"bandalignment = uvsib.workchains.band_alignment:BandAlignmentWorkChain",
