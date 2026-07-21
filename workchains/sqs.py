@@ -111,7 +111,7 @@ class SQSWorkChain(WorkChain):
             self.report(f"Warning: no MP elemental structure for {lost}; "
                         "hull falls back to DFT references for them")
         if seeds:
-            self.report(f"element references relaxed alongside SQS: {sorted(seeds)}")
+            self.report(f"element references: {sorted(seeds)}")
         return [{"element": el, "structure": sd} for el, sd in sorted(seeds.items())]
 
     def inspect_sqs(self):
@@ -187,9 +187,16 @@ class SQSWorkChain(WorkChain):
 
     def store_structures(self):
           """Persist SQS ground-state bulks so SurfaceBuilder.get_struct_uuid
-          (query on composition + method=bulk_relax model) picks them up."""
+          (query on composition + method=bulk_relax model) picks them up.
+
+          Each grid composition gets its own DBComposition row + ml_uuid_list;
+          the PARENT formula's row is written last with the union over all
+          grid compositions, so a surface-builder run on the parent processes
+          the whole sweep (get_struct_uuid follows the manifest)."""
           method = settings.inputs["bulk_relax"]["model"]   # MUST match get_struct_uuid's query key
           source = f"sqs_{self.ctx.functional}"             # true provenance kept here
+          parent_formula = Structure.from_dict(
+              self.inputs.request["structure"]).composition.reduced_formula
 
           # lowest-energy SQS sample per (parent, composition point)
           best = {}
@@ -204,15 +211,31 @@ class SQSWorkChain(WorkChain):
               total_e = r["energy_per_atom"] * r["n_atoms"]   # DBStructureVersion.energy is TOTAL energy
               by_formula.setdefault(formula, []).append((r["structure"], total_e))
 
+          per_formula = {}
           for formula, pairs in by_formula.items():
               uuids = add_structures(source, method, pairs)
+              per_formula[formula] = uuids
               rows = query_by_columns(DBComposition, {"composition": formula})
               if not rows:
                   add_row(DBComposition, {"composition": formula})
                   rows = query_by_columns(DBComposition, {"composition": formula})
-              update_row(DBComposition, rows[0].uuid, {"stable_struct": {"ml_uuid_list": uuids}})
+              update_row(DBComposition, rows[0].uuid, {"stable_struct": {
+                  "origin": "sqs", "parent": parent_formula, "ml_uuid_list": uuids}})
 
               self.report(f"stored {len(uuids)} SQS bulk(s) for {formula}")
+
+          # parent aggregate LAST so it wins on the parent row even when the
+          # parent formula is itself a grid point
+          all_uuids = [u for uuids in per_formula.values() for u in uuids]
+          rows = query_by_columns(DBComposition, {"composition": parent_formula})
+          if not rows:
+              add_row(DBComposition, {"composition": parent_formula})
+              rows = query_by_columns(DBComposition, {"composition": parent_formula})
+          update_row(DBComposition, rows[0].uuid, {"stable_struct": {
+              "origin": "sqs", "parent": parent_formula,
+              "ml_uuid_list": all_uuids, "per_formula": per_formula}})
+          self.report(f"SQS manifest on {parent_formula}: {len(all_uuids)} structure(s) "
+                      f"across {len(per_formula)} composition(s)")
 
     def final_report(self):
         label = self.ctx.local_label

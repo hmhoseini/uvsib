@@ -554,10 +554,14 @@ def generate_oer_adsorbates():
     mol.properties = {"adsorbate": "*O", "energy": 0}
     adsorbates.append(mol)
 
-    # *OH
+    # *OH -- O-H must be a physical bond length: the identity check (layer 2)
+    # graphs this very geometry as the reference, so a stretched O-H (the old
+    # 1.28 A > 1.25*(r_O+r_H) cutoff) yields an edgeless reference graph and
+    # every intact relaxed *OH gets rejected as "isomerised".
+    # IrO2 values approx: H at (0.1, 0.9, 2.9), O at (0, 0, 2.0)
     mol = Molecule(
         [X, "O", "H"],
-        [(0, 0, 0), (0, 0, 2.0), (0.1, 0.9, 2.9)],
+        [(0, 0, 0), (0, 0, 2.0), (0.08, 0.68, 2.68)],
     )
     mol.properties = {"adsorbate": "*OH", "energy": 0}
     adsorbates.append(mol)

@@ -62,8 +62,7 @@ def process_slab(slab, target_vacuum=10.0, angle_tol=1.0):
     if abs(alpha - 90) > angle_tol or abs(beta - 90) > angle_tol:
         return None
 
-    new_lattice = Lattice.from_parameters(a=a_len, b=b_len, c=c_len,
-                                          alpha=90, beta=90, gamma=gamma)
+    new_lattice = Lattice.from_parameters(a=a_len, b=b_len, c=c_len, alpha=90, beta=90, gamma=gamma)
 
     cart_coords = np.array(slab.cart_coords)
     z_coords = cart_coords[:, 2]

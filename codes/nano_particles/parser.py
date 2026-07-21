@@ -4,12 +4,14 @@ from aiida.parsers import Parser
 from aiida.orm import Dict
 
 
-class uPETParser(Parser):
-    """
-    Parser for uPET Calculation
+class NanoParticleParser(Parser):
+    """Parser for NanoParticle: output.json -> output_dict.
 
-    Reads generated_crystals.extxyz directly from the retrieved folder
-    into memory and converts all frames to StructureData.
+    NOT currently registered in setup.json (the workchain submits the
+    calculation with the generic registered ``sqs_parser``, which has the
+    same output.json -> Dict behaviour). Kept in the canonical shape so a
+    ``nano_particles_parser`` entry point can be added later without code
+    changes here.
     """
 
     def parse(self, **kwargs):
@@ -18,24 +20,13 @@ class uPETParser(Parser):
         except exceptions.NotExistent:
             return self.exit_codes.ERROR_NO_RETRIEVED_FOLDER
 
-        output_filename = 'output.json'
+        output_filename = "output.json"
         if output_filename not in retrieved_folder.list_object_names():
             return self.exit_codes.ERROR_MISSING_OUTPUT
-        with retrieved_folder.open(output_filename, 'r') as f:
-            data = json.loads(f.read())
+        with retrieved_folder.open(output_filename, "r") as f:
+            data = json.load(f)
 
-        num_filename = 'total.txt'
-        if num_filename not in retrieved_folder.list_object_names():
-            return self.exit_codes.ERROR_MISSING_OUTPUT
-        with retrieved_folder.open(num_filename, 'r') as f:
-            content = f.read()
-        num_structures = int(content)
-
-        failed_filename = 'failed.txt'
-        if num_filename not in retrieved_folder.list_object_names():
-            return self.exit_codes.ERROR_MISSING_OUTPUT
-        with retrieved_folder.open(failed_filename, 'r') as f:
-            content = f.read()
-        num_failed = int(content)
+        if "results" not in data:
+            return self.exit_codes.ERROR_OUTPUT_INCOMPLETE
 
         self.out("output_dict", Dict(dict=data))

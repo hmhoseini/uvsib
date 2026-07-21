@@ -229,10 +229,8 @@ class CSPWorkChain(WorkChain):
 
         ji = dict(settings.inputs["GNoME_CSP"])
         ji["model_head"] = ji.get("head")
-        screen = ji.get("screen", "none")
-        if str(screen).lower() != "none":
-            model, model_path, device = get_model_device(screen)
-            ji.update({"model_name": model, "model_path": model_path, "device": device})
+        model, model_path, device = get_model_device(ji['screen'])
+        ji.update({"model_name": model, "model_path": model_path, "device": device})
 
         builder.job_info = Dict(ji)
         # builder.max_iterations = Int(2)

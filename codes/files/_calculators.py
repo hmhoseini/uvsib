@@ -8,7 +8,8 @@ and the workchain controls the backend + UMA task head via ``--ML_model`` and
 """
 
 _UMA_TASKS = ("omat", "oc20", "oc22", "omol", "odac", "omc")
-_MACE_TASKS = ("omat_pbe", "omol", "spice_wB97M", "rgd1_b3lyp", "oc20_usemppbe", "matpes_r2scan")
+_MACE_TASKS = ("omat_pbe", "omol", "spice_wB97M", "rgd1_b3lyp", "oc20_usemppbe", "matpes_r2scan", "Default")
+
 
 def make_calculator(ml_model, *, model=None, model_path=None, device="cuda",
                     task_name=None):

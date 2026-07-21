@@ -51,7 +51,8 @@ def get_cmdline(job_info):
             '--elements={}'.format(job_info['elements']),
             '--min_natoms={}'.format(job_info['particles_range'].split('-')[0]),
             '--max_natoms={}'.format(job_info['particles_range'].split('-')[1]),
-            '--generator={}'.format(job_info['generator'])]
+            '--generator={}'.format(job_info['generator']),
+            '--no-validate']
         )
     # print('DBG codes/utils: ', cmdline)
     return cmdline

@@ -74,13 +74,13 @@ class MainWorkChain(WorkChain):
                 cls.adsorbates,
                 cls.inspect_adsorbates
             ),
-            if_(cls.should_run_nano_generator)(
-                while_(cls.should_wait_nano_generator)(
+            if_(cls.should_run_nano_particles)(
+                while_(cls.should_wait_nano_particles)(
                     cls.wait_sleep,
                     cls.check_pythonjob_sleep
                 ),
-                cls.nano_generator,
-                cls.inspect_nano_generator
+                cls.nano_particles,
+                cls.inspect_nano_particles
             )
         )
 
@@ -101,7 +101,7 @@ class MainWorkChain(WorkChain):
             self.ctx.nano_particles_range = self.inputs.nanoparticles.value
             elements = '-'.join(sorted(list([str(el) for el in Composition(self.ctx.chemical_formula).elements])))
             self.ctx.nano_row = query_by_columns(DBNanoParticles,{'elements': elements})[0]
-            self.report('Running NanoParticleGenerator for elements {}'.format(elements))
+            self.report('Running NanoParticles for stored data')
         else:
             self.report(f"Running MainWorkChain for {self.ctx.chemical_formula}: "
                         f"reaction {self.ctx.reaction.value} path {self.ctx.reaction_path.value}")
@@ -205,13 +205,24 @@ class MainWorkChain(WorkChain):
         # a sibling chain's transition. Status is per-(reaction, pathway).
         comp_row = query_by_columns(DBComposition,{"composition": self.ctx.chemical_formula})[0]
         if self._ads_status(comp_row.step_status, reaction, reaction_path) in ["Done"]:
+            # SQS sweep: the parent being Done is not enough -- re-enter the
+            # stage if any grid formula of the union manifest still lacks this
+            # (reaction, pathway); the fan-out skips the Done ones.
+            per_formula = ((comp_row.stable_struct or {}).get("per_formula")
+                           if comp_row.stable_struct else None)
+            if per_formula:
+                for formula in per_formula:
+                    frows = query_by_columns(DBComposition, {"composition": formula})
+                    if not frows or self._ads_status(
+                            frows[0].step_status, reaction, reaction_path) not in ["Done"]:
+                        return True
             row = query_by_columns(DBSurfaceMLAdsorbate,{"composition": self.ctx.chemical_formula,
                                                          "reaction": reaction, "reaction_path": reaction_path})
             if row:
                 return False
         return True
 
-    def should_run_nano_generator(self):
+    def should_run_nano_particles(self):
         """Check whether should run Nano Particles routines"""
         if self.ctx.nano_generator:
             nano_particles_step_status = self.ctx.nano_row.step_status.get("nano_generator")
@@ -219,7 +230,7 @@ class MainWorkChain(WorkChain):
                 return False
             return True
 
-    def should_wait_nano_generator(self):
+    def should_wait_nano_particles(self):
         """Should wait for another running WorkChain"""
         if self.ctx.nano_generator:
             nano_particles_step_status = self.ctx.nano_row.step_status.get("nano_generator")
@@ -465,52 +476,97 @@ class MainWorkChain(WorkChain):
         update_row(DBComposition, row.uuid,{"status": "Running", "step_status": row.step_status})
 
     def adsorbates(self):
-        """Running AdsorbatesWorkChain"""
+        """
+        For a plain composition this submits one chain for the submission
+        formula, as before. When the composition row carries an SQS union
+        manifest (``stable_struct.per_formula``, written by
+        SQSWorkChain.store_structures), one AdsorbatesWorkChain is submitted
+        PER grid formula: the surface builder covered the whole sweep via the
+        manifest, but the adsorbates surface query joins on composition, so
+        each grid formula needs its own chain. Formulas whose own row is
+        already Done for this (reaction, pathway) are skipped, which makes
+        re-triggering the parent submission run exactly the missing ones.
+        """
         row = self.ctx.dbcomposition_row
-        path = ["adsorbates", self.ctx.reaction.value, self.ctx.reaction_path.value]
-        # Atomic per-(reaction, pathway) write -- does NOT overwrite siblings'
-        # adsorbates keys (a read-modify-write of the whole JSONB would).
-        update_step_status_path(DBComposition, row.uuid, path, "Running")
-        update_row(DBComposition, row.uuid, {"status": "Running"})
-        builder = self._construct_adsorbates_builder()
-        future = self.submit(builder)
-        self.to_context(**{"adsorbates": future})
+        reaction = self.ctx.reaction.value
+        reaction_path = self.ctx.reaction_path.value
+        path = ["adsorbates", reaction, reaction_path]
+
+        per_formula = ((row.stable_struct or {}).get("per_formula")
+                       if row.stable_struct else None)
+        formulas = (sorted(set(per_formula) | {self.ctx.chemical_formula})
+                    if per_formula else [self.ctx.chemical_formula])
+
+        self.ctx.adsorbates_formulas = []
+        for formula in formulas:
+            frows = query_by_columns(DBComposition, {"composition": formula})
+            frow = frows[0] if frows else None
+            if frow is not None and self._ads_status(
+                    frow.step_status, reaction, reaction_path) in ["Done"]:
+                self.report(f"adsorbates {reaction}/{reaction_path} already "
+                            f"Done for {formula}; skipping")
+                continue
+            if frow is not None:
+                # Atomic per-(reaction, pathway) write -- does NOT overwrite
+                # siblings' adsorbates keys (a read-modify-write of the whole
+                # JSONB would).
+                update_step_status_path(DBComposition, frow.uuid, path, "Running")
+                update_row(DBComposition, frow.uuid, {"status": "Running"})
+            self.ctx.adsorbates_formulas.append(formula)
+            future = self.submit(self._construct_adsorbates_builder(formula))
+            self.to_context(**{f"adsorbates_{formula}": future})
+
+        if per_formula:
+            self.report(f"adsorbates fan-out over the SQS sweep: "
+                        f"{len(self.ctx.adsorbates_formulas)} of "
+                        f"{len(formulas)} formula(s) submitted")
 
     def inspect_adsorbates(self):
-        """Inspecting SurfaceBuilderWorkChain"""
-        wch = self.ctx.adsorbates
-        row = self.ctx.dbcomposition_row
-        path = ["adsorbates", self.ctx.reaction.value, self.ctx.reaction_path.value]
-        if not wch.is_finished_ok:
-            update_step_status_path(DBComposition, row.uuid, path, "Failed")
-            update_row(DBComposition, row.uuid, {"status": "Failed"})
-            self.report("Adsorbates WorkChain failed")
-            return self.exit_codes.ERROR_CALCULATION_FAILED
+        """Inspect the fanned-out AdsorbatesWorkChains (one per formula)."""
+        reaction = self.ctx.reaction.value
+        reaction_path = self.ctx.reaction_path.value
+        path = ["adsorbates", reaction, reaction_path]
+        failed = []
+        for formula in self.ctx.adsorbates_formulas:
+            wch = self.ctx[f"adsorbates_{formula}"]
+            state = "Done" if wch.is_finished_ok else "Failed"
+            frows = query_by_columns(DBComposition, {"composition": formula})
+            if frows:
+                update_step_status_path(DBComposition, frows[0].uuid, path, state)
+                update_row(DBComposition, frows[0].uuid, {"status": state})
+            if state == "Failed":
+                failed.append((formula, wch.exit_status))
 
-        update_step_status_path(DBComposition, row.uuid, path, "Done")
-        update_row(DBComposition, row.uuid, {"status": "Done"})
+        if failed:
+            self.report(f"Adsorbates WorkChain failed for {len(failed)}/"
+                        f"{len(self.ctx.adsorbates_formulas)} formula(s): "
+                        + ", ".join(f"{f} (exit {x})" for f, x in failed))
+            parent_failed = any(f == self.ctx.chemical_formula for f, _ in failed)
+            if parent_failed or len(failed) == len(self.ctx.adsorbates_formulas):
+                return self.exit_codes.ERROR_CALCULATION_FAILED
 
-    def nano_generator(self):
+    def nano_particles(self):
         """Running NanoParticlesWorkChain"""
         row = self.ctx.nano_row
-        row.step_status.update({"nano_generator": "Running"})
-        update_row(DBComposition, row.uuid,{"status": "Running", "step_status": row.step_status})
+        row.step_status.update({"nano_particles": "Running"})
+        update_row(DBNanoParticles, row.uuid,{"status": "Running", "step_status": row.step_status})
         builder = self._construct_particle_builder()
         future = self.submit(builder)
         self.to_context(**{"nano_particles": future})
 
-    def inspect_nano_generator(self):
+    def inspect_nano_particles(self):
         """Analyze results of the builder chain"""
         chain = self.ctx.nano_particles
         row = self.ctx.nano_row
         if not chain.is_finished_ok:
-            row.step_status.update({"nano_generator": "Failed"})
-            update_row(DBComposition, row.uuid,{"status": "Failed", "step_status": row.step_status})
-            self.report("NanoGenerator WorkChain failed")
+            row.step_status.update({"nano_particles": "Failed"})
+            update_row(DBNanoParticles, row.uuid,{"status": "Failed", "step_status": row.step_status})
+            self.report("NanoParticles WorkChain failed.")
             return self.exit_codes.ERROR_CALCULATION_FAILED
 
-        row.step_status.update({"nano_generator": "Done"})
+        row.step_status.update({"nano_particles": "Done"})
         update_row(DBNanoParticles, row.uuid,{"status": "Done", "step_status": row.step_status})
+        self.report("NanoParticles WorkChain succeeded.")
 
     ################################################################################
     def _construct_pd_ml_builder(self):
@@ -549,24 +605,31 @@ class MainWorkChain(WorkChain):
         builder.chemical_formula = Str(self.ctx.chemical_formula)
         return builder
 
-    def _construct_adsorbates_builder(self):
-        """Adsorbates WorkChain builder"""
+    def _construct_adsorbates_builder(self, formula=None):
+        """Adsorbates WorkChain builder. ``formula`` overrides the submission
+        composition for the SQS-sweep fan-out (one chain per grid formula)."""
         AdsorbatesWorkChain = WorkflowFactory("adsorbates")
         builder = AdsorbatesWorkChain.get_builder()
-        builder.chemical_formula = Str(self.ctx.chemical_formula)
+        builder.chemical_formula = Str(formula or self.ctx.chemical_formula)
         builder.reaction = self.ctx.reaction
         builder.reaction_path = self.ctx.reaction_path
         return builder
 
     def _construct_particle_builder(self):
-        """Nano Particles WorkChain builder"""
+        """Nano Particles WorkChain builder (adsorbates on DBNanoParticles rows).
+
+        The MLIP is the adsorbates model from settings, so particle and slab
+        energetics come from the same potential. ``particles_range`` (the
+        ``nanoparticles`` submission entry, e.g. "40-160") filters the
+        particle inventory by atom count.
+        """
         WorkChain = WorkflowFactory("nano_particles")
-        raise NotImplementedError
         builder = WorkChain.get_builder()
-        builder.elements = '-'.join(list(str(el) for el in Composition(self.ctx.chemical_formula).elements))
-        builder.particles_range = self.ctx.nano_particles_range
-        builder.generator = 'systematic'
-        builder.ml_model = self.ctx.ML_model
+        builder.elements = Str('-'.join(sorted(str(el) for el in Composition(self.ctx.chemical_formula).elements)))
+        builder.particles_range = Str(self.ctx.nano_particles_range)
+        builder.reaction = self.ctx.reaction
+        builder.reaction_path = self.ctx.reaction_path
+        builder.ml_model = Str(settings.inputs['adsorbates']['model'])
         return builder
 
     def _construct_sqs_builder(self, request):

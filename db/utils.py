@@ -1,5 +1,6 @@
 import re
 from itertools import combinations
+from monty.json import jsanitize
 from sqlalchemy import inspect, delete, select, text
 from sqlalchemy.orm import aliased
 from pymatgen.core import Composition, Structure
@@ -74,10 +75,23 @@ def get_structure_uuid_surface_id(composition):
     return [(row.structure_uuid, row.surface_id) for row in results]
 
 def add_slab(existing_uuid, comp, slab_dict):
+    """Store a slab for a bulk structure uuid.
+
+    ``comp`` may be None: the composition is then taken from the DBStructure
+    row of ``existing_uuid`` (single source of truth). A caller-supplied comp
+    is trusted only when the structure row has none -- in a multi-composition
+    run (SQS sweep) the calling workchain's formula is the PARENT's and would
+    mislabel child-composition slabs.
+    """
     with get_session() as session:
+        db_comp = (
+            session.query(DBStructure.composition)
+            .filter(DBStructure.uuid == existing_uuid)
+            .scalar()
+        )
         slab = DBSurface(
             structure_uuid=existing_uuid,
-            composition=comp,
+            composition=db_comp or comp,
             slab=slab_dict,
         )
 
@@ -246,6 +260,26 @@ def query_structure(structure_filters, **version_filters):
 
         return query.all()
 
+def get_structs_by_uuids(uuid_list, method):
+    """Fetch (structure_dict, uuid_str) pairs for an explicit uuid list.
+
+    Preserves the order of ``uuid_list`` and silently drops uuids that have no
+    version on ``method`` -- the caller's manifest (DBComposition.stable_struct)
+    decides WHICH structures, the method filter WHICH labels.
+    """
+    if not uuid_list:
+        return []
+    with get_session() as session:
+        rows = (
+            session.query(DBStructureVersion)
+            .filter(DBStructureVersion.structure_uuid.in_(uuid_list))
+            .filter(DBStructureVersion.method == method)
+            .all()
+        )
+        by_uuid = {str(r.structure_uuid): r.structure for r in rows}
+    return [(by_uuid[u], u) for u in uuid_list if u in by_uuid]
+
+
 def query_structureversions_by_attributes(**filters):
     """Query DBStructureVersion with flexible filters (method, energy, etc)"""
     with get_session() as session:
@@ -256,12 +290,15 @@ def query_structureversions_by_attributes(**filters):
 
 ####################################
 
-def update_version_attributes(structure_uuid, method, new_attributes, source=None):
+def update_version_attributes(structure_uuid, method, new_attributes, source=None,
+                              columns=None):
     """Merge ``new_attributes`` into a DBStructureVersion.attributes JSONB.
 
     Selects the version by (structure_uuid, method[, source]); returns False if
     no matching version exists. Used to attach synthesizability scores to the
     generated structure versions without adding a duplicate version row.
+    ``columns`` optionally sets plain columns on the same row in the same
+    commit (e.g. ``{"ehull": 0.0042}`` for the 0 K energy above hull).
     """
     with get_session() as session:
         query = session.query(DBStructureVersion).filter_by(
@@ -274,6 +311,8 @@ def update_version_attributes(structure_uuid, method, new_attributes, source=Non
         merged = dict(version.attributes or {})
         merged.update(new_attributes)
         version.attributes = merged
+        for name, value in (columns or {}).items():
+            setattr(version, name, value)
         session.commit()
     return True
 
@@ -471,20 +510,36 @@ def print_all_rows(session, table_class):
             print(row)
 
 def add_nano_particles(model, structure_energy_pairs, special_type=None):
-    """Add new particles and energies to the database"""
+    """Add new particles to DBNanoParticles (status defaults to 'Created').
+
+    ``structure_energy_pairs``: (structure_dict, energy) or
+    (structure_dict, energy, attributes) tuples. The energy is informational
+    only -- the ingest chain re-relaxes every particle with the adsorbates
+    model before its energy is used as slab_energy. The ``elements`` column
+    gets the sorted 'Au-Cu' form that main.py / the frontend query by.
+    Returns the uuids of the inserted rows.
+    """
+    inserted = []
     with get_session() as session:
-        for struct_dict, energy in structure_energy_pairs:
+        for pair in structure_energy_pairs:
+            # numpy scalars (e.g. np.int64 from ASE extxyz headers) are not
+            # JSON serializable and would abort the JSONB insert
+            struct_dict, energy = jsanitize(pair[0]), pair[1]
+            attributes = jsanitize(pair[2]) if len(pair) > 2 else None
             struct = Structure.from_dict(struct_dict)
-            composition = struct.composition.reduced_formula
+            elements = '-'.join(sorted(str(el) for el in struct.composition.elements))
 
             nanoparticle = DBNanoParticles(
                 num_atoms=struct.num_sites,
-                composition=composition,
+                elements=elements,
                 special_type=special_type,
                 structure=struct_dict,
                 energy=energy,
-                model=model
+                model=model,
+                attributes=attributes,
             )
             session.add(nanoparticle)
             session.flush()
+            inserted.append(str(nanoparticle.uuid))
         session.commit()
+    return inserted

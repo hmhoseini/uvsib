@@ -8,6 +8,11 @@ exactly the three the literature splits into:
 2. ``reaction_selectivity`` -- precursor -> product view: formation energy from
    the elemental precursors, the competing decomposition products the phase
    would form instead, and how selectively this phase wins at its composition.
+   Stores the 0 K quantities (``*_0K`` keys) ALWAYS, and the finite-T (Gibbs)
+   quantities separately under ``finite_T`` with a per-structure
+   ``vib_corrected`` flag, so 0 K and finite-T numbers can never be mixed up
+   downstream (structures without a phonon correction sit on the Gibbs hull
+   with their raw 0 K energy -- their finite-T numbers are biased by ~|F_vib|).
 3. ``pu_synthesizability`` -- a learned positive-unlabeled synthesizability
    score. Uses a model loaded from disk when available; otherwise a transparent,
    clearly-flagged surrogate (monotone in hull distance and chemical
@@ -118,9 +123,9 @@ def thermo_accessibility(ehull, params):
 # --------------------------------------------------------------------------- #
 # 2. precursor -> product reaction selectivity
 # --------------------------------------------------------------------------- #
-def reaction_selectivity(entry, pd, ehull, comp_min_epa, params):
-    """Formation from elemental precursors + competing decomposition products."""
-    p = params
+def _hull_view(entry, pd, comp_min_epa):
+    """Formation energy, decomposition products and polymorph gap of ``entry``
+    on ``pd``. The three numbers are hull-consistent with each other."""
     try:
         eform = float(pd.get_form_energy_per_atom(entry))
     except Exception:
@@ -138,24 +143,62 @@ def reaction_selectivity(entry, pd, ehull, comp_min_epa, params):
     rf = entry.composition.reduced_formula
     epa = entry.energy_per_atom
     poly_gap = float(epa - comp_min_epa.get(rf, epa))
+    return eform, products, poly_gap
+
+
+def reaction_selectivity(e0, pd0, comp_min_epa0, ehull_eff, params, finite_T_view=None):
+    """Formation from elemental precursors + competing decomposition products.
+
+    The 0 K quantities (raw model energies on the 0 K hull) are ALWAYS stored,
+    under keys suffixed ``_0K``. When the classification runs on a finite-T
+    (Gibbs) hull, the same quantities on that hull go into a separate
+    ``finite_T`` sub-dict together with ``T_K`` and a ``vib_corrected`` flag,
+    so the two hulls can never be confused in later processing.
+
+    ``vib_corrected=False`` marks a structure that carries NO vibrational
+    free-energy correction while (some) entries of the Gibbs hull do: its
+    ``finite_T`` numbers then measure a 0 K energy against corrected
+    references and are biased by roughly +|F_vib| (~ +0.3 eV/atom for metals
+    at 800 K). Never compare them with ``vib_corrected=True`` numbers -- fall
+    back to the ``_0K`` values for such structures.
+
+    ``label``/``score`` keep the previous semantics: evaluated on the
+    effective hull (finite-T when active, else 0 K).
+    """
+    p = params
+    eform0, products0, poly_gap0 = _hull_view(e0, pd0, comp_min_epa0)
+    out = {
+        "formation_energy_0K_eV_per_atom": None if eform0 is None else round(eform0, 4),
+        "decomposition_products_0K": products0,
+        "polymorph_gap_0K_eV_per_atom": round(poly_gap0, 4),
+    }
+
+    poly_gap = poly_gap0
+    if finite_T_view is not None:
+        eform_T, products_T, poly_gap_T = _hull_view(
+            finite_T_view["entry"], finite_T_view["pd"], finite_T_view["comp_min_epa"])
+        poly_gap = poly_gap_T
+        out["finite_T"] = {
+            "T_K": finite_T_view["T"],
+            "vib_corrected": bool(finite_T_view["vib_corrected"]),
+            "formation_free_energy_eV_per_atom": None if eform_T is None else round(eform_T, 4),
+            "decomposition_products": products_T,
+            "polymorph_gap_eV_per_atom": round(poly_gap_T, 4),
+        }
 
     # this phase is the selective product when it is on/near the hull AND the
     # lowest polymorph at its composition
-    if ehull <= p["ehull_tol"] and poly_gap <= p["ehull_tol"]:
+    if ehull_eff <= p["ehull_tol"] and poly_gap <= p["ehull_tol"]:
         label = "selective_product"
-    elif ehull <= p["meta_window"]:
+    elif ehull_eff <= p["meta_window"]:
         label = "competes"
     else:
         label = "outcompeted"
 
-    score = math.exp(-max(ehull, 0.0) / p["thermo_scale"]) * math.exp(-max(poly_gap, 0.0) / p["thermo_scale"])
-    return {
-        "formation_energy_eV_per_atom": None if eform is None else round(eform, 4),
-        "decomposition_products": products,
-        "polymorph_gap_eV_per_atom": round(poly_gap, 4),
-        "label": label,
-        "score": round(float(score), 4),
-    }
+    score = math.exp(-max(ehull_eff, 0.0) / p["thermo_scale"]) * math.exp(-max(poly_gap, 0.0) / p["thermo_scale"])
+    out["label"] = label
+    out["score"] = round(float(score), 4)
+    return out
 
 
 # --------------------------------------------------------------------------- #
@@ -242,7 +285,10 @@ def classify_entries(generated, pd, params=None, pu_model=None, finite_T=None):
         When given, score on the finite-T (Gibbs) hull instead of 0 K. Keys:
         ``"T"`` (float, K), ``"pd"`` (PhaseDiagram of finite-T-corrected entries),
         ``"corr"`` (dict struct_uuid -> per-atom free-energy correction, eV/atom).
-        Each structure's 0 K e_above_hull is still reported for comparison.
+        ``corr`` must contain ONLY structures that actually have a phonon
+        correction -- presence in the dict is what sets the per-structure
+        ``vib_corrected`` flag. Each record always keeps the full set of 0 K
+        quantities next to the finite-T ones so they cannot be mixed up.
     """
     p = dict(DEFAULTS)
     if params:
@@ -258,10 +304,14 @@ def classify_entries(generated, pd, params=None, pu_model=None, finite_T=None):
         e_eff = finite_T_entry(e0, corr.get(str(uuid), 0.0)) if finite_T else e0
         eff.append((uuid, e0, e_eff))
 
-    comp_min_epa = defaultdict(lambda: math.inf)
-    for _, _, e_eff in eff:
-        rf = e_eff.composition.reduced_formula
-        comp_min_epa[rf] = min(comp_min_epa[rf], e_eff.energy_per_atom)
+    # polymorph baselines on both hulls: raw 0 K energies and effective
+    # (finite-T corrected) energies never share a comparison
+    comp_min_epa0 = defaultdict(lambda: math.inf)
+    comp_min_epa_eff = defaultdict(lambda: math.inf)
+    for _, e0, e_eff in eff:
+        rf = e0.composition.reduced_formula
+        comp_min_epa0[rf] = min(comp_min_epa0[rf], e0.energy_per_atom)
+        comp_min_epa_eff[rf] = min(comp_min_epa_eff[rf], e_eff.energy_per_atom)
 
     results = []
     for uuid, e0, e_eff in eff:
@@ -283,9 +333,15 @@ def classify_entries(generated, pd, params=None, pu_model=None, finite_T=None):
 
         thermo = thermo_accessibility(eff_ehull, p)
         thermo["ehull_0K_eV_per_atom"] = round(float(ehull0), 4)
+        ft_view = None
         if finite_T:
             thermo["T_K"] = T
-        reaction = reaction_selectivity(e_eff, pd_eff, eff_ehull, comp_min_epa, p)
+            thermo["vib_corrected"] = str(uuid) in corr
+            ft_view = {"T": T, "entry": e_eff, "pd": pd_eff,
+                       "comp_min_epa": comp_min_epa_eff,
+                       "vib_corrected": thermo["vib_corrected"]}
+        reaction = reaction_selectivity(e0, pd, comp_min_epa0, eff_ehull, p,
+                                        finite_T_view=ft_view)
         pu = pu_synthesizability(e_eff, eff_ehull, pu_model, p)
         results.append({
             "uuid": str(uuid),

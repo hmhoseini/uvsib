@@ -8,12 +8,21 @@ at the synthesis temperature instead of the 0 K hull.
 
 Finite-T sub-step (the one this stage adds):
 
-    near-hull candidates + hull vertices
-        -> PhononWorkChain (tight relax -> phonopy displacements -> MLIP forces
-           -> force constants -> F_vib(T) -> QHA over volumes -> G(T))
+    near-hull candidates + hull vertices (ALL of them -- no count cap; the
+    ehull_window is the only selector)
+        -> reuse phonon records stored on the DBStructureVersion rows
+           (attributes["phonon"], matched on phonon model + settings)
+        -> PhononWorkChain for the missing ones only (tight relax -> phonopy
+           displacements -> MLIP forces -> force constants -> F_vib(T) -> QHA
+           over volumes -> G(T)); fresh records are persisted for later runs
         -> per-atom free-energy correction G(T)-E0 at the target temperature
         -> finite-T (Gibbs) convex hull
         -> classify candidates on the finite-T hull.
+
+Each structure version is phononed once per (model, settings) across the whole
+campaign: runs of other compositions in the same chemsys share the stored
+records, so repeated runs converge to full F_vib coverage instead of each run
+recomputing (or truncating) its own candidate list.
 
 Heavy science is in ``_synth_classifiers`` (pure, unit-tested) and the phonon
 runner ``codes/files/phonon.py`` (end-to-end tested with EMT); this module does
@@ -104,6 +113,59 @@ def _entry_key(entry):
     """Stable key for an entry: its struct_uuid, else comp:<reduced formula>."""
     su = entry.data.get("struct_uuid") if getattr(entry, "data", None) else None
     return str(su) if su else "comp:" + entry.composition.reduced_formula
+
+
+# --------------------------------------------------------------------------- #
+# phonon persistence: computed once per structure version, reused by every run
+# --------------------------------------------------------------------------- #
+def _phonon_settings(ft):
+    """The knobs a stored phonon record must match exactly to be reused."""
+    return {
+        "model": ft.get("model"),
+        "min_supercell_length": ft.get("min_supercell_length", 8.0),
+        "displacement": ft.get("displacement", 0.01),
+        "mesh": ft.get("mesh", 20),
+        "fmax": ft.get("fmax", 1e-3),
+        "volume_scales": list(ft.get("volume_scales", [0.97, 0.99, 1.0, 1.01, 1.03])),
+    }
+
+
+def get_stored_phonons(keys, method, ft):
+    """key -> stored phonon record (``attributes['phonon']``) for every version
+    row whose record matches the current phonon model/settings.
+
+    ``keys`` are candidate keys as produced by ``_entry_key``; the ``comp:*``
+    fallbacks have no version row and are skipped (they get fresh phonons).
+    """
+    want = _phonon_settings(ft)
+    uuids = [k for k in keys if not str(k).startswith("comp:")]
+    out = {}
+    if not uuids:
+        return out
+    with get_session() as session:
+        rows = (
+            session.query(DBStructureVersion)
+            .filter(DBStructureVersion.structure_uuid.in_(uuids))
+            .filter(DBStructureVersion.method == method)
+            .all()
+        )
+        for row in rows:
+            rec = (row.attributes or {}).get("phonon")
+            if rec and rec.get("settings") == want and "temperatures" in rec:
+                out[str(row.structure_uuid)] = rec
+    return out
+
+
+def _interp_phonon(rec, target_T):
+    """(F_vib correction [eV/atom], S_vib [kB/atom] or None) at ``target_T``."""
+    temps = np.asarray(rec["temperatures"], dtype=float)
+    c = float(np.interp(target_T, temps,
+                        np.asarray(rec["free_energy_correction_eV_per_atom"], dtype=float)))
+    s = None
+    if rec.get("entropy_kB_per_atom") is not None:
+        s = float(np.interp(target_T, temps,
+                            np.asarray(rec["entropy_kB_per_atom"], dtype=float)))
+    return c, s
 
 
 def build_phase_diagram(entries):
@@ -308,6 +370,7 @@ class SynthesizabilityWorkChain(WorkChain):
         self.ctx.corr = {}
         self.ctx.svib = {}            # uuid -> S_vib(T) [kB/atom]
         self.ctx.imag = {}            # uuid -> imaginary_modes flag
+        self.ctx.phonon_stored = {}   # uuid -> phonon record reused from the DB
         self.ctx.dS_info = {}         # vibrational-entropy-of-ordering result
         self.ctx.ordered_uuid = None  # lowest-energy ordered polymorph at the target comp
         self.ctx.sqs_uuids = []       # disordered SQS realizations
@@ -333,9 +396,12 @@ class SynthesizabilityWorkChain(WorkChain):
         self.ctx.pd0 = pd
         self.ctx.generated = get_generated_versions(self.ctx.chemical_formula, self.ctx.model)
 
-        # candidate set for phonons: near-hull generated structures + hull vertices
+        # candidate set for phonons: near-hull generated structures + hull
+        # vertices. NO cap: the ehull_window is the only selector -- a silent
+        # truncation here is exactly what left whole compositions without
+        # F_vib corrections on the Gibbs hull. Already-stored phonon records
+        # are reused below, so each structure is only ever computed once.
         window = float(self.ctx.ft.get("ehull_window", 0.10))
-        cap = int(self.ctx.ft.get("max_phonon_structures", 40))
         phonon_items, seen = [], set()
 
         def _add(key, entry):
@@ -354,7 +420,7 @@ class SynthesizabilityWorkChain(WorkChain):
             if getattr(entry, "structure", None) is not None:
                 _add(_entry_key(entry), entry)
 
-        self.ctx.phonon_items = phonon_items[:cap]
+        self.ctx.phonon_items = phonon_items
 
         # For the vibrational entropy of ordering, ensure both partners get
         # phonons: the lowest-energy *ordered* polymorph at the target
@@ -389,8 +455,33 @@ class SynthesizabilityWorkChain(WorkChain):
                 self.report("Synthesizability: single-element composition; no "
                             "disordered SQS / vibrational entropy of ordering")
 
+        # Reuse phonon records already stored on the version rows (computed by
+        # an earlier run of ANY composition in this chemsys); submit only the
+        # missing candidates. Stored records seed corr/svib/imag immediately so
+        # classification uses them even when nothing new needs computing.
+        if bool(self.ctx.ft.get("enabled", False)) and self.ctx.phonon_items:
+            target_T = float(self.ctx.ft.get("temperature", 1000.0))
+            stored = get_stored_phonons([it["uuid"] for it in self.ctx.phonon_items],
+                                        self.ctx.model, self.ctx.ft)
+            for uid, rec in stored.items():
+                c, s = _interp_phonon(rec, target_T)
+                self.ctx.corr[uid] = c
+                if s is not None:
+                    self.ctx.svib[uid] = s
+                self.ctx.imag[uid] = bool(rec.get("imaginary_modes", False))
+            self.ctx.phonon_stored = stored
+            self.ctx.phonon_items = [it for it in self.ctx.phonon_items
+                                     if it["uuid"] not in stored]
+            self.report(
+                f"Synthesizability: {len(self.ctx.phonon_items) + len(stored)} phonon "
+                f"candidate(s) within {window} eV/atom of the hull -- "
+                f"{len(stored)} reused from the DB, {len(self.ctx.phonon_items)} to compute")
+
     def should_run_phonons(self):
-        return bool(self.ctx.ft.get("enabled", False)) and bool(self.ctx.phonon_items)
+        # SQS realizations are generated fresh each run (they have no version
+        # row), so the block also runs when only the ordering pair is pending.
+        return bool(self.ctx.ft.get("enabled", False)) and \
+            bool(self.ctx.phonon_items or self.ctx.sqs_request)
 
     def run_sqs(self):
         """Submit the disordered-SQS generation remotely on the gnome@v100 code.
@@ -446,6 +537,10 @@ class SynthesizabilityWorkChain(WorkChain):
 
     def run_phonons(self):
         """Submit one PhononWorkChain for the selected structures."""
+        if not self.ctx.phonon_items:
+            self.report("Synthesizability: no phonons to compute "
+                        "(all candidates reused from the DB, no SQS)")
+            return
         ft = self.ctx.ft
         model = ft.get("model")
         mname, mpath, device = get_model_device(model)
@@ -470,36 +565,60 @@ class SynthesizabilityWorkChain(WorkChain):
         self.to_context(phonon=self.submit(builder))
 
     def inspect_phonons(self):
-        """Collect per-atom free-energy corrections at the target temperature."""
-        wch = self.ctx.phonon
-        if not wch.is_finished_ok:
-            self.report("Synthesizability: phonon job failed; falling back to 0 K hull")
-            return
+        """Collect fresh phonon results, persist them on the version rows for
+        reuse by later runs, and merge them with the records reused from the DB
+        (which already seeded corr/svib/imag in ``build_hull``)."""
         target_T = float(self.ctx.ft.get("temperature", 1000.0))
-        results = wch.outputs.output_dict.get_dict().get("results", [])
-        corr, svib, imag = {}, {}, {}
+        wch = self.ctx.get("phonon")
+        results = []
+        if wch is None:
+            pass  # nothing was submitted: everything reused from the DB
+        elif not wch.is_finished_ok:
+            self.report("Synthesizability WARNING: phonon job failed; continuing "
+                        f"with the {len(self.ctx.corr)} stored phonon record(s) only")
+        else:
+            results = wch.outputs.output_dict.get_dict().get("results", [])
+
+        sqs_set = set(self.ctx.sqs_uuids)
+        want = _phonon_settings(self.ctx.ft)
+        n_fresh = n_persisted = n_failed = 0
         for r in results:
             if "error" in r or "temperatures" not in r:
+                n_failed += 1
                 continue
             uid = str(r["uuid"])
-            temps = np.asarray(r["temperatures"], dtype=float)
-            cvec = np.asarray(r["free_energy_correction_eV_per_atom"], dtype=float)
-            corr[uid] = float(np.interp(target_T, temps, cvec))
-            if "entropy_kB_per_atom" in r:
-                svec = np.asarray(r["entropy_kB_per_atom"], dtype=float)
-                svib[uid] = float(np.interp(target_T, temps, svec))
-            imag[uid] = bool(r.get("imaginary_modes", False))
-        self.ctx.corr = corr
-        self.ctx.svib = svib
-        self.ctx.imag = imag
-        self.report(f"Synthesizability: collected {len(corr)} phonon free energies "
-                    f"at {target_T:.0f} K")
+            rec = {
+                "settings": want,
+                "temperatures": r["temperatures"],
+                "free_energy_correction_eV_per_atom": r["free_energy_correction_eV_per_atom"],
+                "entropy_kB_per_atom": r.get("entropy_kB_per_atom"),
+                "imaginary_modes": bool(r.get("imaginary_modes", False)),
+            }
+            c, s = _interp_phonon(rec, target_T)
+            self.ctx.corr[uid] = c
+            if s is not None:
+                self.ctx.svib[uid] = s
+            self.ctx.imag[uid] = rec["imaginary_modes"]
+            n_fresh += 1
+            # persist for every later run of this chemsys; SQS realizations and
+            # comp:* reference fallbacks have no version row to write to
+            if uid not in sqs_set and not uid.startswith("comp:"):
+                if update_version_attributes(uid, self.ctx.model, {"phonon": rec}):
+                    n_persisted += 1
+        if n_failed:
+            self.report(f"Synthesizability WARNING: {n_failed} phonon result(s) "
+                        "unusable (errored or without a temperature grid)")
+        self.report(f"Synthesizability: {len(self.ctx.corr)} phonon free energies "
+                    f"at {target_T:.0f} K ({n_fresh} freshly computed, "
+                    f"{n_persisted} persisted, {len(self.ctx.phonon_stored)} reused from the DB)")
 
         # Vibrational entropy of ordering, averaged over the SQS realizations:
         # S_vib(disordered) - S_vib(ordered). Realizations with imaginary modes
         # have unreliable S_vib, so prefer the clean ones (fall back to all if
         # none are clean), and report the spread + imaginary counts so the number
-        # is trust-flagged.
+        # is trust-flagged. The ordered partner's S_vib may come from a stored
+        # record; the SQS realizations are always freshly computed.
+        svib, imag = self.ctx.svib, self.ctx.imag
         o = self.ctx.ordered_uuid
         sqs = [(u, svib[u], imag.get(u, False)) for u in self.ctx.sqs_uuids if u in svib]
         if o in svib and sqs:
@@ -548,7 +667,10 @@ class SynthesizabilityWorkChain(WorkChain):
             target_T = float(self.ctx.ft.get("temperature", 1000.0))
             pdT = build_finite_T_pd(self.ctx.entries, self.ctx.corr)
             if pdT is not None:
-                gen_corr = {str(u): self.ctx.corr.get(str(u), 0.0) for u, _ in generated}
+                # only structures that actually have a phonon correction:
+                # presence in this dict sets the per-structure vib_corrected flag
+                gen_corr = {str(u): self.ctx.corr[str(u)]
+                            for u, _ in generated if str(u) in self.ctx.corr}
                 finite_T = {"T": target_T, "pd": pdT, "corr": gen_corr}
 
         results = classify_entries(generated, pd0, params=self.ctx.params,
@@ -564,10 +686,22 @@ class SynthesizabilityWorkChain(WorkChain):
                 rec["S_vib_kB_per_atom"] = round(self.ctx.svib[uid], 4)
                 rec["S_vib_T_K"] = target_T
                 rec["imaginary_modes"] = bool(self.ctx.imag.get(uid, False))
-            update_version_attributes(r["uuid"], model, {"synthesizability": rec})
+            update_version_attributes(r["uuid"], model, {"synthesizability": rec},
+                                      columns={"ehull": r["thermo"]["ehull_0K_eV_per_atom"]})
 
         summary = summarize(results)
         summary["finite_T"] = None if finite_T is None else finite_T["T"]
+        if finite_T is not None:
+            flags = [r["thermo"].get("vib_corrected") for r in results if "thermo" in r]
+            summary["n_vib_corrected"] = sum(1 for f in flags if f is True)
+            summary["n_vib_uncorrected"] = sum(1 for f in flags if f is False)
+            if summary["n_vib_uncorrected"]:
+                self.report(
+                    f"Synthesizability WARNING: {summary['n_vib_uncorrected']}/{len(flags)} "
+                    f"structures have NO F_vib({finite_T['T']:.0f} K) correction; their "
+                    "finite-T numbers measure a 0 K energy against corrected references "
+                    "(biased by ~|F_vib|). Use the *_0K values for them -- records are "
+                    "marked with vib_corrected=false.")
         # vibrational entropy of ordering (Fultz): disordered SQS - ordered ground state,
         # averaged over SQS realizations with imaginary-mode/spread diagnostics.
         info = self.ctx.dS_info
