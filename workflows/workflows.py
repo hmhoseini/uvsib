@@ -7,10 +7,14 @@ from uvsib.workchains.submit import submit_mainworkchain
 
 
 def check_valid(reaction, reaction_path):
+    # BATTERY is the bulk (deintercalation) pathway: the "path" is the working
+    # ion, and the run skips surface builder + adsorbates (see docs/batteries.md)
+    from uvsib.workchains.batt import ION_Z
     implemented_reactions = {'OER': ['default'],
                              'CO2RR': ['co2_to_co', 'co2_to_hcooh', 'co_to_ch4', 'co_to_ch3oh'],
                              'NOXRR': ['no_dissociative', 'no_to_nh3_noh', 'no_to_nh3_nhoh', 'no_to_n2o',
-                                       'no2_to_no', 'no3_to_nh3', 'no3_to_n2']}
+                                       'no2_to_no', 'no3_to_nh3', 'no3_to_n2'],
+                             'BATTERY': sorted(ION_Z)}
     if reaction not in implemented_reactions:
         raise NotImplementedError(f"Reaction {reaction} not implemented.")
     if reaction_path not in implemented_reactions[reaction]:

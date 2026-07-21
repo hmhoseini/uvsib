@@ -3,7 +3,7 @@ from aiida.plugins import WorkflowFactory
 from aiida.engine import WorkChain, if_, while_
 from aiida_pythonjob import PythonJob, prepare_pythonjob_inputs
 from pymatgen.core.composition import Composition
-from uvsib.db.tables import DBComposition, DBSurfaceMLAdsorbate, DBNanoParticles
+from uvsib.db.tables import DBComposition, DBSurfaceMLAdsorbate, DBNanoParticles, DBBatteryPath
 from uvsib.db.utils import update_row, query_by_columns, update_step_status_path
 from uvsib.workchains.pythonjob_inputs import wait_sleep
 from uvsib.workflows import settings
@@ -74,6 +74,14 @@ class MainWorkChain(WorkChain):
                 cls.adsorbates,
                 cls.inspect_adsorbates
             ),
+            if_(cls.should_run_battery)(
+                while_(cls.should_wait_battery)(
+                    cls.wait_sleep,
+                    cls.check_pythonjob_sleep
+                ),
+                cls.battery,
+                cls.inspect_battery
+            ),
             if_(cls.should_run_nano_particles)(
                 while_(cls.should_wait_nano_particles)(
                     cls.wait_sleep,
@@ -97,6 +105,9 @@ class MainWorkChain(WorkChain):
         self.ctx.similarities = self.inputs.similarities.value
         self.ctx.sqs_request = self.inputs.sqs.get_dict()
         self.ctx.sqs = bool(self.ctx.sqs_request)   # non-empty request -> SQS run
+        # battery submissions carry the working ion in reaction_path and run
+        # the bulk battery pathway INSTEAD of surface builder + adsorbates
+        self.ctx.battery = self.ctx.reaction.value.strip().upper() == "BATTERY"
         if self.ctx.nano_generator:
             self.ctx.nano_particles_range = self.inputs.nanoparticles.value
             elements = '-'.join(sorted(list([str(el) for el in Composition(self.ctx.chemical_formula).elements])))
@@ -131,6 +142,14 @@ class MainWorkChain(WorkChain):
         """
         # return ((step_status or {}).get("adsorbates") or {}).get(reaction, {}).get(reaction_path)
         return ((step_status.get("adsorbates") or {}).get(reaction) or {}).get(reaction_path) or {}
+
+    @staticmethod
+    def _battery_status(step_status, working_ion):
+        """Per-ion battery status from the nested step_status.
+        ``step_status["battery"]`` is keyed by working ion so battery chains
+        for different ions (Li, Na, ...) on one composition stay independent,
+        mirroring the per-(reaction, pathway) adsorbates convention."""
+        return ((step_status or {}).get("battery") or {}).get(working_ion) or {}
 
     def should_run_pd_ml(self):
         """Check whether should run PhaseDiagramML"""
@@ -186,6 +205,8 @@ class MainWorkChain(WorkChain):
             self.report("Soft stop (soft_stop.before_surface_builder): ending before the "
                         "surface builder starts; generation/synthesizability stages are complete now.")
             return False
+        if self.ctx.battery:
+            return False    # bulk pathway: no slabs needed
         if self.ctx.nano_generator:
             return False
         surface_builder_step_status = self._fresh_step_status().get("surface_builder")
@@ -196,6 +217,8 @@ class MainWorkChain(WorkChain):
     def should_run_adsorbates(self):
         """Check whether should run Adsorbates for THIS (reaction, pathway)"""
         if settings.SOFT_STOP_BEFORE_SURFACE:
+            return False
+        if self.ctx.battery:
             return False
         if self.ctx.nano_generator:
             return False
@@ -296,6 +319,8 @@ class MainWorkChain(WorkChain):
         Different reactions/pathways (e.g. CO2RR vs NOXRR) are independent work
         and must not block each other; only a duplicate of the same triple does.
         """
+        if self.ctx.battery:
+            return False
         if self.ctx.nano_generator:
             return False
         reaction = self.ctx.reaction.value
@@ -545,6 +570,56 @@ class MainWorkChain(WorkChain):
             if parent_failed or len(failed) == len(self.ctx.adsorbates_formulas):
                 return self.exit_codes.ERROR_CALCULATION_FAILED
 
+    def should_run_battery(self):
+        """Check whether should run Battery for THIS working ion (the
+        submission's reaction_path). Battery replaces the catalysis branch."""
+        if not self.ctx.battery:
+            return False
+        if self.ctx.nano_generator or self.ctx.sqs:
+            return False
+        working_ion = self.ctx.reaction_path.value
+        comp_row = query_by_columns(DBComposition, {"composition": self.ctx.chemical_formula})[0]
+        if self._battery_status(comp_row.step_status, working_ion) in ["Done"]:
+            row = query_by_columns(DBBatteryPath, {"composition": self.ctx.chemical_formula,
+                                                   "working_ion": working_ion})
+            if row:
+                return False
+        return True
+
+    def should_wait_battery(self):
+        """Wait only if THIS (composition, working ion) runs elsewhere."""
+        working_ion = self.ctx.reaction_path.value
+        comp_row = query_by_columns(DBComposition, {"composition": self.ctx.chemical_formula})[0]
+        if self._battery_status(comp_row.step_status, working_ion) in ["Running"]:
+            self.ctx.sts = f"battery:{working_ion}"
+            return True
+        return False
+
+    def battery(self):
+        """Running BatteryWorkChain"""
+        row = self.ctx.dbcomposition_row
+        working_ion = self.ctx.reaction_path.value
+        # atomic per-ion write, same convention as the adsorbates leaf
+        update_step_status_path(DBComposition, row.uuid, ["battery", working_ion], "Running")
+        update_row(DBComposition, row.uuid, {"status": "Running"})
+        builder = self._construct_battery_builder()
+        future = self.submit(builder)
+        # NOT the "battery" key: that would clobber the ctx.battery flag set
+        # in setup (the sqs stage lives with that clobber; no need to copy it)
+        self.to_context(**{"battery_wch": future})
+
+    def inspect_battery(self):
+        """Inspecting BatteryWorkChain"""
+        wch = self.ctx.battery_wch
+        row = self.ctx.dbcomposition_row
+        working_ion = self.ctx.reaction_path.value
+        state = "Done" if wch.is_finished_ok else "Failed"
+        update_step_status_path(DBComposition, row.uuid, ["battery", working_ion], state)
+        update_row(DBComposition, row.uuid, {"status": state})
+        if state == "Failed":
+            self.report(f"Battery WorkChain failed (exit {wch.exit_status})")
+            return self.exit_codes.ERROR_CALCULATION_FAILED
+
     def nano_particles(self):
         """Running NanoParticlesWorkChain"""
         row = self.ctx.nano_row
@@ -613,6 +688,14 @@ class MainWorkChain(WorkChain):
         builder.chemical_formula = Str(formula or self.ctx.chemical_formula)
         builder.reaction = self.ctx.reaction
         builder.reaction_path = self.ctx.reaction_path
+        return builder
+
+    def _construct_battery_builder(self):
+        """Battery WorkChain builder -- the working ion IS the reaction_path."""
+        BatteryWorkChain = WorkflowFactory("battery")
+        builder = BatteryWorkChain.get_builder()
+        builder.chemical_formula = Str(self.ctx.chemical_formula)
+        builder.working_ion = Str(self.ctx.reaction_path.value)
         return builder
 
     def _construct_particle_builder(self):

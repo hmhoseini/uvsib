@@ -59,6 +59,7 @@
 		"synthesizability = uvsib.workchains.synthesizability:SynthesizabilityWorkChain",
 		"surfacebuilder = uvsib.workchains.surface_builder:SurfaceBuilderWorkChain",
 		"adsorbates = uvsib.workchains.adsorbates:AdsorbatesWorkChain",
+		"battery = uvsib.workchains.battery:BatteryWorkChain",
 		"nano_particles = uvsib.workchains.nano_particles:NanoParticleWorkChain",
 		"similarity = uvsib.workchains.similarity:SimilarityWorkChain",
 		"similarity_calc = uvsib.codes.similarity.workchain:SimilarityWorkChain",

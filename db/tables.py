@@ -155,6 +155,37 @@ class DBSurfaceMLAdsorbate(Base):
     mtime = Column(DateTime(timezone=True), onupdate=func.now())
 
 
+class DBBatteryPath(Base):
+    """Battery (deintercalation) characteristics, one row per
+    (composition, working_ion, host structure). Written by BatteryWorkChain;
+    ``voltage_profile``/``configs`` hold the hull + the relaxed configuration
+    set (structures & energies) so tier-2 stages (DFT verification, NEB) can
+    reuse them without re-enumerating."""
+    __tablename__ = "db_battery_path"
+
+    id = Column(Integer, primary_key=True)
+    structure_uuid = Column(
+        UUID(as_uuid=True),
+        ForeignKey("db_structure.uuid", ondelete="CASCADE"),
+        nullable=False
+    )
+    composition = Column(String, nullable=True)
+    working_ion = Column(String, nullable=False)
+    model = Column(String, nullable=True)
+    avg_voltage = Column(DOUBLE_PRECISION, nullable=False)
+    capacity_grav = Column(DOUBLE_PRECISION, nullable=False)   # mAh/g
+    capacity_vol = Column(DOUBLE_PRECISION, nullable=False)    # mAh/cm^3
+    energy_density = Column(DOUBLE_PRECISION, nullable=False)  # Wh/kg
+    volume_change_pct = Column(DOUBLE_PRECISION, nullable=False)
+    endpoint_ehull = Column(DOUBLE_PRECISION, nullable=True)   # charged host
+    voltage_profile = Column(JSONB, nullable=False)  # vertices/steps/points
+    configs = Column(JSONB, nullable=False)          # relaxed structures & energies
+    flags = Column(JSONB, nullable=True)             # framework_changed, ...
+    attributes = Column(JSONB, nullable=True)
+    ctime = Column(DateTime(timezone=True), server_default=func.now())
+    mtime = Column(DateTime(timezone=True), onupdate=func.now())
+
+
 class DBFrontend(Base):
     """Frontend table"""
     __tablename__ = 'db_frontend'
