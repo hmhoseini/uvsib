@@ -3,7 +3,8 @@ from aiida.plugins import WorkflowFactory
 from aiida.engine import WorkChain
 from uvsib.db.utils import update_row, add_structures, query_by_columns
 from uvsib.db.tables import DBChemsys
-from uvsib.codes.utils import get_mp_element_structures
+from uvsib.codes.utils import get_mp_element_structures, get_mp_experimental_structures
+from uvsib.workchains.exp_include import split_output_slices
 from uvsib.workchains.utils import (split_relax_output,
                               unique_low_energy_chemsys,
                               get_code,
@@ -104,6 +105,8 @@ class GeneratorWorkChain(WorkChain):
                     used.add(el)
 
         self.ctx.n_main = {}
+        self.ctx.n_exp = {}
+        self.ctx.n_ref = {}
         for chemical_system in self.ctx.chemical_systems:
             output_structures = []
 
@@ -125,9 +128,26 @@ class GeneratorWorkChain(WorkChain):
                 self.report(f"No generated structures for {chemical_system}")
                 return self.exit_codes.ERROR_GENERATIVE_FAILED
 
+            # anti-lottery injection: experimentally-known MP structures for
+            # this system ride in VERBATIM (relaxed on-method in the same
+            # bundle) -- real polymorphs and real hull competitors, not just
+            # whatever the generators dreamed up
+            exp_structs = []
+            if settings.MP_EXP_INJECT:
+                exp = get_mp_experimental_structures(
+                    chemical_system, cap=settings.MP_EXP_CAP, mode="chemsys")
+                exp_structs = [e["structure"] for e in exp]
+                if exp:
+                    self.report(f"{chemical_system}: injecting {len(exp)} MP "
+                                "structure(s): "
+                                + ", ".join(e["mp_id"] for e in exp))
+
             refs = assigned.get(chemical_system, [])
             self.ctx.n_main[chemical_system] = len(output_structures)
-            builder = self._construct_ML_relax_builder(output_structures + refs)
+            self.ctx.n_exp[chemical_system] = len(exp_structs)
+            self.ctx.n_ref[chemical_system] = len(refs)
+            builder = self._construct_ML_relax_builder(
+                output_structures + exp_structs + refs)
             builder.local_label = Str("relax: {}".format(chemical_system))
             future = self.submit(builder)
             self.to_context(**{f"{chemical_system}_ml_e": future})
@@ -139,7 +159,10 @@ class GeneratorWorkChain(WorkChain):
         model = settings.inputs['bulk_relax']['model']
         chemical_systems = self.ctx.chemical_systems
 
-        # pass 1: split each system's relax; store all elemental references first
+        # pass 1: split each system's relax (generated | injected | refs);
+        # store the elemental references and the injected MP-experimental
+        # structures first (the latter with source 'mp_experimental' so the
+        # phase diagram can force-include them)
         generated = {}
         for chemical_system in chemical_systems:
             wch = self.ctx[f"{chemical_system}_ml_e"]
@@ -147,8 +170,11 @@ class GeneratorWorkChain(WorkChain):
                 generated[chemical_system] = None
                 continue
             try:
-                main_entries, ref_entries = split_relax_output(
-                    wch, self.ctx.n_main[chemical_system])
+                main_entries, exp_entries, ref_entries = split_output_slices(
+                    wch.outputs.output_dict.get_dict(),
+                    [self.ctx.n_main[chemical_system],
+                     self.ctx.n_exp.get(chemical_system, 0),
+                     self.ctx.n_ref.get(chemical_system, 0)])
             except Exception:
                 generated[chemical_system] = None
                 continue
@@ -158,6 +184,11 @@ class GeneratorWorkChain(WorkChain):
                 add_structures("reference", model, pairs)
                 self.report(f"Stored {len(pairs)} MLIP elemental reference(s) "
                             f"from {chemical_system}")
+            if exp_entries:
+                pairs = [(e.structure.as_dict(), e.energy) for e in exp_entries]
+                add_structures("mp_experimental", model, pairs)
+                self.report(f"Stored {len(pairs)} on-method MP-experimental "
+                            f"structure(s) for {chemical_system}")
 
         # pass 2: hull-process each system's generated structures
         failed_ml_e = []

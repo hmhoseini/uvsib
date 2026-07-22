@@ -114,12 +114,35 @@ battery:
         898 Wh/kg, dV +4.6% -- correctly POSITIVE (layered c-axis expansion on
         delithiation, opposite sign to olivine), O3 framework intact
       - determinism confirmed: repeated runs bit-identical energies
-- [ ] deploy: `python -m uvsib.db.tables` to create `db_battery_path`, reinstall
-      for the new entry point, submit a battery entry
-- [ ] tier 2: DFT (+U) verification stage on hull-vertex configurations only
-      (analog of pd_verification; battery_fw recipe)
-- [ ] tier 2: MLIP-NEB migration barriers (dilute vacancy / ion hop) — **shared
-      infrastructure with the planned catalysis NEB**, design them together
+- [x] tier 2 NEB engine + battery driver (2026-07-21):
+      - `codes/files/neb.py` — the SHARED (CI-)NEB engine (`job_type: "neb"`
+        in all four MLIP runners): endpoint pre-relax, IDPP with mic, FIRE,
+        two-stage climbing image, bundled pairs, per-pair fail-loudly records.
+        The future catalysis NEB uses THIS engine with its own driver.
+      - `workchains/batt_neb.py` — pure battery driver: symmetry-distinct hop
+        enumeration, vacancy/dilute endpoint pairs (identical atom ordering by
+        construction), periodic percolation analysis (offset union-find:
+        e_m at which the hop network wraps the cell in 1/2/3 directions)
+      - `BatteryNEBWorkChain` + `db_battery_neb` + main.py gating
+        (`battery: neb: enabled`, per-ion `step_status["battery_neb"]`)
+      - smoke (MACE-MP-0 medium, RX 6900 XT): **LiFePO4 in-channel hop
+        d=3.05 A, Ea 0.392 eV (GGA lit. 0.27-0.55), symmetric single-saddle
+        band, percolation 1D at 0.39 eV / 2D/3D unreachable — the textbook
+        1D b-channel result reproduced end-to-end in ~80 s**; LiCoO2 checks
+        the 2D in-plane case
+- [x] MP-experimental injection (2026-07-21): experimentally-known MP
+      structures are seeded into GNoME, injected verbatim into the csp/gen
+      relax bundles, and force-included (deduplicated, prepended) into
+      `stable_struct` — the battery stage is guaranteed to sweep the real
+      polymorphs (olivine vs maricite NaFePO4 case closed). Details:
+      `docs/mp_experimental.md`
+- [ ] deploy: `python -m uvsib.db.tables` (creates `db_battery_path` +
+      `db_battery_neb`), reinstall for the new entry points, submit a battery
+      entry; flip `battery: neb: enabled` for tier 2
+- [ ] tier 2: DFT (+U) verification stage on hull-vertex configurations and
+      NEB TS images (stored in db_battery_neb.hops for exactly this)
+- [ ] catalysis NEB driver on the shared engine (site-adjacency / reaction
+      pairs — waiting on janK's structure/pathway concept)
 - [ ] v2: insertion mode for ion-free hosts (interstitial site search)
 
 ## Tier-2 notes (for when we get there)

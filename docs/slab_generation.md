@@ -100,3 +100,32 @@ A lighter, symmetry-free testing backend (ASE `ase.build.surface`: ~ms per
 facet, flat memory, immune to input symmetry, but one termination per facet and
 no oriented-cell metadata) was considered and **not** added — this fix keeps the
 production pymatgen path and its full termination enumeration.
+
+# Global relax batching (2026-07-21)
+
+The relax side no longer chunks per bulk (which submitted one under-filled
+job per bulk: 10 bulks x 12 slabs = 10 jobs of 12). `inspect_slabgen` now
+collects ALL generated slabs first and divides them into GLOBAL chunks of
+<= `MAX_SLABS_PER_CHUNK` (50): 120 slabs -> 3 jobs of 50/50/20.
+
+**Attribution is load-bearing** — downstream stages (adsorbates -> photocat
+gap filter -> manual HSE) identify slabs by the bulk uuid they came from —
+so mixed-bulk chunks required a payload contract change in
+`slab_relax.py`:
+
+* payload items are now `{"slab": <encoded>, "uuid", "epa", "index"}` —
+  the bulk uuid AND its energy-per-atom ride with each slab (`--epa` as a
+  per-job cmdline argument is only kept as the legacy bare-list fallback);
+* every output record ECHOES `uuid` + input `index`; failures are listed
+  per slab in `failed_slabs` with uuid/index/reason. Attribution is never
+  inferred from output position (non-converged slabs are dropped) or from
+  job topology;
+* the workchain regroups chunk outputs by the echoed uuid; the per-bulk
+  top-`MAX_NUM_SURF` selection is unchanged. A dead chunk reports exactly
+  which bulks lost how many slabs (chunk composition is tracked as counts
+  in the checkpoint — the slabs themselves stay out of it, as before).
+
+Contract-tested in `tests/test_slab_relax_contract.py` (real runner, ASE
+EMT: mixed-bulk chunk with a poison entry, per-slab epa actually used,
+legacy format, missing-epa fails loudly); the chunk-composition bookkeeping
+is fuzz-verified identical to the actual chunking.

@@ -42,6 +42,8 @@ class MatterSimCalculation(CalcJob):
 
         if job_type == 'relax':
             input_file = os.path.join(settings.files_path, 'relax.py')
+        elif job_type == 'neb':
+            input_file = os.path.join(settings.files_path, 'neb.py')
         elif job_type == 'face_build':
             input_file = os.path.join(settings.files_path, 'slab_generate.py')
         elif job_type == 'face_relax':

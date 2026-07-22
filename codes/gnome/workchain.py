@@ -101,6 +101,8 @@ class _GNoMEWorkChainBase(BaseRestartWorkChain):
             cap=ji.get('seed_cap', 60),
             use_icet=ji.get('icet_seeds', True),
             icet_max_size=ji.get('icet_max_size', 4),
+            exp_seeds=ji.get('exp_seeds', True),
+            exp_cap=ji.get('exp_cap', 10),
         )
 
         self.ctx.inputs = {

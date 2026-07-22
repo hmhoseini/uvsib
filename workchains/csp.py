@@ -11,8 +11,9 @@ from uvsib.workchains.utils import (
         element_reference_entries,
         missing_element_references,
         split_relax_output)
-from uvsib.codes.utils import get_mp_element_structures
+from uvsib.codes.utils import get_mp_element_structures, get_mp_experimental_structures
 from uvsib.db.utils import add_structures
+from uvsib.workchains.exp_include import split_output_slices
 from uvsib.workflows import settings
 
 
@@ -109,10 +110,12 @@ class CSPWorkChain(WorkChain):
             return self.exit_codes.ERROR_CSP_FAILED
 
     def predict_ml_energies(self):
-        """One MLIP relax over the CSP structures, bundled with any missing
-        elemental references (from MP) so the model is loaded once instead of in
-        a separate reference CalcJob. The references are appended after the CSP
-        structures; collect_ml_energies peels them back off by input index."""
+        """One MLIP relax over the CSP structures, bundled with (a) the
+        experimentally-known MP structures for this exact formula (injected
+        VERBATIM -- the anti-lottery guarantee that the real polymorphs are in
+        the pool and relaxed on-method) and (b) any missing elemental
+        references. Bundle order: generated | injected | references;
+        collect_ml_energies peels the groups apart by input index."""
         model = settings.inputs['bulk_relax']['model']
         elements = Composition(self.ctx.chemical_formula).chemical_system.split('-')
         missing = missing_element_references(elements, model)
@@ -123,18 +126,42 @@ class CSPWorkChain(WorkChain):
             if not structs:
                 self.report(f"Warning: no MP elemental structures for {missing}; "
                             "hull will fall back to DFT references")
-        self.ctx.n_main = len(self.ctx.csp_structures)
-        builder = self._construct_ML_relax_builder(self.ctx.csp_structures + ref_structs)
+
+        exp_structs = []
+        if settings.MP_EXP_INJECT:
+            exp = get_mp_experimental_structures(self.ctx.chemical_formula,
+                                                 cap=settings.MP_EXP_CAP,
+                                                 mode="formula")
+            exp_structs = [e["structure"] for e in exp]
+            if exp:
+                n_exp = sum(1 for e in exp if not e["theoretical"])
+                self.report(f"Injecting {len(exp)} MP structure(s) for "
+                            f"{self.ctx.chemical_formula} ({n_exp} experimental"
+                            f"{'' if n_exp == len(exp) else ', theoretical fallback'}): "
+                            + ", ".join(e["mp_id"] for e in exp))
+            else:
+                self.report("Warning: MP experimental injection returned "
+                            "nothing (no entries or MP unreachable)")
+
+        self.ctx.n_gen = len(self.ctx.csp_structures)
+        self.ctx.n_exp = len(exp_structs)
+        self.ctx.n_ref = len(ref_structs)
+        builder = self._construct_ML_relax_builder(
+            self.ctx.csp_structures + exp_structs + ref_structs)
         self.to_context(**{"ml_e": self.submit(builder)})
 
     def collect_ml_energies(self):
-        """Split the bundled relax: store the elemental references, then hull the
-        CSP structures (references stored first so the hull picks them up)."""
+        """Split the bundled relax (generated | injected | references): store
+        the references and the injected experimental structures (source
+        'mp_experimental' -- the phase diagram force-includes them), then hull
+        the CSP structures."""
         wch = self.ctx.ml_e
         if not wch.is_finished_ok:
             return self.exit_codes.ERROR_ML_RELAX_FAILED
         try:
-            new_entries, ref_entries = split_relax_output(wch, self.ctx.n_main)
+            new_entries, exp_entries, ref_entries = split_output_slices(
+                wch.outputs.output_dict.get_dict(),
+                [self.ctx.n_gen, self.ctx.n_exp, self.ctx.n_ref])
         except Exception:
             return self.exit_codes.ERROR_ML_RELAX_FAILED
 
@@ -143,6 +170,16 @@ class CSPWorkChain(WorkChain):
             pairs = [(e.structure.as_dict(), e.energy) for e in ref_entries]
             add_structures("reference", model, pairs)
             self.report(f"Stored {len(pairs)} MLIP elemental reference(s)")
+
+        if exp_entries:
+            pairs = [(e.structure.as_dict(), e.energy) for e in exp_entries]
+            add_structures("mp_experimental", model, pairs)
+            self.report(f"Stored {len(pairs)} on-method MP-experimental "
+                        "structure(s)")
+        elif self.ctx.n_exp:
+            self.report(f"Warning: none of the {self.ctx.n_exp} injected MP "
+                        "structures survived the relax (fail-loudly: check "
+                        "the relax job)")
 
         self.ctx.el_entries, missing = element_reference_entries(
             Composition(self.ctx.chemical_formula).chemical_system.split('-'), model)

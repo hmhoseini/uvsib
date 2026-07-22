@@ -14,6 +14,7 @@ from uvsib.db.utils import (
 #        add_version_to_existing_structure,
         query_structure)
 from uvsib.workchains.utils import unique_low_energy_comp, element_reference_entries
+from uvsib.workchains.exp_include import dedup_forced
 from uvsib.workchains.pythonjob_inputs import is_data_available
 from uvsib.workflows import settings
 
@@ -186,13 +187,53 @@ class PhaseDiagramMLWorkChain(WorkChain):
 #                                    "{}".format(self.ctx.ML_model),
 #                                    {"structure": entry.structure.as_dict(), "energy": entry.energy}])
 
+        # Force-include the stored MP-experimental structures (anti-lottery):
+        # an experimentally-known polymorph the ML hull window would drop must
+        # still reach the downstream stages. Structurally deduplicated against
+        # the ML selection (and each other) with the SAME matcher tolerances,
+        # so the manifest never carries the same host twice; PREPENDED because
+        # capped consumers (battery max_hosts) must see the trusted hosts
+        # first. Their ML e_above_hull is recorded so an MLIP-vs-experiment
+        # disagreement stays visible instead of silently vanishing.
+        forced_uuids = []
+        if settings.MP_EXP_FORCE:
+            exp_rows = query_structure({"composition": chemical_formula},
+                                       method=model, source="mp_experimental")
+            candidates = [(str(r.structure_uuid), r.structure)
+                          for r in sorted(exp_rows, key=lambda r: r.energy or 0.0)
+                          if str(r.structure_uuid) not in uuid_list]
+            kept = dedup_forced([e.structure for e in unique_entries], candidates)
+            if kept:
+                from pymatgen.analysis.phase_diagram import PhaseDiagram
+                try:
+                    pd = PhaseDiagram(entries + el_entries)
+                except Exception:
+                    pd = None
+                energy_by_uuid = {str(r.structure_uuid): r.energy for r in exp_rows}
+                for uuid, struct in kept:
+                    ehull = None
+                    if pd is not None:
+                        try:
+                            ehull = float(pd.get_e_above_hull(ComputedStructureEntry(
+                                composition=struct.composition, structure=struct,
+                                energy=energy_by_uuid[uuid])))
+                        except Exception:
+                            pass
+                    forced_uuids.append(uuid)
+                    self.report(f"force-including MP-experimental structure "
+                                f"{uuid} (ML e_above_hull "
+                                f"{'unknown' if ehull is None else f'{ehull:.3f} eV/atom'}"
+                                f"{'' if ehull is None or ehull <= EHULL_ML else ' -- OUTSIDE the ML window, MLIP disagrees with experiment'})")
+                uuid_list = forced_uuids + uuid_list
+
         if not uuid_list:
             self.report(f"WARNING: no stable structure for {self.ctx.chemical_formula} has been found")
 
         # add uuids of stable structures to the DBComposition table
         row = query_by_columns(DBComposition,{"composition": self.ctx.chemical_formula})[0]
 
-        update_row(DBComposition, row.uuid,{"stable_struct": {"ml_uuid_list": uuid_list}})
+        update_row(DBComposition, row.uuid,{"stable_struct": {"ml_uuid_list": uuid_list,
+                                                              "forced_experimental": forced_uuids}})
 
 #    def reformat_entries(self):
 #        for uuid, model, str_en_pair in self.local_list[:MAX_NUM_BULK]:

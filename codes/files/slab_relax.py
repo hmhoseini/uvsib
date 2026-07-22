@@ -11,19 +11,32 @@ This runner does NOT pick the best surfaces -- it relaxes its chunk and returns
 (max_num_surf) selection happens in the workchain, after all of a structure's
 chunks come back, so the selection is global rather than per-chunk.
 
-Input (``input_structures.json``, staged via the ``file`` namespace)
-    [<ase.io.jsonio-encoded orthogonal Slab>, ...]   # this chunk's slabs;
-                                                     # info carries slab metadata
-CLI: --epa (bulk energy per atom from slab_generate) + --fmax/--max_steps.
+Input (``input_structures.json``, staged via the ``file`` namespace) -- one of
+    [{"slab": <ase.io.jsonio-encoded orthogonal Slab>,
+      "uuid": <bulk structure uuid>,        # attribution: WHICH bulk this
+      "epa":  <that bulk's energy/atom>,    # slab came from rides WITH the
+      "index": <global input position>},    # slab (chunks mix bulks now)
+     ...]
+    [<encoded Slab>, ...]                   # legacy single-bulk format;
+                                            # --epa from the CLI applies
+
+The per-slab uuid/index are ECHOED into every output record: downstream
+stages (adsorbates -> photocat gap filter -> manual HSE) identify slabs by
+the bulk uuid they came from, so attribution must never rely on input
+position (non-converged slabs are dropped) or on job topology.
+
+CLI: --fmax/--max_steps; --epa only as the legacy-format fallback.
 
 Output (``output.json``, parsed into output_dict by the generic ``sqs_parser``)
     {
       "slabs": [
-        {"slab": <pymatgen Slab.as_dict()>, "surface_formation_energy": <eV/A^2>},
+        {"slab": <pymatgen Slab.as_dict()>, "surface_formation_energy": <eV/A^2>,
+         "uuid": <bulk uuid or None>, "index": <input position>},
         ...
       ],
       "n_total":  <slabs in this chunk>,
-      "n_failed": <slabs that errored or did not converge>
+      "n_failed": <slabs that errored or did not converge>,
+      "failed_slabs": [{"uuid", "index", "reason"}, ...]
     }
 """
 
@@ -59,16 +72,36 @@ def ase_to_pmg(atoms):
     )
 
 
+def _normalize_items(raw, cli_epa):
+    """Accept both payload formats -> [(enc, uuid, epa, index), ...].
+
+    New format: dicts carrying per-slab uuid/epa/index (chunks mix bulks).
+    Legacy format: bare encoded slabs, one bulk per job, epa from the CLI.
+    """
+    items = []
+    for pos, entry in enumerate(raw):
+        if isinstance(entry, dict) and "slab" in entry:
+            items.append((entry["slab"], entry.get("uuid"),
+                          entry.get("epa", cli_epa), entry.get("index", pos)))
+        else:
+            items.append((entry, None, cli_epa, pos))
+    return items
+
+
 def run_slab_relax(calc, epa, fmax, max_steps):
-    """Relax this chunk of slabs; emit every converged slab + surface energy."""
+    """Relax this chunk of slabs; emit every converged slab + surface energy,
+    each echoing the uuid/index of the bulk it came from."""
     with open('input_structures.json', 'r') as f:
-        encoded_slabs = json.load(f)
+        raw = json.load(f)
+    items = _normalize_items(raw, epa)
 
     slab_data = []
-    num_failed = 0
+    failed_slabs = []
 
-    for idx, enc in enumerate(encoded_slabs):
+    for enc, uuid, slab_epa, index in items:
         try:
+            if slab_epa is None:
+                raise ValueError("no epa for this slab (neither per-item nor --epa)")
             atoms = jsonio.decode(enc)
             atoms.calc = calc
             relax = BFGSLineSearch(atoms, maxstep=0.1, logfile="log.opt")
@@ -78,26 +111,31 @@ def run_slab_relax(calc, epa, fmax, max_steps):
                 n_slab = len(atoms)
                 area = atoms.cell.areas()[2]
                 energy = atoms.get_potential_energy()
-                surface_energy = (energy - (n_slab * epa)) / (2.0 * area)
+                surface_energy = (energy - (n_slab * slab_epa)) / (2.0 * area)
                 atoms.info['energy'] = energy
                 atoms.info['surface_formation_energy'] = surface_energy
                 slab_data.append({
                     "slab": ase_to_pmg(atoms).as_dict(),
                     "surface_formation_energy": surface_energy,
+                    "uuid": uuid,
+                    "index": index,
                 })
             else:
-                num_failed += 1
-                print(f"Warning: slab {idx} "
-                      f"(miller {atoms.info.get('miller_index')}) did not converge")
+                failed_slabs.append({"uuid": uuid, "index": index,
+                                     "reason": "not converged"})
+                print(f"Warning: slab {index} (uuid {uuid}, miller "
+                      f"{atoms.info.get('miller_index')}) did not converge")
         except Exception as e:  # noqa: BLE001 -- log + continue per slab
-            num_failed += 1
-            print(f"Error relaxing slab {idx}: {e}")
+            failed_slabs.append({"uuid": uuid, "index": index,
+                                 "reason": f"{type(e).__name__}: {e}"})
+            print(f"Error relaxing slab {index} (uuid {uuid}): {e}")
 
     with open('output.json', 'w') as f:
         json.dump({
             "slabs": slab_data,
-            "n_total": len(encoded_slabs),
-            "n_failed": num_failed,
+            "n_total": len(items),
+            "n_failed": len(failed_slabs),
+            "failed_slabs": failed_slabs,
         }, f)
 
 
@@ -108,7 +146,7 @@ if __name__ == "__main__":
     parser.add_argument("--model_path", type=str)
     parser.add_argument("--device", type=str)
     parser.add_argument("--task_name", type=str, default=None)
-    parser.add_argument("--epa", type=float)
+    parser.add_argument("--epa", type=float, default=None)  # legacy payloads only
     parser.add_argument("--fmax", type=float)
     parser.add_argument("--max_steps", type=int)
     args = parser.parse_args()

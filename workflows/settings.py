@@ -50,6 +50,25 @@ SYNTH_ENABLED = bool(inputs.get('synthesizability', {}).get('enabled', False))
 # false -> the full pipeline runs as before.
 SOFT_STOP_BEFORE_SURFACE = bool(inputs.get('soft_stop', {}).get('before_surface_builder', False))
 
+# Anti-"MLIP-energy-lottery" fix (input.yaml `mp_experimental:`, all optional):
+# experimentally-known (theoretical=False) MP structures are injected verbatim
+# into the csp/gen relax bundles (DB source 'mp_experimental') and
+# force-included into the stable_struct manifest -- structurally deduplicated
+# against the ML selection -- even when the ML hull window would drop them.
+# Defaults ON; without an MP connection the pulls degrade to a logged no-op.
+_mp_exp = inputs.get('mp_experimental', {}) or {}
+MP_EXP_INJECT = bool(_mp_exp.get('inject', True))
+MP_EXP_CAP = int(_mp_exp.get('cap', 10))
+MP_EXP_FORCE = bool(_mp_exp.get('force_include', True))
+
+# Photocatalysis stage-1 gap filter (input.yaml `photocat:`): after the
+# adsorbates stage, ensemble band-gap prediction for the bulks behind the
+# best-eta slabs, tagged back onto DBSurface.attributes["photocat"].
+# Opt-in (default off); also needs codes.photocat registered in config.yaml
+# (an env with alignn and optionally megnet / modnet). Stage 2 (HSE) is
+# manual by design.
+PHOTOCAT_ENABLED = bool(inputs.get('photocat', {}).get('enabled', False))
+
 _SKIP_PD_VERIFICATION = True
 
 code_folder_path =  os.path.join(uvsib_directory, 'codes')

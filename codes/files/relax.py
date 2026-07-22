@@ -50,7 +50,10 @@ def relax_structures(calc, fmax, max_steps):
 
         opt.run(fmax=fmax, steps=max_steps)
 
-        if opt.converged:
+        # NOTE: opt.converged is a METHOD -- the bare attribute is always
+        # truthy, which silently kept non-converged structures (and their
+        # energies) and made failed.txt read 0 forever. Call it.
+        if opt.converged():
             energy = float(atoms.get_potential_energy())
             energies.append(energy)
             pmg_structure = ase_to_pmg(atoms)

@@ -3,7 +3,7 @@ from aiida.plugins import WorkflowFactory
 from aiida.engine import WorkChain, if_, while_
 from aiida_pythonjob import PythonJob, prepare_pythonjob_inputs
 from pymatgen.core.composition import Composition
-from uvsib.db.tables import DBComposition, DBSurfaceMLAdsorbate, DBNanoParticles, DBBatteryPath
+from uvsib.db.tables import DBComposition, DBSurfaceMLAdsorbate, DBNanoParticles, DBBatteryPath, DBBatteryNEB
 from uvsib.db.utils import update_row, query_by_columns, update_step_status_path
 from uvsib.workchains.pythonjob_inputs import wait_sleep
 from uvsib.workflows import settings
@@ -74,6 +74,14 @@ class MainWorkChain(WorkChain):
                 cls.adsorbates,
                 cls.inspect_adsorbates
             ),
+            if_(cls.should_run_photocat)(
+                while_(cls.should_wait_photocat)(
+                    cls.wait_sleep,
+                    cls.check_pythonjob_sleep
+                ),
+                cls.photocat,
+                cls.inspect_photocat
+            ),
             if_(cls.should_run_battery)(
                 while_(cls.should_wait_battery)(
                     cls.wait_sleep,
@@ -81,6 +89,14 @@ class MainWorkChain(WorkChain):
                 ),
                 cls.battery,
                 cls.inspect_battery
+            ),
+            if_(cls.should_run_battery_neb)(
+                while_(cls.should_wait_battery_neb)(
+                    cls.wait_sleep,
+                    cls.check_pythonjob_sleep
+                ),
+                cls.battery_neb,
+                cls.inspect_battery_neb
             ),
             if_(cls.should_run_nano_particles)(
                 while_(cls.should_wait_nano_particles)(
@@ -244,6 +260,60 @@ class MainWorkChain(WorkChain):
             if row:
                 return False
         return True
+
+    def should_run_battery_neb(self):
+        """Tier-2 ion migration: only for battery submissions, only when
+        enabled in input.yaml (battery: neb: enabled), only after the tier-1
+        battery stage is Done for this ion (it consumes db_battery_path)."""
+        if not self.ctx.battery:
+            return False
+        if self.ctx.nano_generator or self.ctx.sqs:
+            return False
+        if not (settings.inputs.get("battery") or {}).get("neb", {}).get("enabled", False):
+            return False
+        working_ion = self.ctx.reaction_path.value
+        comp_row = query_by_columns(DBComposition, {"composition": self.ctx.chemical_formula})[0]
+        if self._battery_status(comp_row.step_status, working_ion) not in ["Done"]:
+            self.report("battery stage not Done -- skipping battery_neb")
+            return False
+        status = ((comp_row.step_status or {}).get("battery_neb") or {}).get(working_ion)
+        if status in ["Done"]:
+            row = query_by_columns(DBBatteryNEB, {"composition": self.ctx.chemical_formula,
+                                                  "working_ion": working_ion})
+            if row:
+                return False
+        return True
+
+    def should_wait_battery_neb(self):
+        """Wait only if THIS (composition, working ion) NEB runs elsewhere."""
+        working_ion = self.ctx.reaction_path.value
+        comp_row = query_by_columns(DBComposition, {"composition": self.ctx.chemical_formula})[0]
+        status = ((comp_row.step_status or {}).get("battery_neb") or {}).get(working_ion)
+        if status in ["Running"]:
+            self.ctx.sts = f"battery_neb:{working_ion}"
+            return True
+        return False
+
+    def battery_neb(self):
+        """Running BatteryNEBWorkChain"""
+        row = self.ctx.dbcomposition_row
+        working_ion = self.ctx.reaction_path.value
+        update_step_status_path(DBComposition, row.uuid, ["battery_neb", working_ion], "Running")
+        builder = self._construct_battery_neb_builder()
+        future = self.submit(builder)
+        self.to_context(**{"battery_neb_wch": future})
+
+    def inspect_battery_neb(self):
+        """Inspecting BatteryNEBWorkChain"""
+        wch = self.ctx.battery_neb_wch
+        row = self.ctx.dbcomposition_row
+        working_ion = self.ctx.reaction_path.value
+        state = "Done" if wch.is_finished_ok else "Failed"
+        update_step_status_path(DBComposition, row.uuid, ["battery_neb", working_ion], state)
+        update_row(DBComposition, row.uuid, {"status": state})
+        if state == "Failed":
+            self.report(f"BatteryNEB WorkChain failed (exit {wch.exit_status})")
+            return self.exit_codes.ERROR_CALCULATION_FAILED
 
     def should_run_nano_particles(self):
         """Check whether should run Nano Particles routines"""
@@ -570,6 +640,69 @@ class MainWorkChain(WorkChain):
             if parent_failed or len(failed) == len(self.ctx.adsorbates_formulas):
                 return self.exit_codes.ERROR_CALCULATION_FAILED
 
+    @staticmethod
+    def _photocat_status(step_status, reaction, reaction_path):
+        """Per-(reaction, pathway) photocat status, nested like adsorbates."""
+        return ((step_status or {}).get("photocat") or {}).get(reaction, {}) \
+            .get(reaction_path) or {}
+
+    def should_run_photocat(self):
+        """Stage-1 gap filter: only after the adsorbates stage is Done for
+        THIS (reaction, pathway); needs photocat.enabled in input.yaml and a
+        registered codes.photocat (env with the gap models)."""
+        if not settings.PHOTOCAT_ENABLED:
+            return False
+        if self.ctx.battery or self.ctx.nano_generator or self.ctx.sqs:
+            return False
+        if "photocat" not in (settings.configs.get("codes") or {}):
+            self.report("photocat enabled but codes.photocat is not registered "
+                        "in config.yaml -- skipping the gap filter")
+            return False
+        reaction = self.ctx.reaction.value
+        reaction_path = self.ctx.reaction_path.value
+        comp_row = query_by_columns(DBComposition, {"composition": self.ctx.chemical_formula})[0]
+        if self._ads_status(comp_row.step_status, reaction, reaction_path) not in ["Done"]:
+            self.report("adsorbates not Done for this (reaction, pathway) -- "
+                        "skipping photocat")
+            return False
+        if self._photocat_status(comp_row.step_status, reaction, reaction_path) in ["Done"]:
+            return False
+        return True
+
+    def should_wait_photocat(self):
+        """Wait only if THIS (reaction, pathway) photocat runs elsewhere."""
+        reaction = self.ctx.reaction.value
+        reaction_path = self.ctx.reaction_path.value
+        comp_row = query_by_columns(DBComposition, {"composition": self.ctx.chemical_formula})[0]
+        if self._photocat_status(comp_row.step_status, reaction, reaction_path) in ["Running"]:
+            self.ctx.sts = f"photocat:{reaction}:{reaction_path}"
+            return True
+        return False
+
+    def photocat(self):
+        """Running PhotocatWorkChain"""
+        row = self.ctx.dbcomposition_row
+        reaction = self.ctx.reaction.value
+        reaction_path = self.ctx.reaction_path.value
+        update_step_status_path(DBComposition, row.uuid,
+                                ["photocat", reaction, reaction_path], "Running")
+        builder = self._construct_photocat_builder()
+        future = self.submit(builder)
+        self.to_context(**{"photocat_wch": future})
+
+    def inspect_photocat(self):
+        """Inspecting PhotocatWorkChain"""
+        wch = self.ctx.photocat_wch
+        row = self.ctx.dbcomposition_row
+        reaction = self.ctx.reaction.value
+        reaction_path = self.ctx.reaction_path.value
+        state = "Done" if wch.is_finished_ok else "Failed"
+        update_step_status_path(DBComposition, row.uuid,
+                                ["photocat", reaction, reaction_path], state)
+        if state == "Failed":
+            self.report(f"Photocat WorkChain failed (exit {wch.exit_status})")
+            return self.exit_codes.ERROR_CALCULATION_FAILED
+
     def should_run_battery(self):
         """Check whether should run Battery for THIS working ion (the
         submission's reaction_path). Battery replaces the catalysis branch."""
@@ -694,6 +827,23 @@ class MainWorkChain(WorkChain):
         """Battery WorkChain builder -- the working ion IS the reaction_path."""
         BatteryWorkChain = WorkflowFactory("battery")
         builder = BatteryWorkChain.get_builder()
+        builder.chemical_formula = Str(self.ctx.chemical_formula)
+        builder.working_ion = Str(self.ctx.reaction_path.value)
+        return builder
+
+    def _construct_photocat_builder(self):
+        """Photocat WorkChain builder (stage-1 gap filter)."""
+        PhotocatWorkChain = WorkflowFactory("photocat")
+        builder = PhotocatWorkChain.get_builder()
+        builder.chemical_formula = Str(self.ctx.chemical_formula)
+        builder.reaction = self.ctx.reaction
+        builder.reaction_path = self.ctx.reaction_path
+        return builder
+
+    def _construct_battery_neb_builder(self):
+        """BatteryNEB WorkChain builder (tier-2 ion migration)."""
+        BatteryNEBWorkChain = WorkflowFactory("battery_neb")
+        builder = BatteryNEBWorkChain.get_builder()
         builder.chemical_formula = Str(self.ctx.chemical_formula)
         builder.working_ion = Str(self.ctx.reaction_path.value)
         return builder

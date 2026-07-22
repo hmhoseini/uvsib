@@ -24,6 +24,15 @@ def get_cmdline(job_info):
             f"--fmax={job_info['fmax']}",
             f"--max_steps={job_info['max_steps']}"]
         )
+    elif job_type == 'neb':
+        cmdline.extend([
+            f"--fmax={job_info['fmax']}",
+            f"--max_steps={job_info['max_steps']}",
+            f"--n_images={job_info['n_images']}",
+            f"--spring={job_info['spring']}",
+            f"--climb={int(job_info['climb'])}",
+            f"--prerelax_endpoints={int(job_info['prerelax_endpoints'])}"]
+        )
     elif job_type == 'hopping':
         cmdline.extend([
             f"--mh_steps={job_info['mh_steps']}"
@@ -120,6 +129,45 @@ def get_structures_from_mpdb_by_composition(chemical_formula, e_hull):
         if summary.energy_above_hull <= e_hull:
             stable_structures.append(summary.structure.as_dict())
     return stable_structures
+
+def get_mp_experimental_structures(target, cap=10, mode="formula"):
+    """Experimentally-known MP structures for a formula or chemical system.
+
+    The anti-lottery source: ``theoretical=False`` (ICSD-matched) entries,
+    sorted by energy_above_hull, capped at ``cap`` -- deliberately WITHOUT an
+    ehull cutoff, because the experimentally relevant polymorph is often
+    metastable (olivine NaFePO4 vs maricite is the canonical case).
+
+    Fallback: compositions whose experimental phases exist only as disordered
+    CIFs are represented in MP by ordered models sometimes flagged
+    theoretical (cubic LLZO, LTO, P2-type layered Na phases). When a target
+    has ZERO experimental hits, the lowest-ehull theoretical entries are
+    returned instead (same cap) -- experimental-first, never experimental-only.
+
+    Returns [{"structure": dict, "mp_id": str, "theoretical": bool,
+              "energy_above_hull": float}] (possibly empty; [] on API failure
+    -- callers degrade gracefully and log).
+    """
+    search_kw = {"formula": target} if mode == "formula" else {"chemsys": target}
+    fields = ["structure", "material_id", "theoretical", "energy_above_hull"]
+    out = []
+    try:
+        with MPRester(settings.api_key, mute_progress_bars=True) as mpr:
+            docs = mpr.materials.summary.search(
+                theoretical=False, fields=fields, **search_kw)
+            if not docs:
+                docs = mpr.materials.summary.search(fields=fields, **search_kw)
+        docs = sorted(docs, key=lambda d: (d.energy_above_hull is None,
+                                           d.energy_above_hull or 0.0))
+        for doc in docs[:cap]:
+            out.append({"structure": doc.structure.as_dict(),
+                        "mp_id": str(doc.material_id),
+                        "theoretical": bool(doc.theoretical),
+                        "energy_above_hull": float(doc.energy_above_hull or 0.0)})
+    except Exception:
+        return []
+    return out
+
 
 def get_mp_element_structures(elements):
     """Stable elemental ground-state structures from the Materials Project.

@@ -1,4 +1,5 @@
 import re
+import json
 from itertools import combinations
 from monty.json import jsanitize
 from sqlalchemy import inspect, delete, select, text
@@ -434,6 +435,47 @@ def update_step_status_path(table_class, uuid_value, path, value):
     with get_session() as session:
         session.execute(query, {"uuid": str(uuid_value), "val": value})
         session.commit()
+
+def update_jsonb_path(table_class, pk_value, path, value,
+                      column="attributes", pk_column="uuid"):
+    """Atomically set a nested key in a JSONB column to an ARBITRARY JSON
+    value (generalizes ``update_step_status_path``, which only writes step
+    strings into ``step_status``).
+
+    Same single nested ``jsonb_set`` UPDATE: missing intermediate objects are
+    created, sibling keys at every level are preserved, so parallel chains
+    tagging the SAME row under different paths (e.g. photocat results per
+    (reaction, pathway) on one slab) never clobber each other.
+
+    ``column`` / ``pk_column`` are trusted caller-supplied identifiers; path
+    keys are restricted to the safe charset. ``value`` is any JSON-able
+    object (dict/list/scalar).
+    """
+    if not path:
+        raise ValueError("path must be a non-empty list of keys")
+    for key in path:
+        if not _SAFE_STEP_KEY.match(key):
+            raise ValueError(f"unsafe jsonb path key: {key!r}")
+
+    expr = "CAST(:val AS jsonb)"
+    for i in range(len(path) - 1, -1, -1):
+        leaf_arr = "'{" + path[i] + "}'::text[]"
+        parent = path[:i]
+        if parent:
+            parent_arr = "'{" + ",".join(parent) + "}'::text[]"
+            existing = f"COALESCE({column} #> {parent_arr}, '{{}}'::jsonb)"
+        else:
+            existing = f"COALESCE({column}, '{{}}'::jsonb)"
+        expr = f"jsonb_set({existing}, {leaf_arr}, {expr}, true)"
+
+    query = text(
+        f"UPDATE {table_class.__tablename__} "
+        f"SET {column} = {expr} WHERE {pk_column} = :pk"
+    )
+    with get_session() as session:
+        session.execute(query, {"pk": pk_value, "val": json.dumps(value)})
+        session.commit()
+
 
 def add_row(table_class, rows_data):
     """

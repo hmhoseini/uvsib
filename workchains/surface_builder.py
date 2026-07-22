@@ -157,8 +157,34 @@ class SurfaceBuilderWorkChain(WorkChain):
             }
             self.to_context(**{f"slabgen_{uuid_str}": self.submit(FaceCalculation, **inputs)})
 
+    def _bulk_slabs(self, uuid_str):
+        """This bulk's generated slabs, re-read from its own gen node (kept
+        out of the workchain checkpoint on purpose -- ctx stores counts only)."""
+        results = self.ctx[f"slabgen_{uuid_str}"].outputs.output_dict.get_dict().get("results", [])
+        uuid2slabs = {r.get("uuid"): r.get("slabs", []) for r in results}
+        return uuid2slabs.get(uuid_str, [])
+
+    def _global_items(self):
+        """The deterministic global slab list: bulks in sorted-uuid order,
+        each bulk's slabs in generation order, every item carrying its bulk
+        uuid + epa + global index. Attribution rides WITH the slab through
+        the relax runner -- never inferred from position or job topology
+        (non-converged slabs are dropped by the runner)."""
+        items = []
+        bulks = self.ctx.relax_plan["bulks"]
+        for uuid_str in sorted(bulks):
+            epa = bulks[uuid_str]["epa"]
+            for enc in self._bulk_slabs(uuid_str):
+                items.append({"slab": enc, "uuid": uuid_str, "epa": epa,
+                              "index": len(items)})
+        return items
+
     def inspect_slabgen(self):
-        """Read epa + orthogonal slabs per bulk from its dedicated gen job."""
+        """Collect ALL generated slabs (per-bulk epa + counts), then plan the
+        GLOBAL relax batching: every bulk's slabs pooled together and divided
+        into chunks of <= MAX_SLABS_PER_CHUNK, instead of the old per-bulk
+        chunking that submitted one under-filled job per bulk."""
+        bulks = {}
         for struct_dict, uuid_str in self.ctx.struct_uuid:
             node = self.ctx[f"slabgen_{uuid_str}"]
             if not node.is_finished_ok:
@@ -170,65 +196,90 @@ class SurfaceBuilderWorkChain(WorkChain):
                 if not slabs:
                     self.report(f"Warning: no orthogonal slab generated for uuid={uuid_str}")
                     continue
-                n_chunks = len(_chunk(slabs, MAX_SLABS_PER_CHUNK))
-                # Store only epa + chunk count; slabs are re-read from the gen
-                # node in run_relax to keep the workchain checkpoint small.
-                self.ctx.relax_plan[uuid_str] = {"epa": res["epa"], "n_chunks": n_chunks}
-                self.report(
-                    f"uuid={uuid_str}: {len(slabs)} orthogonal slabs "
-                    f"(of {res.get('n_total', '?')} generated) -> "
-                    f"{n_chunks} relax chunk(s) of <= {MAX_SLABS_PER_CHUNK}")
+                bulks[uuid_str] = {"epa": res["epa"], "n_slabs": len(slabs)}
+                self.report(f"uuid={uuid_str}: {len(slabs)} orthogonal slabs "
+                            f"(of {res.get('n_total', '?')} generated)")
 
-        if not self.ctx.relax_plan:
+        if not bulks:
             self.report("No orthogonal slabs were generated for any structure")
             return self.exit_codes.ERROR_NO_SURFACE
 
+        # chunk composition ({uuid: count} per chunk), derived from counts in
+        # the SAME sorted-uuid order _global_items uses -- lets a dead chunk
+        # be reported as "which bulks lost how many slabs" without storing
+        # the slabs themselves in the checkpoint
+        chunk_uuids, filled = [], 0
+        for uuid_str in sorted(bulks):
+            left = bulks[uuid_str]["n_slabs"]
+            while left:
+                if filled == 0:
+                    chunk_uuids.append({})
+                take = min(left, MAX_SLABS_PER_CHUNK - filled)
+                chunk_uuids[-1][uuid_str] = chunk_uuids[-1].get(uuid_str, 0) + take
+                filled = (filled + take) % MAX_SLABS_PER_CHUNK
+                left -= take
+
+        total = sum(b["n_slabs"] for b in bulks.values())
+        self.ctx.relax_plan = {"bulks": bulks, "chunk_uuids": chunk_uuids}
+        self.report(f"global batching: {total} slabs from {len(bulks)} bulk(s) "
+                    f"-> {len(chunk_uuids)} relax chunk(s) of <= {MAX_SLABS_PER_CHUNK}")
+
     def run_relax(self):
-        """Submit one relaxation CalcJob per slab chunk on the model code."""
-        for uuid_str, plan in self.ctx.relax_plan.items():
-            # Re-read this bulk's slabs from its own gen node; re-chunk
-            # deterministically so chunk i here matches inspect_relax.
-            results = self.ctx[f"slabgen_{uuid_str}"].outputs.output_dict.get_dict().get("results", [])
-            uuid2slabs = {r.get("uuid"): r.get("slabs", []) for r in results}
-            slabs = uuid2slabs.get(uuid_str, [])
-            for i, chunk in enumerate(_chunk(slabs, MAX_SLABS_PER_CHUNK)):
-                inputs = {
-                    "code": get_code(settings.inputs['face_build']['model']),
-                    "parameters": Dict(dict={
-                        "job_type": "face_relax",
-                        "cmdline_params": _model_cmdline() + [
-                            f"--epa={plan['epa']}",
-                            f"--fmax={settings.inputs['face_build']['fmax']}",
-                            f"--max_steps={settings.inputs['face_build']['max_steps']}"],
-                        "staged_files": [["slab_relax.py", "aiida.py"],
-                                         ["_calculators.py", "_calculators.py"]],
-                        "retrieve_list": ["output.json"],
-                    }),
-                    "file": {"input_structures_file": _structures_file(chunk)},
-                    "metadata": {
-                        "options": _facebuild_options(),
-                        "label": f"SlabRelax: {self.ctx.chemical_formula} #{i}",
-                    },
-                }
-                self.to_context(**{f"relax_{uuid_str}_{i}": self.submit(FaceCalculation, **inputs)})
+        """Submit one relaxation CalcJob per GLOBAL slab chunk."""
+        items = self._global_items()
+        for i, chunk in enumerate(_chunk(items, MAX_SLABS_PER_CHUNK)):
+            inputs = {
+                "code": get_code(settings.inputs['face_build']['model']),
+                "parameters": Dict(dict={
+                    "job_type": "face_relax",
+                    # no --epa: it rides per slab now (chunks mix bulks)
+                    "cmdline_params": _model_cmdline() + [
+                        f"--fmax={settings.inputs['face_build']['fmax']}",
+                        f"--max_steps={settings.inputs['face_build']['max_steps']}"],
+                    "staged_files": [["slab_relax.py", "aiida.py"],
+                                     ["_calculators.py", "_calculators.py"]],
+                    "retrieve_list": ["output.json"],
+                }),
+                "file": {"input_structures_file": _structures_file(chunk)},
+                "metadata": {
+                    "options": _facebuild_options(),
+                    "label": f"SlabRelax: {self.ctx.chemical_formula} #{i}",
+                },
+            }
+            self.to_context(**{f"relax_{i}": self.submit(FaceCalculation, **inputs)})
 
     def inspect_relax(self):
-        """Merge a structure's chunks, globally select the lowest-energy faces."""
+        """Regroup the chunk outputs BY THE ECHOED BULK UUID, then select the
+        lowest-energy faces per bulk (the selection stays per-bulk and
+        global-across-chunks, exactly as before)."""
         max_num_surf = settings.MAX_NUM_SURF
-        for uuid_str, plan in self.ctx.relax_plan.items():
-            merged = []
-            for i in range(plan["n_chunks"]):
-                node = self.ctx[f"relax_{uuid_str}_{i}"]
-                if not node.is_finished_ok:
-                    self.report(f"Relax chunk {i} failed for uuid={uuid_str}; "
-                                "its slabs are dropped.")
-                    continue
-                merged.extend(node.outputs.output_dict.get_dict().get("slabs", []))
+        by_uuid = {uuid_str: [] for uuid_str in self.ctx.relax_plan["bulks"]}
 
+        for i, composition in enumerate(self.ctx.relax_plan["chunk_uuids"]):
+            node = self.ctx[f"relax_{i}"]
+            if not node.is_finished_ok:
+                losses = ", ".join(f"{u}: {n}" for u, n in composition.items())
+                self.report(f"Relax chunk {i} failed; slabs lost per bulk -> {losses}")
+                continue
+            out = node.outputs.output_dict.get_dict()
+            for rec in out.get("slabs", []):
+                uuid_str = rec.get("uuid")
+                if uuid_str not in by_uuid:
+                    # attribution is load-bearing downstream (photocat / HSE
+                    # select bulks via the slab's structure_uuid) -- a record
+                    # we cannot attribute is dropped, never guessed
+                    self.report(f"chunk {i}: slab record with unknown uuid "
+                                f"{uuid_str!r} -- dropped")
+                    continue
+                by_uuid[uuid_str].append(rec)
+            for fail in out.get("failed_slabs", []):
+                self.report(f"chunk {i}: slab {fail.get('index')} of uuid="
+                            f"{fail.get('uuid')} failed ({fail.get('reason')})")
+
+        for uuid_str, merged in by_uuid.items():
             if not merged:
                 self.report(f"Warning: no slab converged for uuid={uuid_str}")
                 continue
-
             merged.sort(key=lambda x: x["surface_formation_energy"])
             selected = [entry["slab"] for entry in merged[:max_num_surf]]
             if len(merged) < max_num_surf:

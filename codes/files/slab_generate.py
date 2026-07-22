@@ -90,7 +90,7 @@ MAX_CONV_ATOMS = 60          # atom-count threshold for the skip
 LOWSYM_SG_MAX = 15           # spacegroup numbers 1-15 = triclinic + monoclinic
 # Per-bulk walltime cap on generate_all_slabs; a slower cell is skipped, not
 # allowed to take down the shared multi-bulk job.
-GEN_TIMEOUT_S = 3600 * 3 # timeout for generate_all_slabs call
+GEN_TIMEOUT_S = 3600 * 2 # timeout for generate_all_slabs call
 
 
 class SlabGenTimeout(Exception):

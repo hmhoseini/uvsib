@@ -77,6 +77,36 @@ def _analog_formulas(comp, k):
     return formulas
 
 
+def _mp_experimental_pool(target, mode, cap):
+    """Experimentally-known (theoretical=False) MP structures for the target
+    itself -- csp: the exact formula; gen: the full system and subsystems.
+
+    Deliberately NO ehull cutoff: the electrochemically/synthetically relevant
+    polymorph is often metastable (olivine NaFePO4 sits above maricite), and
+    dropping it by energy is exactly the lottery this pool exists to end.
+    Sorted by ehull, capped at ``cap``.
+    """
+    from mp_api.client import MPRester
+    fields = ["structure", "energy_above_hull"]
+    structures = []
+    with MPRester(settings.api_key, mute_progress_bars=True) as mpr:
+        if mode == "csp":
+            queries = [{"formula": target}]
+        else:
+            queries = [{"chemsys": cs} for cs in _subsystems(target.split("-"))]
+        for kw in queries:
+            try:
+                docs = mpr.materials.summary.search(
+                    theoretical=False, fields=fields, **kw)
+            except Exception:
+                continue
+            for doc in docs:
+                structures.append((doc.energy_above_hull or 0.0,
+                                   doc.structure.as_dict()))
+    structures.sort(key=lambda x: x[0])
+    return [s for _, s in structures[:cap]]
+
+
 def _mp_by_chemsys(systems, ehull, cap):
     from mp_api.client import MPRester
     structures = []
@@ -246,12 +276,19 @@ def _bundled_fallback(mode, target):
 
 
 def build_template_pool(target, mode, *, k_donors=3, ehull=0.10, cap=60,
-                        use_icet=True, icet_max_size=4, icet_lattices=("fcc", "bcc")):
+                        use_icet=True, icet_max_size=4, icet_lattices=("fcc", "bcc"),
+                        exp_seeds=True, exp_cap=10):
     """Return a list of pymatgen structure dicts to seed SAPS.
 
-    Seeds are gathered from three complementary sources and merged (priority
+    Seeds are gathered from four complementary sources and merged (priority
     order: most relevant first), de-duplicated, then capped:
 
+    0. **experimentally known** -- theoretical=False MP entries for the target
+       itself, NO ehull cutoff (``exp_seeds``/``exp_cap``): guarantees the
+       real polymorphs are in the pool regardless of where MP's hull puts
+       them (note: SAPS transforms seeds -- the verbatim-injection guarantee
+       for the exact structures lives in the csp/gen workchains, this pool
+       'only' makes sure SAPS builds on the right frameworks);
     1. **same chemical space** -- real structures for the target system *and all
        its subsystems* (elements, binaries, ...) from MP;
     2. **icet alloys** -- symmetry-inequivalent ordered decorations of metallic
@@ -285,6 +322,13 @@ def build_template_pool(target, mode, *, k_donors=3, ehull=0.10, cap=60,
         elements = sorted({el.symbol for el in target_comp.elements})
 
     pools = []
+    # 0. experimentally-known structures for the target itself (first, so the
+    #    dedup keeps THESE when a lower-priority pool finds the same crystal)
+    if exp_seeds:
+        try:
+            pools.append(_mp_experimental_pool(target, mode, exp_cap))
+        except Exception:
+            pass
     # 1. same chemical space from MP (target system + subsystems)
     try:
         pools.append(_mp_same_chemspace(elements, ehull, cap))

@@ -186,6 +186,33 @@ class DBBatteryPath(Base):
     mtime = Column(DateTime(timezone=True), onupdate=func.now())
 
 
+class DBBatteryNEB(Base):
+    """Ion-migration barriers for one (composition, working_ion, host,
+    migration limit). Written by BatteryNEBWorkChain; ``hops`` holds the
+    symmetry-distinct barriers (+ TS structures), the e_m_* columns the
+    percolation thresholds (the lowest barrier at which the hop network
+    wraps the cell in 1/2/3 independent directions)."""
+    __tablename__ = "db_battery_neb"
+
+    id = Column(Integer, primary_key=True)
+    structure_uuid = Column(
+        UUID(as_uuid=True),
+        ForeignKey("db_structure.uuid", ondelete="CASCADE"),
+        nullable=False
+    )
+    composition = Column(String, nullable=True)
+    working_ion = Column(String, nullable=False)
+    hop_limit = Column(String, nullable=False)     # 'vacancy' | 'dilute'
+    model = Column(String, nullable=True)
+    e_m_1d = Column(DOUBLE_PRECISION, nullable=True)
+    e_m_2d = Column(DOUBLE_PRECISION, nullable=True)
+    e_m_3d = Column(DOUBLE_PRECISION, nullable=True)
+    hops = Column(JSONB, nullable=False)           # per-class barriers, TS
+    attributes = Column(JSONB, nullable=True)
+    ctime = Column(DateTime(timezone=True), server_default=func.now())
+    mtime = Column(DateTime(timezone=True), onupdate=func.now())
+
+
 class DBFrontend(Base):
     """Frontend table"""
     __tablename__ = 'db_frontend'
