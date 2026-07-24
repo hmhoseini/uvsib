@@ -132,7 +132,8 @@ class GeneratorWorkChain(WorkChain):
                 continue
 
             low_energy_entries = unique_low_energy_chemsys(chemical_system, new_entries,
-                                                           EHULL_ML, element_entries=self.ctx.ref_entries)
+                                                           EHULL_ML,
+                                                           element_entries=self.ctx.ref_entries)
             structure_energy_pairs = []
             for entry in low_energy_entries:
                 structure_energy_pairs.append((entry.structure.as_dict(), entry.energy))

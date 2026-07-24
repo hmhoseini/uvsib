@@ -94,8 +94,9 @@ class MPDBMLWorkChain(WorkChain):
         for i, structure_energy in enumerate(structure_energy_pairs):
             add_version_to_existing_structure(
                     self.ctx.struct_uuid[i][-1],
+                    structure_energy[0],
                     ML_model,
-                    {"structure": structure_energy[0],
+                    {
                      "source": self.ctx.struct_uuid[i][1],
                      "energy": structure_energy[-1]
                     }

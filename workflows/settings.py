@@ -22,7 +22,7 @@ api_key = configs['MP_API_KEY']['api_key']
 MAX_NUM_BULK = 10
 MAX_NUM_SURF = 10
 
-EHULL_ML = 0.05
+EHULL_ML = 0.1
 EHULL_SCAN = 0.1
 DFT_FUNC = "GGA"  # MP naming: GGA == PBE (bundled refs key on "GGA"/"r2SCAN", not "PBE")
 

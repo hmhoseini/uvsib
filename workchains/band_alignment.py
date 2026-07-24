@@ -102,8 +102,9 @@ class BandAlignmentWorkChain(WorkChain):
 
                 add_version_to_existing_structure(
                         uuid_str,
+                        pbe_wch.inputs.structure.get_pymatgen().as_dict(),
                         "PBE",
-                        {"structure": pbe_wch.inputs.structure.get_pymatgen().as_dict(),
+                        {
                          "energy": pbe_wch.outputs.misc["total_energies"]["energy_extrapolated"],
                          "band_info": core_state_dict,
                         },
@@ -146,9 +147,9 @@ class BandAlignmentWorkChain(WorkChain):
                 continue
             add_version_to_existing_structure(
                     uuid_str,
+                    hse_wch.inputs.structure.get_pymatgen().as_dict(),
                     "HSE",
-                    {"structure": hse_wch.inputs.structure.get_pymatgen().as_dict(),
-                     "energy": hse_wch.outputs.misc["total_energies"]["energy_extrapolated"],
+                    {"energy": hse_wch.outputs.misc["total_energies"]["energy_extrapolated"],
                      "band_info": band_info_dict | core_state_dict
                     },
                     "override"

@@ -1,10 +1,10 @@
-from pymatgen.core.structure import Structure
+from pymatgen.core import Composition, Structure
 from pymatgen.entries.computed_entries import ComputedStructureEntry
 from aiida.orm import Bool, Str, List, Dict
 from aiida.engine import WorkChain, if_
 from aiida.plugins import WorkflowFactory
 import aiida_pythonjob
-from uvsib.db.tables import DBStructure, DBStructureVersion, DBChemsys, DBComposition
+from uvsib.db.tables import DBStructureVersion, DBChemsys, DBComposition
 from uvsib.db.session import get_session
 from uvsib.db.utils import (
         update_row,
@@ -23,7 +23,6 @@ from uvsib.workflows import settings
 _SKIP_CSP = settings._SKIP_CSP
 _SKIP_GEN = settings._SKIP_GEN
 EHULL_ML = settings.EHULL_ML
-MAX_NUM_BULK = settings.MAX_NUM_BULK
 
 def cleanup_failed_systems(chemical_systems):
     """Remove database entries for failed calculations"""
@@ -41,8 +40,7 @@ def get_entries_from_db(chemical_formula, method):
         try:
             results = (
                 session.query(DBStructureVersion)
-                .join(DBStructure)
-                .filter(DBStructure.chemsys.in_(chemical_systems))
+                .filter(DBStructureVersion.chemsys.in_(chemical_systems))
                 .filter(DBStructureVersion.method == method)
                 .all()
             )
@@ -50,6 +48,10 @@ def get_entries_from_db(chemical_formula, method):
             return None
 
     for row in results:
+        if row.source == "MPDB_ref":
+            continue
+        if not Composition(row.composition).is_element and row.composition != chemical_formula:
+            continue
         struct = Structure.from_dict(row.structure)
         entries.append(
                 ComputedStructureEntry(

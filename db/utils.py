@@ -113,6 +113,8 @@ def add_structures(
 
             db_version = DBStructureVersion(
                 structure_uuid=db_structure.uuid,
+                composition=composition,
+                chemsys=chemical_system,
                 method=method,
                 source=source,
                 structure=struct_dict,
@@ -127,6 +129,7 @@ def add_structures(
 
 def add_version_to_existing_structure(
         existing_uuid,
+        struct_dict,
         method,
         add_attributes,
         on_conflict = "error"):
@@ -167,8 +170,16 @@ def add_version_to_existing_structure(
                 return True
 
         # If no conflict, add a new version
+
+        struct = Structure.from_dict(struct_dict)
+        composition = struct.composition.reduced_formula
+        chemical_system = Composition(composition).chemical_system
+
         db_version = DBStructureVersion(
             structure_uuid=existing_uuid,
+            structure=struct_dict,
+            composition=composition,
+            chemsys=chemical_system,
             method=method,
             **add_attributes
         )

@@ -36,7 +36,7 @@ class DBComposition(Base):
         unique=True,
         nullable=False
     )
-    composition = Column(String, nullable=True)
+    composition = Column(String, nullable=False)
     status = Column(String, nullable=False, default="Created")
     step_status = Column(JSONB, nullable=False, default=dict)
     stable_struct = Column(JSONB, nullable=True)
@@ -56,8 +56,8 @@ class DBStructure(Base):
         unique=True,
         nullable=False
     )
-    composition = Column(String, nullable=True)
-    chemsys = Column(String, nullable=True)
+    composition = Column(String, nullable=False)
+    chemsys = Column(String, nullable=False)
     attributes = Column(JSONB, nullable=True)
     ctime = Column(DateTime(timezone=True), server_default=func.now())
     mtime = Column(DateTime(timezone=True), onupdate=func.now())
@@ -71,9 +71,11 @@ class DBStructureVersion(Base):
         ForeignKey("db_structure.uuid", ondelete="CASCADE"),
         nullable=False
     )
+    structure = Column(JSONB, nullable=False)
+    composition = Column(String, nullable=False)
+    chemsys = Column(String, nullable=False)
     source = Column(String, nullable=False)
     method = Column(String, nullable=False)
-    structure = Column(JSONB, nullable=False)
     energy = Column(DOUBLE_PRECISION, nullable=True)
     ehull = Column(DOUBLE_PRECISION, nullable=True)
     vasprun_str = Column(Text, nullable=True)

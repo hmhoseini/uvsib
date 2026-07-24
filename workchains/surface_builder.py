@@ -19,7 +19,7 @@ MAX_SLABS_PER_CHUNK = 250
 
 FaceCalculation = CalculationFactory(str(settings.inputs["face_build"]["model"]).lower())
 
-def get_struct_uuid(chemical_formula): #TODO: will correct after test
+def get_struct_uuid(chemical_formula):
     """Query structures from the database by formula and return list of (structure_dict, uuid)"""
     if _PD_VERIFICATION:
         results = query_structure({"composition": chemical_formula}, method = "r2SCAN") or []

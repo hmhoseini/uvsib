@@ -150,8 +150,9 @@ class PDVerificationWorkChain(WorkChain):
         for i, entry in enumerate(low_energy_entries[:MAX_NUM_BULK]):
             add_version_to_existing_structure(
                 entry.data["uuid"],
+                entry.structure.as_dict(),
                 "r2SCAN",
-                {"structure": entry.structure.as_dict(),
+                {
                  "source": entry.data["source"],
                  "energy": entry.energy,
                  "ehull": ehulls[i]}

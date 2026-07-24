@@ -161,7 +161,8 @@ class CSPWorkChain(WorkChain):
             return self.exit_codes.ERROR_MINIMAHOPPING_FAILED
 
         self.ctx.low_energy_entries_mh, _ = unique_low_energy_comp(self.ctx.chemical_formula, new_entries,
-                                                                   EHULL_ML, element_entries=self.ctx.ref_entries)
+                                                                   EHULL_ML,
+                                                                   element_entries=self.ctx.ref_entries)
 
     def final_step(self):
         """Store structures"""
