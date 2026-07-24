@@ -127,9 +127,7 @@ class MainWorkChain(WorkChain):
 
     def should_run_pd_ml(self):
         """Check whether should run PhaseDiagramML"""
-        if self.ctx.sqs:
-            return False
-        if self.ctx.nano_generator:
+        if self.ctx.sqs or self.ctx.nano_generator:
             return False
         step_status = self._fresh_step_status().get("pd_ml")
         if step_status in ["Done"]:
@@ -138,9 +136,7 @@ class MainWorkChain(WorkChain):
 
     def should_run_pd_verification(self):
         """Check whether should run PDVerification"""
-        if self.ctx.sqs:
-            return False
-        if self.ctx.nano_generator:
+        if self.ctx.sqs or self.ctx.nano_generator:
             return False
         if not _PD_VERIFICATION:
             return False
@@ -151,9 +147,7 @@ class MainWorkChain(WorkChain):
 
     def should_run_sqs(self):
         """Check whether should run PhaseDiagramML"""
-        if not self.ctx.sqs:
-            return False
-        if self.ctx.nano_generator:
+        if not self.ctx.sqs or self.ctx.nano_generator:
             return False
         step_status = self._fresh_step_status().get("sqs")
         if step_status in ["Done"]:
@@ -162,11 +156,7 @@ class MainWorkChain(WorkChain):
 
     def should_run_synthesizability(self):
         """Check whether should run SynthesizabilityWorkChain"""
-        if not settings.SYNTH_ENABLED:
-            return False
-        if self.ctx.sqs:
-            return False
-        if self.ctx.nano_generator:
+        if not settings.SYNTH_ENABLED or self.ctx.sqs or self.ctx.nano_generator:
             return False
         step_status = self._fresh_step_status().get("synthesizability")
         if step_status in ["Done"]:
@@ -403,7 +393,7 @@ class MainWorkChain(WorkChain):
             # update row status in DBComposition table
             row.step_status.update({"sqs": "Failed"})
             update_row(DBComposition, row.uuid,{"status": "Failed", "step_status": row.step_status})
-            self.report("PhaseDiagramML WorkChain failed")
+            self.report("SQS WorkChain failed")
             return self.exit_codes.ERROR_CALCULATION_FAILED
 
         # update row status in DBComposition table

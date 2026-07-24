@@ -179,18 +179,18 @@ def split_relax_output(wch, n_main):
         (refs if idx >= n_main else main).append(entry)
     return main, refs
 
-def unique_low_energy_chemsys(chemical_system, entries, method, ehull, element_entries=None):
+def unique_low_energy_chemsys(chemical_system, entries, ehull, element_entries=None):
     """Select the unique lowest-energy structures for a given chemical system.
 
     ``element_entries`` are the elemental hull endpoints to add. Pass the
     on-method MLIP references (``element_reference_entries``); when ``None`` the
-    bundled DFT references are used (``method`` selects GGA/r2SCAN) -- legacy
+    bundled DFT references are used (``DFT_FUNC`` selects GGA/r2SCAN) -- legacy
     behaviour, kept for backward compatibility.
     """
     if "-" in chemical_system:
         elements = chemical_system.split("-")
         entries.extend(element_entries if element_entries is not None
-                       else get_element_entries(elements, method))
+                       else get_element_entries(elements, DFT_FUNC))
     pd = PhaseDiagram(entries)
 
     stable_entries = []
@@ -211,7 +211,7 @@ def unique_low_energy_chemsys(chemical_system, entries, method, ehull, element_e
         stable_entries.append(entry)
     return stable_entries
 
-def unique_low_energy_comp(chemical_formula, entries, method, ehull, min_n_return=None, element_entries=None):
+def unique_low_energy_comp(chemical_formula, entries, ehull, min_n_return=None, element_entries=None):
     """Select the lowest-energy unique structures for a given chemical formula.
 
     ``element_entries``: elemental hull endpoints to add (the on-method MLIP
@@ -222,7 +222,7 @@ def unique_low_energy_comp(chemical_formula, entries, method, ehull, min_n_retur
     if "-" in chemical_system:
         elements = chemical_system.split("-")
         entries.extend(element_entries if element_entries is not None
-                       else get_element_entries(elements, method))
+                       else get_element_entries(elements, DFT_FUNC))
     pd = PhaseDiagram(entries)
 
     candidates = []
@@ -291,22 +291,17 @@ def add_from_mpdb(chemical_formula):
         structures = [(get_primitive_cell(structure).as_dict(), None) for structure in exp_structures ]
         add_structures("MPDB_exp", "DFT", structures)
     # add reference structures (elements)
+    elements = Composition(chemical_formula).chemical_system.split("-")
     missing_el = []
-    elements = Composition(chemical_formula).chemical_system.split('-')
     for el in elements:
-        row = query_structure({"composition": el}, method = "DFT")
-        if not row:
+        rows = query_structure({"chemsys": el}, method="DFT") or []
+
+        if not any(row.source == "MPDB_ref" for row in rows):
             missing_el.append(el)
-        else:
-            for r in row:
-                if r.source == "MPDB_ref":
-                    break
-            else:
-                missing_el.append(el)
 
     el_entries = get_element_entries(missing_el, DFT_FUNC)
-    structures = [(e.structure.as_dict(), None) for e in el_entries]
-    add_structures("MPDB_ref", "DFT", structures)
+    el_structures = [(e.structure.as_dict(), None) for e in el_entries]
+    add_structures("MPDB_ref", "DFT", el_structures)
 
 def get_code(model_key):
     """

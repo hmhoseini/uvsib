@@ -14,7 +14,6 @@ from uvsib.workflows import settings
 
 StructureData = DataFactory('core.structure')
 
-DFT_FUNC = settings.DFT_FUNC
 EHULL_ML = settings.EHULL_ML
 
 class CSPWorkChain(WorkChain):
@@ -56,6 +55,7 @@ class CSPWorkChain(WorkChain):
     def run_csp(self):
         """Run MatterGen CSP and/or GNoME (SAPS) CSP in parallel, per input.yaml
         toggles (`mattergen.enabled`, `gnome.enabled`); at least one required."""
+        self.report("Launching CSP calculations")
         self.ctx.n_csp_jobs = 0
         if settings.MATTERGEN_ENABLED:
             self.ctx.n_csp_jobs = self.ctx.n_csp
@@ -72,7 +72,7 @@ class CSPWorkChain(WorkChain):
                 self.to_context(**{f"gnome_{i}": self.submit(gbuilder)})
 
         if self.ctx.n_csp_jobs == 0 and self.ctx.n_gnome == 0:
-            self.report("No CSP generator enabled (mattergen and gnome both off)")
+            self.report("ERROE: no CSP generator enabled (mattergen and gnome both off)")
             return self.exit_codes.ERROR_CSP_FAILED
 
     def inspect_csp_calcs(self):
@@ -99,11 +99,11 @@ class CSPWorkChain(WorkChain):
                 self.report(f"Warning: could not read GNoME CSP structures from job {i}")
 
         if not self.ctx.csp_structures:
-            self.report("No structure was found")
+            self.report("No structure was found. Job stopped.")
             return self.exit_codes.ERROR_CSP_FAILED
 
         if self.ctx.n_csp_jobs and failed_jobs / self.ctx.n_csp_jobs > 0.5:
-            self.report("Many CSP jobs failed")
+            self.report("Many CSP jobs failed. Jon sopped.")
             return self.exit_codes.ERROR_CSP_FAILED
 
     def predict_ml_energies(self):
@@ -116,18 +116,21 @@ class CSPWorkChain(WorkChain):
         """ML energies"""
         wch = self.ctx.ml_e
         if not wch.is_finished_ok:
+            self.report("ML relaxation failed.")
             return self.exit_codes.ERROR_ML_RELAX_FAILED
         try:
             new_entries = get_output_as_entry(wch)
         except Exception:
+            self.report("ML relaxation failed.")
             return self.exit_codes.ERROR_ML_RELAX_FAILED
 
-        self.ctx.low_energy_entries_csp, _ = unique_low_energy_comp(self.ctx.chemical_formula, new_entries, DFT_FUNC,
+        self.ctx.low_energy_entries_csp, _ = unique_low_energy_comp(self.ctx.chemical_formula, new_entries,
                                                                     EHULL_ML, min_n_return=self.ctx.n_mh,
                                                                     element_entries=self.ctx.ref_entries)
 
     def minimahopping(self):
         """Run MinimaHopping"""
+        self.report("Launching MH calculations")
         entries_csp = self.ctx.low_energy_entries_csp
         n_mh = min(len(entries_csp), self.ctx.n_mh)
         selected_entries = random.sample(entries_csp, n_mh)
@@ -154,16 +157,17 @@ class CSPWorkChain(WorkChain):
                 failed_jobs += 1
 
         if not all_entries or failed_jobs / n_mh > 0.5:
+            self.report("Many MH jobs failed.")
             return self.exit_codes.ERROR_MINIMAHOPPING_FAILED
 
         self.ctx.low_energy_entries_mh, _ = unique_low_energy_comp(self.ctx.chemical_formula, new_entries,
-                                                                   DFT_FUNC, EHULL_ML, element_entries=self.ctx.ref_entries)
+                                                                   EHULL_ML, element_entries=self.ctx.ref_entries)
 
     def final_step(self):
         """Store structures"""
         ML_model = self.ctx.ML_model
         all_entries = self.ctx.low_energy_entries_csp + self.ctx.low_energy_entries_mh
-        low_energy_entries, _ = unique_low_energy_comp(self.ctx.chemical_formula, all_entries, DFT_FUNC, EHULL_ML,
+        low_energy_entries, _ = unique_low_energy_comp(self.ctx.chemical_formula, all_entries, EHULL_ML,
                                                        element_entries=self.ctx.ref_entries)
         structure_energy_pairs = []
 

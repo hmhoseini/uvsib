@@ -22,7 +22,6 @@ from uvsib.workflows import settings
 
 _SKIP_CSP = settings._SKIP_CSP
 _SKIP_GEN = settings._SKIP_GEN
-DFT_FUNC = settings.DFT_FUNC
 EHULL_ML = settings.EHULL_ML
 MAX_NUM_BULK = settings.MAX_NUM_BULK
 
@@ -91,7 +90,7 @@ class PhaseDiagramMLWorkChain(WorkChain):
         )
 
         spec.exit_code(300, "ERROR_CALCULATION_FAILED", message="The WorkChain did not finish successfully")
-        spec.exit_code(301, "ERROR_NO_STRUCTURES_FOUND", message="No experimentally observed structures were found")
+        spec.exit_code(301, "ERROR_NO_STRUCTURES_FOUND", message="No stable structures were found")
         spec.exit_code(302, "ERROR_NO_CHEMSYS_FOUND", message="Chemical system does not exist in DBChemsys")
 
     def setup(self):
@@ -103,7 +102,7 @@ class PhaseDiagramMLWorkChain(WorkChain):
         if self.ctx.chemical_systems:
             self.report(f"New chemical systems:{self.ctx.chemical_systems}")
         else:
-            self.report(f"No new chemical system!")
+            self.report("No new chemical system!")
 
     def should_run_mpdb_ml(self):
         """Check whether should run MPDBMLWorkChain"""
@@ -135,7 +134,7 @@ class PhaseDiagramMLWorkChain(WorkChain):
                     row = r[0]
                     update_row(DBChemsys, row.uuid,{"gen_structures": "Ready"})
                 else:
-                    self.report(f"ERROR: {chemical_system} does not exist in the DBChemsys database")
+                    self.report(f"ERROR: {chemical_system} does not exist in the DBChemsys database.")
                     return self.exit_codes.ERROR_NO_CHEMSYS_FOUND
             self.report(f"Skipping Gen calculations for {self.ctx.chemical_formula}")
             return False
@@ -197,7 +196,7 @@ class PhaseDiagramMLWorkChain(WorkChain):
                         failed_chemsys.append(chemsys)
             cleanup_failed_systems(failed_chemsys)
 
-            self.report(f"MatterGen (gen) for {failed_chemsys} failed. Corresponding rows will be removed from DBChemsys")
+            self.report(f"MatterGen (gen) for {failed_chemsys} failed. Corresponding rows will be removed from DBChemsys.")
             return self.exit_codes.ERROR_CALCULATION_FAILED
 
     def wait_for_data(self):
@@ -224,29 +223,32 @@ class PhaseDiagramMLWorkChain(WorkChain):
     def store_stable_structs(self):
         """Return final structures"""
         chemical_formula = self.ctx.chemical_formula
-        model = self.ctx.ML_model
         self.report(f"Constructing phase diagram for {chemical_formula}")
-        entries = get_entries_from_db(chemical_formula, model)
+        entries = get_entries_from_db(chemical_formula, self.ctx.ML_model)
 
         if not entries:
-            self.report(f"Constructing phase diagram for {chemical_formula} failed")
+            self.report(f"Constructing phase diagram for {chemical_formula} failed.")
             return self.exit_codes.ERROR_CALCULATION_FAILED
 
         ref_entries, _ = get_ref_entries(self.ctx.chemical_formula, self.ctx.ML_model)
 
         uuid_list = []
-        unique_entries, _ = unique_low_energy_comp(
-            chemical_formula, entries, DFT_FUNC, EHULL_ML, min_n_return=1, element_entries=ref_entries)
+        unique_entries, _ = unique_low_energy_comp(chemical_formula, entries,
+                                                   EHULL_ML, min_n_return=1,
+                                                   element_entries=ref_entries)
+
+        if not unique_entries:
+            self.report(f"ERROR: no stable structures for {self.ctx.chemical_formula} were found.")
+            return self.exit_codes.ERROR_NO_STRUCTURES_FOUND
+
         for entry in unique_entries:
             uuid_list.append(str(entry.data["struct_uuid"]))
-
-        if not uuid_list:
-            self.report(f"WARNING: no stable structure for {self.ctx.chemical_formula} has been found")
 
         # add uuids of stable structures to the DBComposition table
         row = query_by_columns(DBComposition,{"composition": self.ctx.chemical_formula})[0]
 
         update_row(DBComposition, row.uuid,{"stable_struct": {"ml_uuid_list": uuid_list}})
+        self.report(f"{len(unique_entries)} stable structures for {self.ctx.chemical_formula} were stored.")
 
     def final_report(self):
         """Final report"""

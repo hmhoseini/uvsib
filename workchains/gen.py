@@ -11,7 +11,6 @@ from uvsib.workchains.utils import (unique_low_energy_chemsys,
                                     get_model_device)
 from uvsib.workflows import settings
 
-DFT_FUNC = settings.DFT_FUNC
 EHULL_ML = settings.EHULL_ML
 
 class GeneratorWorkChain(WorkChain):
@@ -132,8 +131,8 @@ class GeneratorWorkChain(WorkChain):
                 failed_ml_e.append(chemical_system)
                 continue
 
-            low_energy_entries = unique_low_energy_chemsys(
-                chemical_system, new_entries, DFT_FUNC, EHULL_ML, element_entries=self.ctx.ref_entries)
+            low_energy_entries = unique_low_energy_chemsys(chemical_system, new_entries,
+                                                           EHULL_ML, element_entries=self.ctx.ref_entries)
             structure_energy_pairs = []
             for entry in low_energy_entries:
                 structure_energy_pairs.append((entry.structure.as_dict(), entry.energy))
@@ -144,6 +143,7 @@ class GeneratorWorkChain(WorkChain):
             update_row(DBChemsys, row.uuid,{"gen_structures": "Ready"})
 
         if failed_ml_e:
+            self.report("ML relaxation failed.")
             return self.exit_codes.ERROR_ML_RELAX_FAILED
 
     def final_report(self):

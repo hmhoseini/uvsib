@@ -9,15 +9,13 @@ from uvsib.db.utils import query_structure, add_slab
 from uvsib.workchains.utils import get_code, get_model_device
 from uvsib.workflows import settings
 
-
-_PD_VERIFICATION = settings._PD_VERIFICATION #TODO for test
+MAX_NUM_BULK = settings.MAX_NUM_BULK
+_PD_VERIFICATION = settings._PD_VERIFICATION
 
 # Slabs are relaxed in balanced batches of at most this many per CalcJob, so a
 # structure that generates many faces is spread over several jobs instead of one
 # long, unpredictable relaxation.
 MAX_SLABS_PER_CHUNK = 250
-
-MAX_NUM_BULK = settings.MAX_NUM_BULK
 
 FaceCalculation = CalculationFactory(str(settings.inputs["face_build"]["model"]).lower())
 

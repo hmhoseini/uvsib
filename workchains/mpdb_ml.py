@@ -38,7 +38,7 @@ class MPDBMLWorkChain(WorkChain):
     def define(cls, spec):
         super().define(spec)
         spec.input("chemical_formula", valid_type=Str)
-        spe.input("ML_model", valid_type=Str)
+        spec.input("ML_model", valid_type=Str)
 
         spec.outline(
             cls.setup,
@@ -55,9 +55,6 @@ class MPDBMLWorkChain(WorkChain):
         self.ctx.ML_model = self.inputs.ML_model.value
         self.report(f"Running ML relaxation WorkChain for MPDB structures for {self.ctx.chemical_formula}")
         add_from_mpdb(self.ctx.chemical_formula)
-
-    def run_relax_mpdb_structures(self):
-        """Optimize structures from MPDB"""
         self.ctx.struct_uuid = get_struct_uuid(self.ctx.chemical_formula)
         if not self.ctx.struct_uuid:
             self.report(f"Warning: no structures from the MPDB was found for {self.ctx.chemical_formula}.")
@@ -68,6 +65,8 @@ class MPDBMLWorkChain(WorkChain):
             self.ctx.struct_uuid.extend(ref_structs)
             self.report(f"{len(ref_structs)} reference structures")
 
+    def run_relax_mpdb_structures(self):
+        """Optimize structures from MPDB"""
         structs = []
         for s, _, _ in self.ctx.struct_uuid:
             structs.append(s)
@@ -86,7 +85,7 @@ class MPDBMLWorkChain(WorkChain):
             return self.exit_codes.ERROR_ML_RELAX_FAILED
 
         if len(new_entries) != len(self.ctx.struct_uuid):
-            self.report("ML relaxation for some structures failed")
+            self.report("ERROR: ML relaxation for some structures failed")
             return self.exit_codes.ERROR_ML_RELAX_FAILED
 
         structure_energy_pairs = []
