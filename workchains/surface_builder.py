@@ -1,4 +1,5 @@
 import os
+from collections import Counter
 import json
 import tempfile
 import yaml
@@ -19,26 +20,26 @@ MAX_SLABS_PER_CHUNK = 250
 
 FaceCalculation = CalculationFactory(str(settings.inputs["face_build"]["model"]).lower())
 
-def get_struct_uuid(chemical_formula):
-    """Query structures from the database by formula and return list of (structure_dict, uuid)"""
+def get_struct_uuid(chemical_formula, method):
+    """Query structures by formula and return [structure, source, UUID] entries."""
     if _PD_VERIFICATION:
-        results = query_structure({"composition": chemical_formula}, method = "r2SCAN") or []
-        return [(row.structure, str(row.structure_uuid)) for row in results] #TODO it retruns DFT optimized structures
-    else:
-        model = settings.inputs['bulk_relax']['model']
-        results = query_structure({"composition": chemical_formula}, method=model)
-        filtered_results = []
-        for s, u in sorted([(row.structure, str(row.structure_uuid)) for row in results], key=lambda x: x[1]):
-            filtered_results.append([s, u])
-            if len(filtered_results) == MAX_NUM_BULK:
-                break
-        return filtered_results
+        method = "r2SCAN"
+
+    results = query_structure({"composition": chemical_formula},
+                                method=method) or []
+
+    filtered_results = [
+        [row.structure, row.source, str(row.structure_uuid)]
+        for row in sorted(results, key=lambda row: row.energy)
+        if row.source != "MPDB_ref"
+    ]
+
+    return filtered_results[:MAX_NUM_BULK]
 
 def read_yaml(file_path):
     """Read a yaml file"""
     with open(file_path, "r", encoding="utf8") as fhandle:
         return yaml.safe_load(fhandle)
-
 
 def _chunk(seq, size):
     """Split a list into consecutive chunks of at most ``size`` items."""
@@ -104,6 +105,7 @@ class SurfaceBuilderWorkChain(WorkChain):
     def define(cls, spec):
         super().define(spec)
         spec.input("chemical_formula", valid_type=Str)
+        spec.input("ML_model", valid_type=Str)
 
         spec.outline(
             cls.setup,
@@ -123,10 +125,13 @@ class SurfaceBuilderWorkChain(WorkChain):
         """Setup and report"""
         self.report("Running SurfaceBuilder WorkChain")
         self.ctx.chemical_formula = self.inputs.chemical_formula.value
-        self.ctx.struct_uuid = get_struct_uuid(self.ctx.chemical_formula) #TODO update
+        self.ctx.ML_model = self.inputs.ML_model.value
+        self.ctx.struct_uuid = get_struct_uuid(self.ctx.chemical_formula, self.ctx.ML_model)
         if not self.ctx.struct_uuid:
             self.report(f"No structures were found for {self.ctx.chemical_formula}")
             return self.exit_codes.ERROR_NO_STRUCTURES_FOUND
+        source_counts = dict(Counter(source for _, source, _ in self.ctx.struct_uuid))
+        self.report(f"Source of structures: {source_counts}")
         self.ctx.slabs_uuid = []
         # uuid -> {"epa": float, "n_chunks": int} after the generation phase.
         self.ctx.relax_plan = {}
@@ -136,7 +141,7 @@ class SurfaceBuilderWorkChain(WorkChain):
         The model is loaded once and reused for every bulk inside the runner, so
         all generation happens in one job instead of one per structure."""
         payload = [{"uuid": uuid_str, "structure": struct_dict}
-                   for struct_dict, uuid_str in self.ctx.struct_uuid]
+                   for struct_dict, _, uuid_str in self.ctx.struct_uuid]
         inputs = {
             "code": get_code(settings.inputs["face_build"]["model"]),
             "parameters": Dict(dict={
