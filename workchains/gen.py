@@ -20,7 +20,7 @@ class GeneratorWorkChain(WorkChain):
         super().define(spec)
         spec.input("chemical_formula", valid_type=Str)
         spec.input("chemical_systems", valid_type=List)
-        spec.input("ML_model", valid_type=Str)
+        spec.input("ml_bulk_model", valid_type=Str)
 
         spec.outline(
             cls.setup,
@@ -38,10 +38,10 @@ class GeneratorWorkChain(WorkChain):
         """Setup and report"""
         self.ctx.chemical_formula = self.inputs.chemical_formula.value
         self.ctx.chemical_systems = self.inputs.chemical_systems.get_list()
-        self.ctx.ML_model = self.inputs.ML_model.value
+        self.ctx.ml_bulk_model = self.inputs.ml_bulk_model.value
         self.ctx.failed_ml_e = []
         self.report(f"Launching MatterGenWorkChain for {self.ctx.chemical_systems}")
-        self.ctx.ref_entries, _ = get_ref_entries(self.ctx.chemical_formula, self.ctx.ML_model)
+        self.ctx.ref_entries, _ = get_ref_entries(self.ctx.chemical_formula, self.ctx.ml_bulk_model)
 
     def generative_calcs(self):
         """Run the generative workchains for each unique chemical system.
@@ -110,7 +110,7 @@ class GeneratorWorkChain(WorkChain):
             self.to_context(**{f"{chemical_system}_ml_e": future})
 
     def store_ml_energies(self):
-        ML_model = self.ctx.ML_model
+        ml_bulk_model = self.ctx.ml_bulk_model
         chemical_systems = self.ctx.chemical_systems
 
         failed_ml_e = []
@@ -119,7 +119,7 @@ class GeneratorWorkChain(WorkChain):
 
             if not wch.is_finished_ok:
                 failed_ml_e.append(chemical_system)
-                self.report(f"Warning: {self.ctx.ML_model} for {chemical_system} failed")
+                self.report(f"Warning: {self.ctx.ml_bulk_model} for {chemical_system} failed")
                 continue
             try:
                 new_entries = get_output_as_entry(wch)
@@ -138,7 +138,7 @@ class GeneratorWorkChain(WorkChain):
             for entry in low_energy_entries:
                 structure_energy_pairs.append((entry.structure.as_dict(), entry.energy))
 
-            add_structures("generated", ML_model, structure_energy_pairs)
+            add_structures("generated", ml_bulk_model, structure_energy_pairs)
             # DBChemsys status is updated to Ready
             row = query_by_columns(DBChemsys,{"chemsys": chemical_system})[0]
             update_row(DBChemsys, row.uuid,{"gen_structures": "Ready"})
@@ -192,9 +192,8 @@ class GeneratorWorkChain(WorkChain):
         builder.max_iterations = Int(2)
         return builder
 
-    @staticmethod
-    def _construct_ML_relax_builder(structures):
-        ML_model = settings.inputs['bulk_relax']['model']
+    def _construct_ML_relax_builder(self, structures):
+        ML_model = self.ctx.ml_bulk_model
         Workflow = WorkflowFactory(ML_model.lower())
         builder = Workflow.get_builder()
         builder.input_structures = List(structures)

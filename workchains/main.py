@@ -102,6 +102,7 @@ class MainWorkChain(WorkChain):
         self.ctx.chemical_systems = self.inputs.chemical_systems
         self.ctx.reaction = self.inputs.reaction
         self.ctx.reaction_path = self.inputs.reaction_path
+        self.ctx.ml_bulk_model = settings.inputs['bulk_relax']['model'] # not an input of the workchain
         self.ctx.dbcomposition_row = query_by_columns(DBComposition,{"composition": self.ctx.chemical_formula})[0]
         self.ctx.nano_generator = True if len(self.inputs.nanoparticles.value.split('-')) == 2 else False
         self.ctx.similarities = self.inputs.similarities.value
@@ -512,7 +513,7 @@ class MainWorkChain(WorkChain):
         builder = PhaseDiagramMLWorkChain.get_builder()
         builder.chemical_formula = Str(self.ctx.chemical_formula)
         builder.chemical_systems = self.ctx.chemical_systems
-        builder.ML_model = Str(settings.inputs['bulk_relax']['model'])
+        builder.ml_bulk_model = Str(self.ctx.ml_bulk_model)
         return builder
 
     def _construct_pd_verification_builder(self):
@@ -541,7 +542,6 @@ class MainWorkChain(WorkChain):
         SurfaceBuilderWorkChain = WorkflowFactory("surfacebuilder")
         builder = SurfaceBuilderWorkChain.get_builder()
         builder.chemical_formula = Str(self.ctx.chemical_formula)
-        builder.ML_model = Str(settings.inputs['bulk_relax']['model'])
         return builder
 
     def _construct_adsorbates_builder(self):

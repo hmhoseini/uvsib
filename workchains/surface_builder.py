@@ -20,10 +20,12 @@ MAX_SLABS_PER_CHUNK = 250
 
 FaceCalculation = CalculationFactory(str(settings.inputs["face_build"]["model"]).lower())
 
-def get_struct_uuid(chemical_formula, method):
+def get_struct_uuid(chemical_formula):
     """Query structures by formula and return [structure, source, UUID] entries."""
     if _PD_VERIFICATION:
         method = "r2SCAN"
+    else:
+        method = settings.inputs['bulk_relax']['model']
 
     results = query_structure({"composition": chemical_formula},
                                 method=method) or []
@@ -105,7 +107,6 @@ class SurfaceBuilderWorkChain(WorkChain):
     def define(cls, spec):
         super().define(spec)
         spec.input("chemical_formula", valid_type=Str)
-        spec.input("ML_model", valid_type=Str)
 
         spec.outline(
             cls.setup,
@@ -125,8 +126,7 @@ class SurfaceBuilderWorkChain(WorkChain):
         """Setup and report"""
         self.report("Running SurfaceBuilder WorkChain")
         self.ctx.chemical_formula = self.inputs.chemical_formula.value
-        self.ctx.ML_model = self.inputs.ML_model.value
-        self.ctx.struct_uuid = get_struct_uuid(self.ctx.chemical_formula, self.ctx.ML_model)
+        self.ctx.struct_uuid = get_struct_uuid(self.ctx.chemical_formula)
         if not self.ctx.struct_uuid:
             self.report(f"No structures were found for {self.ctx.chemical_formula}")
             return self.exit_codes.ERROR_NO_STRUCTURES_FOUND

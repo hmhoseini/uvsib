@@ -69,7 +69,7 @@ class PhaseDiagramMLWorkChain(WorkChain):
         super().define(spec)
         spec.input("chemical_formula", valid_type=Str)
         spec.input("chemical_systems", valid_type=List)
-        spec.input("ML_model", valid_type=Str)
+        spec.input("ml_bulk_model", valid_type=Str)
 
         spec.outline(
             cls.setup,
@@ -99,7 +99,7 @@ class PhaseDiagramMLWorkChain(WorkChain):
         """Setup and report"""
         self.ctx.chemical_formula = self.inputs.chemical_formula.value
         self.ctx.chemical_systems = self.inputs.chemical_systems.get_list()
-        self.ctx.ML_model = self.inputs.ML_model.value
+        self.ctx.ml_bulk_model = self.inputs.ml_bulk_model.value
         self.report(f"Running PhaseDiagramML WorkChain for {self.ctx.chemical_formula}")
         if self.ctx.chemical_systems:
             self.report(f"New chemical systems:{self.ctx.chemical_systems}")
@@ -226,13 +226,13 @@ class PhaseDiagramMLWorkChain(WorkChain):
         """Return final structures"""
         chemical_formula = self.ctx.chemical_formula
         self.report(f"Constructing phase diagram for {chemical_formula}")
-        entries = get_entries_from_db(chemical_formula, self.ctx.ML_model)
+        entries = get_entries_from_db(chemical_formula, self.ctx.ml_bulk_model)
 
         if not entries:
             self.report(f"Constructing phase diagram for {chemical_formula} failed.")
             return self.exit_codes.ERROR_CALCULATION_FAILED
 
-        ref_entries, _ = get_ref_entries(self.ctx.chemical_formula, self.ctx.ML_model)
+        ref_entries, _ = get_ref_entries(self.ctx.chemical_formula, self.ctx.ml_bulk_model)
 
         uuid_list = []
         unique_entries, _ = unique_low_energy_comp(chemical_formula, entries,
@@ -262,7 +262,7 @@ class PhaseDiagramMLWorkChain(WorkChain):
         MPDBMLWorkChain = WorkflowFactory("mpdbml")
         builder = MPDBMLWorkChain.get_builder()
         builder.chemical_formula = Str(self.ctx.chemical_formula)
-        builder.ML_model = self.ctx.ML_model
+        builder.ml_bulk_model = self.ctx.ml_bulk_model
         return builder
 
     def _construct_csp_builder(self):
@@ -271,7 +271,7 @@ class PhaseDiagramMLWorkChain(WorkChain):
         builder.chemical_formula = Str(self.ctx.chemical_formula)
         builder.n_csp = settings.inputs["MatterGen_CSP"]["num_runs"]
         builder.n_mh = settings.inputs["MinimaHopping"]["num_runs"]
-        builder.ML_model = self.ctx.ML_model
+        builder.ml_bulk_model = self.ctx.ml_bulk_model
         return builder
 
     def _construct_gen_builder(self):
@@ -279,14 +279,14 @@ class PhaseDiagramMLWorkChain(WorkChain):
         builder = Workflow.get_builder()
         builder.chemical_formula = Str(self.ctx.chemical_formula)
         builder.chemical_systems = List(self.ctx.chemical_systems)
-        builder.ML_model = self.ctx.ML_model
+        builder.ml_bulk_model = self.ctx.ml_bulk_model
         return builder
 
     def _construct_ML_relax_builder(self, structures):
         """
         General builder for structure optimization with an ML model
         """
-        ML_model = self.ctx.ML_model
+        ML_model = self.ctx.ml_bulk_model
         Workflow = WorkflowFactory(ML_model.lower())
         builder = Workflow.get_builder()
         builder.input_structures = List(structures)

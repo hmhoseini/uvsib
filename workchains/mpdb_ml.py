@@ -21,11 +21,11 @@ def get_struct_uuid(chemical_formula):
             struct_uuid.append((r.structure, r.source, r.structure_uuid))
     return struct_uuid
 
-def get_ref_struct_uuid(chemical_formula, ML_model):
+def get_ref_struct_uuid(chemical_formula, ml_bulk_model):
     struct_uuid = []
     elements = [element.symbol for element in Composition(chemical_formula).elements]
     for el in elements:
-        ML_result = query_structure({"chemsys": el}, source = "MPDB_ref", method = ML_model)
+        ML_result = query_structure({"chemsys": el}, source = "MPDB_ref", method = ml_bulk_model)
         if not ML_result:
             mpdb_result = query_structure({"chemsys": el}, source = "MPDB_ref", method = "DFT")
             r = mpdb_result[0]
@@ -38,7 +38,7 @@ class MPDBMLWorkChain(WorkChain):
     def define(cls, spec):
         super().define(spec)
         spec.input("chemical_formula", valid_type=Str)
-        spec.input("ML_model", valid_type=Str)
+        spec.input("ml_bulk_model", valid_type=Str)
 
         spec.outline(
             cls.setup,
@@ -52,7 +52,7 @@ class MPDBMLWorkChain(WorkChain):
     def setup(self):
         """Setup and report"""
         self.ctx.chemical_formula = self.inputs.chemical_formula.value
-        self.ctx.ML_model = self.inputs.ML_model.value
+        self.ctx.ml_bulk_model = self.inputs.ml_bulk_model.value
         self.report(f"Running ML relaxation WorkChain for MPDB structures for {self.ctx.chemical_formula}")
         add_from_mpdb(self.ctx.chemical_formula)
         self.ctx.struct_uuid = get_struct_uuid(self.ctx.chemical_formula)
@@ -60,7 +60,7 @@ class MPDBMLWorkChain(WorkChain):
             self.report(f"Warning: no structures from the MPDB was found for {self.ctx.chemical_formula}.")
         else:
             self.report(f"{len(self.ctx.struct_uuid)} structures from the MPDB was found for {self.ctx.chemical_formula}.")
-        ref_structs = get_ref_struct_uuid(self.ctx.chemical_formula, self.ctx.ML_model)
+        ref_structs = get_ref_struct_uuid(self.ctx.chemical_formula, self.ctx.ml_bulk_model)
         if ref_structs:
             self.ctx.struct_uuid.extend(ref_structs)
             self.report(f"{len(ref_structs)} reference structures")
@@ -75,7 +75,7 @@ class MPDBMLWorkChain(WorkChain):
 
     def store_ml_energies(self):
         """Collect ML-calculated energies"""
-        ML_model = self.ctx.ML_model
+        ml_bulk_model = self.ctx.ml_bulk_model
         wch = self.ctx.ml_e
         if not wch.is_finished_ok:
             return self.exit_codes.ERROR_ML_RELAX_FAILED
@@ -95,7 +95,7 @@ class MPDBMLWorkChain(WorkChain):
             add_version_to_existing_structure(
                     self.ctx.struct_uuid[i][-1],
                     structure_energy[0],
-                    ML_model,
+                    ml_bulk_model,
                     {
                      "source": self.ctx.struct_uuid[i][1],
                      "energy": structure_energy[-1]
@@ -104,7 +104,7 @@ class MPDBMLWorkChain(WorkChain):
 
     def final_report(self):
         """Final report"""
-        _, missing = get_ref_entries(self.ctx.chemical_formula, self.ctx.ML_model)
+        _, missing = get_ref_entries(self.ctx.chemical_formula, self.ctx.ml_bulk_model)
         if missing:
             self.report(f"Warning: DFT-fallback elemental refs for {missing} (per-element offset risk)")
         self.report("ML relaxation WorkChain for MPDB structures finished successfully")
@@ -114,7 +114,7 @@ class MPDBMLWorkChain(WorkChain):
         """
         General builder for structure optimization with an ML model
         """
-        ML_model = self.ctx.ML_model
+        ML_model = self.ctx.ml_bulk_model
         Workflow = WorkflowFactory(ML_model.lower())
         builder = Workflow.get_builder()
         builder.input_structures = List(structures)

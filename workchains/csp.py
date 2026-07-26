@@ -24,7 +24,7 @@ class CSPWorkChain(WorkChain):
         spec.input("chemical_formula", valid_type=Str)
         spec.input("n_csp", valid_type=Int)
         spec.input("n_mh", valid_type=Int)
-        spec.input("ML_model", valid_type=Str)
+        spec.input("ml_bulk_model", valid_type=Str)
 
         spec.outline(
             cls.setup,
@@ -47,10 +47,10 @@ class CSPWorkChain(WorkChain):
         self.ctx.chemical_formula = self.inputs.chemical_formula.value
         self.ctx.n_csp = self.inputs.n_csp.value
         self.ctx.n_mh = self.inputs.n_mh.value
-        self.ctx.ML_model = self.inputs.ML_model.value
+        self.ctx.ml_bulk_model = self.inputs.ml_bulk_model.value
         self.ctx.csp_structures = []
         self.report(f"Launching CSPWorkChain for {self.ctx.chemical_formula}")
-        self.ctx.ref_entries, _ = get_ref_entries(self.ctx.chemical_formula, self.ctx.ML_model)
+        self.ctx.ref_entries, _ = get_ref_entries(self.ctx.chemical_formula, self.ctx.ml_bulk_model)
 
     def run_csp(self):
         """Run MatterGen CSP and/or GNoME (SAPS) CSP in parallel, per input.yaml
@@ -166,7 +166,7 @@ class CSPWorkChain(WorkChain):
 
     def final_step(self):
         """Store structures"""
-        ML_model = self.ctx.ML_model
+        ml_bulk_model = self.ctx.ml_bulk_model
         all_entries = self.ctx.low_energy_entries_csp + self.ctx.low_energy_entries_mh
         low_energy_entries, _ = unique_low_energy_comp(self.ctx.chemical_formula, all_entries, EHULL_ML,
                                                        element_entries=self.ctx.ref_entries)
@@ -175,7 +175,7 @@ class CSPWorkChain(WorkChain):
         for entry in low_energy_entries:
             structure_energy_pairs.append((entry.structure.as_dict(), entry.energy))
 
-        add_structures("csp", ML_model, structure_energy_pairs)
+        add_structures("csp", ml_bulk_model, structure_energy_pairs)
 
     def final_report(self):
         """Final report"""
@@ -221,7 +221,7 @@ class CSPWorkChain(WorkChain):
         """
         General builder for structure optimization with an ML model
         """
-        ML_model = settings.inputs['bulk_relax']['model']
+        ML_model = self.ctx.ml_bulk_model
         Workflow = WorkflowFactory(ML_model.lower())
         builder = Workflow.get_builder()
         builder.input_structures = List(structures)
