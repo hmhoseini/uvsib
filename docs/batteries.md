@@ -58,6 +58,13 @@ MatterSim, `job_type: relax`) — zero new AiiDA calculation or parser plugins.
    oxidation states can be assigned (metallic hosts), fall back to
    symmetry-distinct sampling with a fixed seed. icet enumeration can replace
    this later without touching the workchain.
+   **Since 2026-07-22 the enumeration runs on a REMOTE CPU queue** (input.yaml
+   `battery: enum_code:`, default `sqs_cpu` -- the synthesizability finite_T
+   code): one bundled job for all hosts, staged as `battery_enum_job.py` ->
+   `aiida.py` with `workchains/battery_enum.py` shipped verbatim via the file
+   namespace (single canonical copy) and collected by ECHOED host uuid, never
+   by position. If `enum_code` is not registered in config.yaml the workchain
+   falls back to in-daemon enumeration with a loud report (local smoke).
 4. **Fail loudly.** Framework collapse and hull-unstable charged endpoints are
    recorded as flags on the DB row; a voltage from a structure that fell apart
    is never reported as a clean result.
@@ -71,7 +78,8 @@ MatterSim, `job_type: relax`) — zero new AiiDA calculation or parser plugins.
 |---|---|---|
 | pure calculator | `workchains/batt.py` | hull, voltages, capacities, volume change; **no AiiDA imports**, unit-tested standalone (same family as `oer.py`/`co2rr.py`) |
 | enumeration helper | `workchains/battery_enum.py` | supercell choice + per-x orderings; pure pymatgen, unit-tested standalone |
-| workchain | `workchains/battery.py` | `BatteryWorkChain`: setup -> enumerate -> bundled MLIP relax fan-out -> analyze -> store |
+| workchain | `workchains/battery.py` | `BatteryWorkChain`: setup -> run_enum (remote CPU job) -> inspect_enum -> bundled MLIP relax fan-out -> analyze -> store |
+| remote enum runner | `codes/files/battery_enum_job.py` | staged as `aiida.py` on the `enum_code` code; request/output contracts in its docstring; `tests/test_battery_enum_job.py` |
 | DB table | `db/tables.py::DBBatteryPath` | one row per (composition, working_ion, host); results in Postgres, **not** AiiDA storage (ephemeral) |
 | entry point | `setup.json` | `battery = uvsib.workchains.battery:BatteryWorkChain` |
 | main gating | `workchains/main.py` | `should_run_battery` on `reaction == "battery"`; surface builder + adsorbates skip battery submissions |
@@ -157,3 +165,37 @@ battery:
   voltages need consistent U, nothing else.
 - **Electrolyte window / interface reactivity** (grand-potential hulls): out of
   scope until someone asks.
+
+## Head provenance (2026-07-22)
+
+The `method` column ("MACE") cannot distinguish task heads, and mixing heads
+in one hull/reference set is a silent systematic error (caught when the
+LiCoO2 voltages could not be attributed: the export did not record that
+`battery: head: omat_pbe` produced them while the bulk hull ran
+matpes_r2scan). Now:
+
+- every writer stores `attributes["model_head"]`: structure versions
+  (`add_structures(..., head=)` -- gen/csp/sqs/references/mp_experimental),
+  slabs (`add_slab`), adsorbate rows (`add_surface_ml_adsorbate`),
+  `db_battery_path`, `db_battery_neb`;
+- elemental-reference queries are head-aware and STRICT:
+  `missing_element_references(..., head=)` counts an element as missing
+  unless a reference with that exact head exists (foreign-head references
+  are never silently reused; pre-provenance head-less rows do not match, so
+  each head recomputes its references once -- self-healing, one cheap relax);
+- the charged-endpoint e_above_hull references the BULK head and reports
+  loudly when probe and hull heads differ (cross-head comparison);
+- the csp pool stores head-less (with a report) if bulk_relax and
+  MinimaHopping heads ever diverge -- a mixed pool has no single head;
+- `export_all.py` exposes `model_head` on surface / adsorbate / battery /
+  battery-NEB records.
+
+No schema change (attributes JSONB existed); deploy = reinstall only.
+
+**Different heads per stage are a FEATURE, not a violation** (janK,
+2026-07-22): the adsorbates branch keeps its own head option (e.g.
+oc20_usemppbe for adsorption energetics while bulks run matpes_r2scan) --
+that is the right tool per task. Head provenance does not force uniformity;
+it only guarantees that (a) every stored number says which head produced it
+and (b) references/hulls are never silently mixed ACROSS heads within one
+comparison.

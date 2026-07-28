@@ -28,8 +28,8 @@ ORR_PATHWAYS = {
         "n_electrons": 4,
         "steps": [
             {},
-            {'*O2_ads': +1, '*':       -1, 'O2': -1},                         # O2 + * → *O2 (chemical adsorption)
-            {'*OOH':    +1, '*O2_ads': -1, 'H2': -1/2},                       # *O2 + (H+ + e-) → *OOH
+            {'*O2':     +1, '*':       -1, 'O2': -1},                         # O2 + * → *O2 (chemical adsorption)
+            {'*OOH':    +1, '*O2':     -1, 'H2': -1/2},                       # *O2 + (H+ + e-) → *OOH
             {'*O':      +1, 'H2O': +1, '*OOH': -1, 'H2': -1/2},               # *OOH + (H+ + e-) → *O + H2O
             {'*OH':     +1, '*O':      -1, 'H2': -1/2},                       # *O + (H+ + e-) → *OH
             {'*':       +1, 'H2O': +1, '*OH': -1, 'H2': -1/2},                # *OH + (H+ + e-) → H2O + *
@@ -50,8 +50,8 @@ ORR_PATHWAYS = {
         "n_electrons": 2,
         "steps": [
             {},
-            {'*O2_ads': +1, '*':       -1, 'O2': -1},                         # O2 + * → *O2
-            {'*OOH':    +1, '*O2_ads': -1, 'H2': -1/2},                       # *O2 + (H+ + e-) → *OOH
+            {'*O2':     +1, '*':       -1, 'O2': -1},                         # O2 + * → *O2
+            {'*OOH':    +1, '*O2':     -1, 'H2': -1/2},                       # *O2 + (H+ + e-) → *OOH
             {'*':       +1, 'H2O2': +1, '*OOH': -1, 'H2': -1/2},              # *OOH + (H+ + e-) → H2O2(aq) + *
         ],
     },
@@ -65,8 +65,8 @@ def calculate_orr_overpotential(adsorption_energies, pathway_name):
     ----------
     adsorption_energies : dict
         DFT or ML energies of surface intermediates. Required keys depend
-        on the pathway: '*O2_ads', '*OOH', '*O', '*OH' for the 4e- routes;
-        '*O2_ads', '*OOH' only for the 2e- route.
+        on the pathway: '*O2', '*OOH', '*O', '*OH' for the 4e- routes;
+        '*O2', '*OOH' only for the 2e- route.
     pathway_name : str
         One of: '4e_associative', '4e_dissociative', '2e_to_h2o2'.
 

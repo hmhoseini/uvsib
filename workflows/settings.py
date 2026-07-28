@@ -69,6 +69,16 @@ MP_EXP_FORCE = bool(_mp_exp.get('force_include', True))
 # manual by design.
 PHOTOCAT_ENABLED = bool(inputs.get('photocat', {}).get('enabled', False))
 
+# Skip the MinimaHopping stage of the CSP path for compositions containing
+# any of these elements (input.yaml `MinimaHopping: exclude_elements: [O]`).
+# Motivation: the MH escape loop is metal-tuned; on e.g. O-containing
+# chemistries the hot-MD escapes tend to decompose the cell (O2 dumbbells,
+# broken polyanions) into MLIP-unreliable minima that pollute the hull.
+# Absent or empty -> MH runs for every composition, as before.
+MH_EXCLUDE_ELEMENTS = frozenset(
+    str(e).strip().capitalize()
+    for e in ((inputs.get('MinimaHopping', {}) or {}).get('exclude_elements') or []))
+
 _SKIP_PD_VERIFICATION = True
 
 code_folder_path =  os.path.join(uvsib_directory, 'codes')

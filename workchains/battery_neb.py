@@ -213,7 +213,8 @@ class BatteryNEBWorkChain(WorkChain):
                     "e_m_2d": th["e_m_2d"],
                     "e_m_3d": th["e_m_3d"],
                     "hops": jsanitize(rows),
-                    "attributes": {"n_hop_classes": len(meta["distinct"]),
+                    "attributes": {"model_head": self.ctx.cfg["head"],
+                                   "n_hop_classes": len(meta["distinct"]),
                                    "n_converged": len(barriers),
                                    "cfg": {k: v for k, v in self.ctx.cfg.items()
                                            if k != "model"}},

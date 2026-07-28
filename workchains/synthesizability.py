@@ -104,7 +104,8 @@ def gather_entries(chemical_formula, method):
                  if len(e.composition.elements) == 1}
     missing = [el for el in elements if el not in have_elem]
     if missing:
-        refs, _ = element_reference_entries(missing, method)
+        refs, _ = element_reference_entries(missing, method,
+                                            head=settings.inputs['bulk_relax'].get('head'))
         entries = list(entries) + refs
     return entries
 

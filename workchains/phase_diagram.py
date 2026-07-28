@@ -178,7 +178,8 @@ class PhaseDiagramMLWorkChain(WorkChain):
         uuid_list = []
         model = settings.inputs['bulk_relax']['model']
         el_entries, _ = element_reference_entries(
-            Composition(chemical_formula).chemical_system.split('-'), model)
+            Composition(chemical_formula).chemical_system.split('-'), model,
+            head=settings.inputs['bulk_relax'].get('head'))
         unique_entries, _ = unique_low_energy_comp(
             chemical_formula, entries, DFT_FUNC, EHULL_ML, min_n_return=1, element_entries=el_entries)
         for entry in unique_entries:

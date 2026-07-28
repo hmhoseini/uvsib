@@ -118,7 +118,7 @@ class CSPWorkChain(WorkChain):
         collect_ml_energies peels the groups apart by input index."""
         model = settings.inputs['bulk_relax']['model']
         elements = Composition(self.ctx.chemical_formula).chemical_system.split('-')
-        missing = missing_element_references(elements, model)
+        missing = missing_element_references(elements, model, head=settings.inputs['bulk_relax'].get('head'))
         ref_structs = []
         if missing:
             structs = get_mp_element_structures(missing)
@@ -168,12 +168,14 @@ class CSPWorkChain(WorkChain):
         model = settings.inputs['bulk_relax']['model']
         if ref_entries:
             pairs = [(e.structure.as_dict(), e.energy) for e in ref_entries]
-            add_structures("reference", model, pairs)
+            add_structures("reference", model, pairs,
+                               head=settings.inputs['bulk_relax'].get('head'))
             self.report(f"Stored {len(pairs)} MLIP elemental reference(s)")
 
         if exp_entries:
             pairs = [(e.structure.as_dict(), e.energy) for e in exp_entries]
-            add_structures("mp_experimental", model, pairs)
+            add_structures("mp_experimental", model, pairs,
+                           head=settings.inputs['bulk_relax'].get('head'))
             self.report(f"Stored {len(pairs)} on-method MP-experimental "
                         "structure(s)")
         elif self.ctx.n_exp:
@@ -182,7 +184,8 @@ class CSPWorkChain(WorkChain):
                         "the relax job)")
 
         self.ctx.el_entries, missing = element_reference_entries(
-            Composition(self.ctx.chemical_formula).chemical_system.split('-'), model)
+            Composition(self.ctx.chemical_formula).chemical_system.split('-'), model,
+            head=settings.inputs['bulk_relax'].get('head'))
         if missing:
             self.report(f"Warning: DFT-fallback elemental refs for {missing} (per-element offset risk)")
 
@@ -191,7 +194,16 @@ class CSPWorkChain(WorkChain):
                                                                     element_entries=self.ctx.el_entries)
 
     def minimahopping(self):
-        """Run MinimaHopping"""
+        """Run MinimaHopping (skipped for excluded-element compositions)"""
+        excluded = sorted(settings.MH_EXCLUDE_ELEMENTS.intersection(
+            Composition(self.ctx.chemical_formula).chemical_system.split('-')))
+        if excluded:
+            self.report(f"Skipping MinimaHopping for {self.ctx.chemical_formula}: "
+                        f"contains excluded element(s) {', '.join(excluded)} "
+                        "(MinimaHopping.exclude_elements in input.yaml)")
+            self.ctx.mh_skipped = True
+            return
+        self.ctx.mh_skipped = False
         entries_csp = self.ctx.low_energy_entries_csp
         n_mh = min(len(entries_csp), self.ctx.n_mh)
         selected_entries = random.sample(entries_csp, n_mh)
@@ -203,6 +215,9 @@ class CSPWorkChain(WorkChain):
 
     def mh_energies(self):
         """Predict ML energies"""
+        if self.ctx.get('mh_skipped'):
+            self.ctx.low_energy_entries_mh = []
+            return
         n_mh = min(len(self.ctx.low_energy_entries_csp), self.ctx.n_mh)
         all_entries = []
         failed_jobs = 0
@@ -220,7 +235,10 @@ class CSPWorkChain(WorkChain):
         if not all_entries or failed_jobs / n_mh > 0.5:
             return self.exit_codes.ERROR_MINIMAHOPPING_FAILED
 
-        self.ctx.low_energy_entries_mh, _ = unique_low_energy_comp(self.ctx.chemical_formula, new_entries,
+        # NOTE: pool ALL jobs' minima -- this used to pass `new_entries` (the
+        # leftover of the last loop iteration), silently dropping every MH job
+        # but the last (and raising UnboundLocalError if the first job failed).
+        self.ctx.low_energy_entries_mh, _ = unique_low_energy_comp(self.ctx.chemical_formula, all_entries,
                                                                    DFT_FUNC, EHULL_ML, element_entries=self.ctx.el_entries)
 
     def final_step(self):
@@ -233,7 +251,16 @@ class CSPWorkChain(WorkChain):
         for entry in low_energy_entries:
             structure_energy_pairs.append((entry.structure.as_dict(), entry.energy))
 
-        add_structures("csp", settings.inputs['bulk_relax']['model'], structure_energy_pairs)
+        # pooled relax+MH entries: head is only well-defined when both stages
+        # ran the same head; otherwise store head-less (and say so)
+        _bulk_head = settings.inputs['bulk_relax'].get('head')
+        _mh_head = settings.inputs.get('MinimaHopping', {}).get('head')
+        _pool_head = _bulk_head if (self.ctx.get('mh_skipped') or _mh_head == _bulk_head) else None
+        if _pool_head is None:
+            self.report(f"csp pool mixes heads (bulk_relax '{_bulk_head}' vs "
+                        f"MinimaHopping '{_mh_head}'): storing WITHOUT head provenance")
+        add_structures("csp", settings.inputs['bulk_relax']['model'], structure_energy_pairs,
+                       head=_pool_head)
 
     def final_report(self):
         """Final report"""

@@ -309,46 +309,65 @@ def get_model_device(ML_model):
 # get_entries_from_db filters only on method, they are then picked up as hull
 # vertices automatically wherever the hull is built from the DB.
 # --------------------------------------------------------------------------- #
-def get_ml_element_entries(elements, model):
-    """Lowest-energy stored MLIP elemental reference per element (source='reference')."""
+def get_ml_element_entries(elements, model, head=None):
+    """Lowest-energy stored MLIP elemental reference per element
+    (source='reference').
+
+    When ``head`` is given, ONLY rows whose attributes["model_head"] matches
+    are returned -- a reference computed with a different task head is a
+    silent per-element offset, never a substitute. Rows stored before head
+    provenance existed (no model_head attribute) do NOT match a head-given
+    query; recompute the reference on-head instead."""
     refs = []
     with get_session() as session:
         for el in elements:
-            row = (
+            q = (
                 session.query(DBStructureVersion)
                 .join(DBStructure)
                 .filter(DBStructure.chemsys == el)
                 .filter(DBStructureVersion.method == model)
                 .filter(DBStructureVersion.source == "reference")
                 .order_by(DBStructureVersion.energy.asc())
-                .first()
             )
+            row = None
+            for cand in q.all():
+                cand_head = (cand.attributes or {}).get("model_head")
+                if head is None or cand_head == head:
+                    row = cand
+                    break
             if row is None:
                 continue
             refs.append(ComputedStructureEntry(
                 structure=Structure.from_dict(row.structure),
                 energy=row.energy,
-                data={"reference": True, "element": el},
+                data={"reference": True, "element": el,
+                      "model_head": (row.attributes or {}).get("model_head")},
             ))
     return refs
 
 
-def missing_element_references(elements, model):
-    """Elements that have no MLIP reference stored yet (need computing)."""
-    have = {e.data.get("element") for e in get_ml_element_entries(elements, model)}
+def missing_element_references(elements, model, head=None):
+    """Elements that have no MLIP reference stored yet (need computing).
+
+    With ``head`` given, an element only counts as covered when a reference
+    with that EXACT head exists -- forcing an on-head recompute rather than
+    silently reusing a foreign-head energy."""
+    have = {e.data.get("element")
+            for e in get_ml_element_entries(elements, model, head=head)}
     return [el for el in elements if el not in have]
 
 
-def element_reference_entries(elements, model):
+def element_reference_entries(elements, model, head=None):
     """(entries, missing) elemental hull endpoints on the MLIP method.
 
-    Uses the cached MLIP references; any element not yet computed is filled with
-    the bundled DFT reference so the hull still builds -- ``missing`` lists those
-    DFT-filled elements (a per-element offset for them only), which the caller
-    should log. In steady state (references computed) ``missing`` is empty and
-    every endpoint is on-method.
+    Uses the cached MLIP references (head-filtered when ``head`` is given);
+    any element not yet computed on-method/on-head is filled with the bundled
+    DFT reference so the hull still builds -- ``missing`` lists those
+    DFT-filled elements (a per-element offset for them only), which the
+    caller should log. In steady state ``missing`` is empty and every
+    endpoint is on-method and on-head.
     """
-    refs = get_ml_element_entries(elements, model)
+    refs = get_ml_element_entries(elements, model, head=head)
     have = {e.data.get("element") for e in refs}
     missing = [el for el in elements if el not in have]
     if missing:

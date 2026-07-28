@@ -126,8 +126,8 @@ class MainWorkChain(WorkChain):
         self.ctx.battery = self.ctx.reaction.value.strip().upper() == "BATTERY"
         if self.ctx.nano_generator:
             self.ctx.nano_particles_range = self.inputs.nanoparticles.value
-            elements = '-'.join(sorted(list([str(el) for el in Composition(self.ctx.chemical_formula).elements])))
-            self.ctx.nano_row = query_by_columns(DBNanoParticles,{'elements': elements})[0]
+            self.ctx.nano_elements = '-'.join(sorted(list([str(el) for el in Composition(self.ctx.chemical_formula).elements])))
+            self.ctx.nano_row = query_by_columns(DBNanoParticles,{'elements': self.ctx.nano_elements})[0]
             self.report('Running NanoParticles for stored data')
         else:
             self.report(f"Running MainWorkChain for {self.ctx.chemical_formula}: "
@@ -149,6 +149,19 @@ class MainWorkChain(WorkChain):
         self.ctx.dbcomposition_row = row
         return row.step_status
 
+    def _fresh_nano_row(self):
+        """Re-query the nano-particle row so its gates observe a sibling
+        chain's transitions.
+
+        Same reasoning as _fresh_step_status: ctx.nano_row is the frozen
+        setup() snapshot, so a wait loop reading it would never see a
+        'Running' -> 'Done' written by another (reaction, pathway) chain on
+        the same element set. Also gives the run/inspect writes a fresher base.
+        """
+        row = query_by_columns(DBNanoParticles,{"elements": self.ctx.nano_elements})[0]
+        self.ctx.nano_row = row
+        return row
+
     @staticmethod
     def _ads_status(step_status, reaction, reaction_path):
         """Per-(reaction, pathway) adsorbates status from the nested step_status.
@@ -166,6 +179,27 @@ class MainWorkChain(WorkChain):
         for different ions (Li, Na, ...) on one composition stay independent,
         mirroring the per-(reaction, pathway) adsorbates convention."""
         return ((step_status or {}).get("battery") or {}).get(working_ion) or {}
+
+    @staticmethod
+    def _nano_status(step_status, reaction, reaction_path):
+        """Per-(reaction, pathway) nano-particle status from the nested
+        step_status. ``step_status["nano_particles"]`` is keyed
+        reaction -> reaction_path -> state so that particle chains running in
+        parallel over one element set (e.g. CO2RR/formate and CO2RR/methanol,
+        or CO2RR and NOXRR) do not share a single flat 'nano_particles' flag --
+        the same convention as adsorbates and photocat.
+
+        Rows written before this nesting hold a legacy SCALAR here (e.g.
+        {"nano_particles": "Done"}), which carries no path attribution. Those
+        read as unknown so the step re-runs for this path instead of raising;
+        update_step_status_path replaces the scalar on the next write."""
+        by_reaction = (step_status or {}).get("nano_particles")
+        if not isinstance(by_reaction, dict):
+            return {}
+        by_path = by_reaction.get(reaction)
+        if not isinstance(by_path, dict):
+            return {}
+        return by_path.get(reaction_path) or {}
 
     def should_run_pd_ml(self):
         """Check whether should run PhaseDiagramML"""
@@ -316,19 +350,24 @@ class MainWorkChain(WorkChain):
             return self.exit_codes.ERROR_CALCULATION_FAILED
 
     def should_run_nano_particles(self):
-        """Check whether should run Nano Particles routines"""
+        """Check whether should run Nano Particles routines for THIS
+        (reaction, pathway)."""
         if self.ctx.nano_generator:
-            nano_particles_step_status = self.ctx.nano_row.step_status.get("nano_generator")
-            if nano_particles_step_status in ["Done"]:
+            row = self._fresh_nano_row()
+            if self._nano_status(row.step_status, self.ctx.reaction.value,
+                                 self.ctx.reaction_path.value) in ["Done"]:
                 return False
             return True
 
     def should_wait_nano_particles(self):
-        """Should wait for another running WorkChain"""
+        """Wait only if THIS (reaction, pathway) nano-particle chain is
+        already running elsewhere."""
         if self.ctx.nano_generator:
-            nano_particles_step_status = self.ctx.nano_row.step_status.get("nano_generator")
-            if nano_particles_step_status in ["Running"]:
-                self.ctx.sts = "nano_generator"
+            reaction = self.ctx.reaction.value
+            reaction_path = self.ctx.reaction_path.value
+            row = self._fresh_nano_row()
+            if self._nano_status(row.step_status, reaction, reaction_path) in ["Running"]:
+                self.ctx.sts = f"nano_particles:{reaction}:{reaction_path}"
                 return True
             return False
 
@@ -756,8 +795,13 @@ class MainWorkChain(WorkChain):
     def nano_particles(self):
         """Running NanoParticlesWorkChain"""
         row = self.ctx.nano_row
-        row.step_status.update({"nano_particles": "Running"})
-        update_row(DBNanoParticles, row.uuid,{"status": "Running", "step_status": row.step_status})
+        reaction = self.ctx.reaction.value
+        reaction_path = self.ctx.reaction_path.value
+        # Atomic per-(reaction, pathway) write -- does NOT overwrite siblings'
+        # nano_particles keys (a read-modify-write of the whole JSONB would).
+        update_step_status_path(DBNanoParticles, row.uuid,
+                                ["nano_particles", reaction, reaction_path], "Running")
+        update_row(DBNanoParticles, row.uuid, {"status": "Running"})
         builder = self._construct_particle_builder()
         future = self.submit(builder)
         self.to_context(**{"nano_particles": future})
@@ -766,15 +810,17 @@ class MainWorkChain(WorkChain):
         """Analyze results of the builder chain"""
         chain = self.ctx.nano_particles
         row = self.ctx.nano_row
-        if not chain.is_finished_ok:
-            row.step_status.update({"nano_particles": "Failed"})
-            update_row(DBNanoParticles, row.uuid,{"status": "Failed", "step_status": row.step_status})
-            self.report("NanoParticles WorkChain failed.")
+        reaction = self.ctx.reaction.value
+        reaction_path = self.ctx.reaction_path.value
+        state = "Done" if chain.is_finished_ok else "Failed"
+        update_step_status_path(DBNanoParticles, row.uuid,
+                                ["nano_particles", reaction, reaction_path], state)
+        update_row(DBNanoParticles, row.uuid, {"status": state})
+        if state == "Failed":
+            self.report(f"NanoParticles WorkChain {reaction}/{reaction_path} "
+                        f"failed (exit {chain.exit_status}).")
             return self.exit_codes.ERROR_CALCULATION_FAILED
-
-        row.step_status.update({"nano_particles": "Done"})
-        update_row(DBNanoParticles, row.uuid,{"status": "Done", "step_status": row.step_status})
-        self.report("NanoParticles WorkChain succeeded.")
+        self.report(f"NanoParticles WorkChain {reaction}/{reaction_path} succeeded.")
 
     ################################################################################
     def _construct_pd_ml_builder(self):

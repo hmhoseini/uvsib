@@ -90,7 +90,7 @@ class GeneratorWorkChain(WorkChain):
         merged; a system with no structures from any generator fails."""
         model = settings.inputs['bulk_relax']['model']
         all_elems = sorted({el for cs in self.ctx.chemical_systems for el in cs.split('-')})
-        missing = set(missing_element_references(all_elems, model))
+        missing = set(missing_element_references(all_elems, model, head=settings.inputs['bulk_relax'].get('head')))
         ref_structs = get_mp_element_structures(sorted(missing)) if missing else {}
         if missing and not ref_structs:
             self.report(f"Warning: no MP elemental structures for {sorted(missing)}; "
@@ -181,12 +181,14 @@ class GeneratorWorkChain(WorkChain):
             generated[chemical_system] = main_entries
             if ref_entries:
                 pairs = [(e.structure.as_dict(), e.energy) for e in ref_entries]
-                add_structures("reference", model, pairs)
+                add_structures("reference", model, pairs,
+                               head=settings.inputs['bulk_relax'].get('head'))
                 self.report(f"Stored {len(pairs)} MLIP elemental reference(s) "
                             f"from {chemical_system}")
             if exp_entries:
                 pairs = [(e.structure.as_dict(), e.energy) for e in exp_entries]
-                add_structures("mp_experimental", model, pairs)
+                add_structures("mp_experimental", model, pairs,
+                               head=settings.inputs['bulk_relax'].get('head'))
                 self.report(f"Stored {len(pairs)} on-method MP-experimental "
                             f"structure(s) for {chemical_system}")
 
@@ -199,7 +201,8 @@ class GeneratorWorkChain(WorkChain):
                 self.report(f"Warning: potential for {chemical_system} failed")
                 continue
 
-            el_entries, missing = element_reference_entries(chemical_system.split('-'), model)
+            el_entries, missing = element_reference_entries(chemical_system.split('-'), model,
+                                                            head=settings.inputs['bulk_relax'].get('head'))
             if missing:
                 self.report(f"Warning: DFT-fallback elemental refs for {missing} "
                             f"in {chemical_system} (per-element offset risk)")
@@ -209,7 +212,8 @@ class GeneratorWorkChain(WorkChain):
             for entry in low_energy_entries:
                 structure_energy_pairs.append((entry.structure.as_dict(), entry.energy))
 
-            add_structures("generated", model, structure_energy_pairs)
+            add_structures("generated", model, structure_energy_pairs,
+                           head=settings.inputs['bulk_relax'].get('head'))
             # DBChemsys status is updated to Ready
             row = query_by_columns(DBChemsys,{"chemsys": chemical_system})[0]
             update_row(DBChemsys, row.uuid,{"gen_structures": "Ready"})

@@ -295,7 +295,8 @@ class SurfaceBuilderWorkChain(WorkChain):
         """Store results"""
         for slabs, uuid_str in self.ctx.slabs_uuid:
             for slab in slabs:
-                add_slab(uuid_str, self.ctx.chemical_formula, slab)
+                add_slab(uuid_str, self.ctx.chemical_formula, slab,
+                         head=settings.inputs['face_build'].get('head'))
 
     def final_report(self):
         """Final report"""

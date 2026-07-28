@@ -9,10 +9,23 @@ def check_valid(reaction, reaction_path):
     # BATTERY is the bulk (deintercalation) pathway: the "path" is the working
     # ion, and the run skips surface builder + adsorbates (see docs/batteries.md)
     from uvsib.workchains.batt import ION_Z
+    from uvsib.workchains.cer import CER_PATHWAYS
+    from uvsib.workchains.co2rr import CO2RR_PATHWAYS
+    from uvsib.workchains.her import HER_PATHWAYS
+    from uvsib.workchains.noxrr import NOXRR_PATHWAYS
+    from uvsib.workchains.nrr import NRR_PATHWAYS
+    from uvsib.workchains.orr import ORR_PATHWAYS
+    # Path lists come from the single source of truth (the *_PATHWAYS dict of
+    # each workchain) so this gate cannot drift out of sync again — a stale
+    # hand-copied list here is what blocked ORR/HER/NRR/CER and the newer
+    # CO2RR chains. OER has no pathway dict; 'default' is its only route.
     implemented_reactions = {'OER': ['default'],
-                             'CO2RR': ['co2_to_co', 'co2_to_hcooh', 'co_to_ch4', 'co_to_ch3oh'],
-                             'NOXRR': ['no_dissociative', 'no_to_nh3_noh', 'no_to_nh3_nhoh', 'no_to_n2o',
-                                       'no2_to_no', 'no3_to_nh3', 'no3_to_n2'],
+                             'HER': sorted(HER_PATHWAYS),
+                             'ORR': sorted(ORR_PATHWAYS),
+                             'CER': sorted(CER_PATHWAYS),
+                             'NRR': sorted(NRR_PATHWAYS),
+                             'CO2RR': sorted(CO2RR_PATHWAYS),
+                             'NOXRR': sorted(NOXRR_PATHWAYS),
                              'BATTERY': sorted(ION_Z)}
     # Normalize case so 'battery'/'Li'/'li' all work, and so one canonical
     # spelling reaches the DB rows, step_status keys, and workchain labels.
@@ -78,11 +91,15 @@ def add_from_frontend(dict_from_frontend_list):
         if not existing_composition:
             add_row(DBComposition,{"composition": chemical_formula})
 
-        # check if elements are processes for nano particles
-        elements = '-'.join(sorted(list([str(el) for el in Composition(chemical_formula).elements])))
-        existing_particles = query_by_columns(DBNanoParticles, {"elements": elements})
-        if not existing_particles:
-            add_row(DBNanoParticles,{"elements": elements})
+        # nano bookkeeping row ONLY for nano submissions -- unconditional
+        # creation left data-less placeholder rows in db_nano_particles that
+        # every export dutifully dumped (the "1 nano particles" mystery on
+        # pure battery/catalysis runs)
+        if nano:
+            elements = '-'.join(sorted(list([str(el) for el in Composition(chemical_formula).elements])))
+            existing_particles = query_by_columns(DBNanoParticles, {"elements": elements})
+            if not existing_particles:
+                add_row(DBNanoParticles,{"elements": elements})
 
         # only new chemical systems
         new_chemsys = get_chemical_systems(chemical_formula, new=True)

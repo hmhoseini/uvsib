@@ -262,6 +262,35 @@ class DBNanoParticles(Base):
     mtime = Column(DateTime(timezone=True), onupdate=func.now())
 
 
+class DBFinetuneFrame(Base):
+    """DFT-label candidate frames for the solvated catalysis NEB fine-tune
+    (active learning). Written by db/ingest_frames.py from the output of
+    codes/files/solvation_frames.py; exported in a single batch by
+    run_dir/export_all.py --finetune-frames. `bulk_uuid`/`surface_id` carry
+    the attribution back to the frozen substrate set (no FK on purpose --
+    frames may be ingested into a different DB than the run that produced
+    the substrate). `status` tracks the AL bookkeeping: new -> exported
+    (handed to DFT) -> labeled (energies/forces computed)."""
+    __tablename__ = "db_finetune_frames"
+
+    id = Column(Integer, primary_key=True)
+    batch = Column(String, nullable=False, index=True)   # e.g. 'cuau-gen0'
+    generation = Column(Integer, nullable=False, default=0)
+    kind = Column(String, nullable=False)   # md_snapshot|neb_image|neb_endpoint
+    composition = Column(String, nullable=True)
+    model = Column(String, nullable=True)                # harvesting MLIP
+    surface_id = Column(Integer, nullable=True)
+    bulk_uuid = Column(UUID(as_uuid=True), nullable=True)
+    reaction = Column(String, nullable=True)
+    reaction_path = Column(String, nullable=True)
+    structure = Column(JSONB, nullable=False)            # pmg Structure dict
+    energy_model = Column(DOUBLE_PRECISION, nullable=True)
+    status = Column(String, nullable=False, default="new")
+    attributes = Column(JSONB, nullable=True)            # meta (barriers, ...)
+    ctime = Column(DateTime(timezone=True), server_default=func.now())
+    mtime = Column(DateTime(timezone=True), onupdate=func.now())
+
+
 class DBSimilarities(Base):
     __tablename__ = "db_similarities"
     uuid = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, unique=True, nullable=False)

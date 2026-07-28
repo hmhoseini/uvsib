@@ -30,10 +30,13 @@ def add_surface_adsorbate(existing_uuid, surf_id, comp, react, react_path, site_
     return True
 
 
-def add_surface_ml_adsorbate(existing_uuid, surf_id, surface_miller_index, comp, react, react_path, site_type, ads_coord, repeat, e, dG_steps, dG_cumulative, ad_set):
-    """Store a new DBSurfaceAdsorbate row corresponding to a given DBStructure UUID and surface ID"""
+def add_surface_ml_adsorbate(existing_uuid, surf_id, surface_miller_index, comp, react, react_path, site_type, ads_coord, repeat, e, dG_steps, dG_cumulative, ad_set, head=None):
+    """Store a new DBSurfaceAdsorbate row corresponding to a given DBStructure UUID and surface ID.
+    ``head`` records the MLIP task head behind the energetics
+    (attributes["model_head"]) -- see add_structures."""
     with get_session() as session:
         adsorb = DBSurfaceMLAdsorbate(
+                attributes={"model_head": head} if head else None,
                 structure_uuid=existing_uuid,
                 surface_id=surf_id,
                 surface_miller_index=surface_miller_index,
@@ -75,7 +78,7 @@ def get_structure_uuid_surface_id(composition):
 
     return [(row.structure_uuid, row.surface_id) for row in results]
 
-def add_slab(existing_uuid, comp, slab_dict):
+def add_slab(existing_uuid, comp, slab_dict, head=None):
     """Store a slab for a bulk structure uuid.
 
     ``comp`` may be None: the composition is then taken from the DBStructure
@@ -94,6 +97,7 @@ def add_slab(existing_uuid, comp, slab_dict):
             structure_uuid=existing_uuid,
             composition=db_comp or comp,
             slab=slab_dict,
+            attributes={"model_head": head} if head else None,
         )
 
         session.add(slab)
@@ -102,8 +106,13 @@ def add_slab(existing_uuid, comp, slab_dict):
 
 ####################################
 
-def add_structures(source, method, structure_energy_pairs):
-    """Add new structures and associated energies to the database"""
+def add_structures(source, method, structure_energy_pairs, head=None):
+    """Add new structures and associated energies to the database.
+
+    ``head`` records WHICH task head of the MLIP produced the energy
+    (attributes["model_head"]) -- the method column alone ("MACE") cannot
+    distinguish e.g. matpes_r2scan from omat_pbe energies, and mixing heads
+    in one hull/reference set is a silent systematic error."""
     with get_session() as session:
         db_structures = []
         db_versions = []
@@ -126,6 +135,7 @@ def add_structures(source, method, structure_energy_pairs):
                 source=source,
                 structure=struct_dict,
                 energy=energy,
+                attributes={"model_head": head} if head else None,
             )
 
             db_versions.append(db_version)
@@ -417,6 +427,14 @@ def update_step_status_path(table_class, uuid_value, path, value):
     # Build the nested jsonb_set expression from the innermost key outward, so
     # each level coalesces the existing sub-object (or '{}') -> missing parents
     # are created and existing siblings are kept.
+    #
+    # Each level is additionally guarded on jsonb_typeof(...) = 'object'. Rows
+    # written before a step was keyed per (reaction, pathway) hold a legacy
+    # SCALAR there (e.g. step_status = {"nano_particles": "Done"}), and
+    # jsonb_set raises 'cannot set path in scalar' on those. Such a value
+    # carries no path attribution, so it is replaced by an empty object and the
+    # step re-runs for this path rather than falsely reporting Done. For
+    # well-formed data the guard is a no-op.
     expr = "to_jsonb(CAST(:val AS text))"
     for i in range(len(path) - 1, -1, -1):
         leaf_arr = "'{" + path[i] + "}'::text[]"
@@ -426,6 +444,8 @@ def update_step_status_path(table_class, uuid_value, path, value):
             existing = f"COALESCE(step_status #> {parent_arr}, '{{}}'::jsonb)"
         else:
             existing = "COALESCE(step_status, '{}'::jsonb)"
+        existing = (f"CASE WHEN jsonb_typeof({existing}) = 'object' "
+                    f"THEN {existing} ELSE '{{}}'::jsonb END")
         expr = f"jsonb_set({existing}, {leaf_arr}, {expr}, true)"
 
     query = text(

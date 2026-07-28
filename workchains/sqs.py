@@ -102,7 +102,8 @@ class SQSWorkChain(WorkChain):
                         "under the bulk_relax method key")
         elements = self._request_elements(request)
         self.ctx.elements = elements
-        missing = missing_element_references(elements, model_key)
+        missing = missing_element_references(elements, model_key,
+                                             head=settings.inputs['bulk_relax'].get('head'))
         if not missing:
             return []
         seeds = get_mp_element_structures(sorted(missing))
@@ -142,7 +143,8 @@ class SQSWorkChain(WorkChain):
         self.store_element_refs(model_key)
         bulk, slab, slab_vac = split_by_kind(self.ctx.structures, self.ctx.metadata)
 
-        el_entries, missing = element_reference_entries(self.ctx.elements, model_key)
+        el_entries, missing = element_reference_entries(self.ctx.elements, model_key,
+                                                        head=settings.inputs['bulk_relax'].get('head'))
         if missing:
             self.report(f"Warning: DFT-fallback elemental refs for {missing} "
                         "(per-element offset risk)")
@@ -182,7 +184,8 @@ class SQSWorkChain(WorkChain):
             if energy is not None:
                 pairs.append((s, float(energy)))
         if pairs:
-            add_structures("reference", model_key, pairs)
+            add_structures("reference", model_key, pairs,
+                           head=settings.inputs['bulk_relax'].get('head'))
             self.report(f"stored {len(pairs)} MLIP elemental reference(s)")
 
     def store_structures(self):
@@ -213,7 +216,8 @@ class SQSWorkChain(WorkChain):
 
           per_formula = {}
           for formula, pairs in by_formula.items():
-              uuids = add_structures(source, method, pairs)
+              uuids = add_structures(source, method, pairs,
+                                     head=settings.inputs['bulk_relax'].get('head'))
               per_formula[formula] = uuids
               rows = query_by_columns(DBComposition, {"composition": formula})
               if not rows:

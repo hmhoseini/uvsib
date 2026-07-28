@@ -147,7 +147,8 @@ class AdsorbatesWorkChain(WorkChain):
                                          react=self.ctx.reaction, react_path=self.ctx.reaction_path,
                                          site_type=site_type, ads_coord=ads_coord, repeat=repeat,
                                          e=eta, dG_steps=dG_steps, dG_cumulative=dG_cumulative,
-                                         ad_set=adsorb_set)
+                                         ad_set=adsorb_set,
+                                         head=settings.inputs['adsorbates'].get('head'))
 
     def final_report(self):
         """Final report"""

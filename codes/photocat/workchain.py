@@ -84,6 +84,6 @@ class PhotocatCalcWorkChain(BaseRestartWorkChain):
             }),
             'metadata': {
                 'options': get_options(),
-                'label': 'photocat: {}'.format(self.inputs.local_label.value),
+                'label': 'PhotoCat: {}'.format(self.inputs.local_label.value),
             }
         }
