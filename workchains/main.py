@@ -555,14 +555,14 @@ class MainWorkChain(WorkChain):
 
     def _construct_particle_builder(self):
         """Nano Particles WorkChain builder"""
-        WorkChain = WorkflowFactory("nano_particles")
+#        WorkChain = WorkflowFactory("nano_particles")
         raise NotImplementedError
-        builder = WorkChain.get_builder()
-        builder.elements = '-'.join(list(str(el) for el in Composition(self.ctx.chemical_formula).elements))
-        builder.particles_range = self.ctx.nano_particles_range
-        builder.generator = 'systematic'
-        builder.ml_model = self.ctx.ML_model
-        return builder
+#        builder = WorkChain.get_builder()
+#        builder.elements = '-'.join(list(str(el) for el in Composition(self.ctx.chemical_formula).elements))
+#        builder.particles_range = self.ctx.nano_particles_range
+#        builder.generator = 'systematic'
+#        builder.ml_model = self.ctx.ML_model
+#        return builder
 
     def _construct_sqs_builder(self, request):
         """SQS WorkChain builder.

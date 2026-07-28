@@ -135,7 +135,7 @@ class CSPWorkChain(WorkChain):
         n_mh = min(len(entries_csp), self.ctx.n_mh)
         selected_entries = random.sample(entries_csp, n_mh)
         for i, entry in enumerate(selected_entries):
-            struct = StructureData(pymatgen_structure = entry.structure)
+            struct = StructureData(pymatgen=entry.structure)
             builder = self._construct_mh_builder(struct)
             future = self.submit(builder)
             self.to_context(**{f"mh_{i}": future})
@@ -160,7 +160,7 @@ class CSPWorkChain(WorkChain):
             self.report("Many MH jobs failed.")
             return self.exit_codes.ERROR_MINIMAHOPPING_FAILED
 
-        self.ctx.low_energy_entries_mh, _ = unique_low_energy_comp(self.ctx.chemical_formula, new_entries,
+        self.ctx.low_energy_entries_mh, _ = unique_low_energy_comp(self.ctx.chemical_formula, all_entries,
                                                                    EHULL_ML,
                                                                    element_entries=self.ctx.ref_entries)
 

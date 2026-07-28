@@ -47,7 +47,7 @@ class MPDBMLWorkChain(WorkChain):
         )
 
         spec.exit_code(300, "ERROR_CALCULATION_FAILED", message="The WorkChain did not finish successfully")
-        spec.exit_code(301, "ERROR_NO_STRUCTURES_FOUND", message="No experimentally observed structures were found")
+        spec.exit_code(302, "ERROR_ML_RELAX_FAILED", message="ML relaxation failed")
 
     def setup(self):
         """Setup and report"""
