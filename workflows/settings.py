@@ -24,7 +24,7 @@ MAX_NUM_SURF = 10
 
 EHULL_ML = 0.1
 EHULL_SCAN = 0.1
-DFT_FUNC = "GGA"  # MP naming: GGA == PBE (bundled refs key on "GGA"/"r2SCAN", not "PBE")
+DFT_FUNC = 'GGA'  # GGA/r2SCAN
 
 # Run the GNoME (SAPS) generator in parallel with MatterGen in the gen + csp
 # paths. Opt-in via input.yaml (`gnome: {enabled: true}`); defaults off so
@@ -42,6 +42,10 @@ MATTERGEN_ENABLED = bool(inputs.get('mattergen', {}).get('enabled', True))
 # PU) as a MainWorkChain stage after the phase diagram. Configured in input.yaml
 # under `synthesizability:`; enabled by default (post-processing only, no jobs).
 SYNTH_ENABLED = bool(inputs.get('synthesizability', {}).get('enabled', False))
+
+# Run adaptive kinetic Monte Carlo after adsorbate screening. This is opt-in
+# because dimer searches are much more expensive than the CHE adsorbate pass.
+AKMC_ENABLED = bool(inputs.get('akmc', {}).get('enabled', True))
 
 # Soft stop: gracefully end the MainWorkChain after the generation/phase-diagram/
 # synthesizability stages, before the surface builder (and adsorbates) start.

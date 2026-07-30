@@ -6,15 +6,37 @@ from uvsib.workchains.submit import submit_mainworkchain
 
 
 def check_valid(reaction, reaction_path):
-    """Check if reaction and reaction path are implemented"""
+    # BATTERY is the bulk (deintercalation) pathway: the "path" is the working
+    # ion, and the run skips surface builder + adsorbates (see docs/batteries.md)
+    from uvsib.workchains.cer import CER_PATHWAYS
+    from uvsib.workchains.co2rr import CO2RR_PATHWAYS
+    from uvsib.workchains.her import HER_PATHWAYS
+    from uvsib.workchains.noxrr import NOXRR_PATHWAYS
+    from uvsib.workchains.nrr import NRR_PATHWAYS
+    from uvsib.workchains.orr import ORR_PATHWAYS
+    # Path lists come from the single source of truth (the *_PATHWAYS dict of
+    # each workchain) so this gate cannot drift out of sync again — a stale
+    # hand-copied list here is what blocked ORR/HER/NRR/CER and the newer
+    # CO2RR chains. OER has no pathway dict; 'default' is its only route.
     implemented_reactions = {'OER': ['default'],
-                             'CO2RR': ['co2_to_co', 'co2_to_hcooh', 'co_to_ch4', 'co_to_ch3oh'],
-                             'NOXRR': ['no_dissociative', 'no_to_nh3_noh', 'no_to_nh3_nhoh', 'no_to_n2o',
-                                       'no2_to_no', 'no3_to_nh3', 'no3_to_n2']}
+                             'HER': sorted(HER_PATHWAYS),
+                             'ORR': sorted(ORR_PATHWAYS),
+                             'CER': sorted(CER_PATHWAYS),
+                             'NRR': sorted(NRR_PATHWAYS),
+                             'CO2RR': sorted(CO2RR_PATHWAYS),
+                             'NOXRR': sorted(NOXRR_PATHWAYS)}
+    # Normalize case so 'battery'/'Li'/'li' all work, and so one canonical
+    # spelling reaches the DB rows, step_status keys, and workchain labels.
+    reaction = reaction.strip().upper()
     if reaction not in implemented_reactions:
         raise NotImplementedError(f"Reaction {reaction} not implemented.")
+    if reaction == 'BATTERY':
+        reaction_path = reaction_path.strip().capitalize()   # ion symbol: li -> Li
+    else:
+        reaction_path = reaction_path.strip().lower()
     if reaction_path not in implemented_reactions[reaction]:
         raise NotImplementedError(f"Path {reaction_path} not implemented for {reaction}.")
+    return reaction, reaction_path
 
 def add_from_frontend(dict_from_frontend_list):
     """Process frontend submissions and update the database accordingly."""

@@ -48,6 +48,8 @@ class MatterSimCalculation(CalcJob):
             input_file = os.path.join(settings.files_path, 'slab_relax.py')
         elif job_type == 'adsorbates':
             input_file = os.path.join(settings.files_path, 'adsorbates.py')
+        elif job_type == 'akmc':
+            input_file = os.path.join(settings.files_path, 'akmc.py')
         elif job_type == 'sqs':
             input_file = os.path.join(settings.files_path, 'sqs.py')
         else:

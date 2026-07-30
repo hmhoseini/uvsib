@@ -44,6 +44,20 @@ def get_cmdline(job_info):
             f"--pathway={job_info['pathway']}",
             f"--no-validate"]
         )
+    elif job_type == 'akmc':
+        cmdline.extend([
+            f"--fmax={job_info['fmax']}",
+            f"--dimer_fmax={job_info['dimer_fmax']}",
+            f"--relax_steps={job_info['relax_steps']}",
+            f"--dimer_steps={job_info['dimer_steps']}",
+            f"--searches_per_minimum={job_info['searches_per_minimum']}",
+            f"--temperature={job_info['temperature']}",
+            f"--prefactor={job_info['prefactor']}",
+            f"--dimer_displacement={job_info['dimer_displacement']}",
+            f"--product_displacement={job_info['product_displacement']}",
+            f"--maxstep={job_info['maxstep']}",
+            f"--seed={job_info['seed']}"]
+        )
     elif job_type == 'nano_particles':
         cmdline.extend([
             '--fmax={}'.format(job_info['fmax']),

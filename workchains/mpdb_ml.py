@@ -43,7 +43,8 @@ class MPDBMLWorkChain(WorkChain):
         spec.outline(
             cls.setup,
             cls.run_relax_mpdb_structures,
-            cls.store_ml_energies
+            cls.store_ml_energies,
+            cls.final_report
         )
 
         spec.exit_code(300, "ERROR_CALCULATION_FAILED", message="The WorkChain did not finish successfully")

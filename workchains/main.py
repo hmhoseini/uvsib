@@ -21,6 +21,13 @@ def _ads_status(step_status, reaction, reaction_path):
     return ((step_status or {}).get("adsorbates") or {}).get(
         reaction, {}).get(reaction_path)
 
+
+def _akmc_status(step_status, reaction, reaction_path):
+    """Per-(reaction, pathway) AKMC status from the nested step_status."""
+    return ((step_status or {}).get("akmc") or {}).get(
+        reaction, {}).get(reaction_path)
+
+
 class MainWorkChain(WorkChain):
     """ Main WorkChain"""
     @classmethod
@@ -83,6 +90,14 @@ class MainWorkChain(WorkChain):
                 ),
                 cls.adsorbates,
                 cls.inspect_adsorbates
+            ),
+            if_(cls.should_run_akmc)(
+                while_(cls.should_wait_akmc)(
+                    cls.wait_sleep,
+                    cls.check_pythonjob_sleep
+                ),
+                cls.akmc,
+                cls.inspect_akmc
             ),
             if_(cls.should_run_nano_generator)(
                 while_(cls.should_wait_nano_generator)(
@@ -196,6 +211,26 @@ class MainWorkChain(WorkChain):
                 return False
         return True
 
+    def should_run_akmc(self):
+        """Check whether should run AKMC for THIS (reaction, pathway)."""
+        if not settings.AKMC_ENABLED:
+            return False
+        if settings.SOFT_STOP_BEFORE_SURFACE:
+            return False
+        if self.ctx.nano_generator:
+            return False
+        reaction = self.ctx.reaction.value
+        reaction_path = self.ctx.reaction_path.value
+        comp_row = query_by_columns(DBComposition, {"composition": self.ctx.chemical_formula})[0]
+        if _akmc_status(comp_row.step_status, reaction, reaction_path) in ["Done"]:
+            return False
+        ads_rows = query_by_columns(DBSurfaceMLAdsorbate, {
+            "composition": self.ctx.chemical_formula,
+            "reaction": reaction,
+            "reaction_path": reaction_path,
+        })
+        return bool(ads_rows)
+
 #    def should_run_band_alignment(self):
 #        """Check whether should run BandAlignment"""
 #        if self.ctx.nano_generator:
@@ -286,6 +321,20 @@ class MainWorkChain(WorkChain):
         comp_row = query_by_columns(DBComposition, {"composition": self.ctx.chemical_formula})[0]
         if _ads_status(comp_row.step_status, reaction, reaction_path) in ["Running"]:
             self.ctx.sts = f"adsorbates:{reaction}:{reaction_path}"
+            return True
+        return False
+
+    def should_wait_akmc(self):
+        """Wait only if this (reaction, pathway) AKMC is running elsewhere."""
+        if not settings.AKMC_ENABLED:
+            return False
+        if self.ctx.nano_generator:
+            return False
+        reaction = self.ctx.reaction.value
+        reaction_path = self.ctx.reaction_path.value
+        comp_row = query_by_columns(DBComposition, {"composition": self.ctx.chemical_formula})[0]
+        if _akmc_status(comp_row.step_status, reaction, reaction_path) in ["Running"]:
+            self.ctx.sts = f"akmc:{reaction}:{reaction_path}"
             return True
         return False
 
@@ -482,6 +531,31 @@ class MainWorkChain(WorkChain):
             return self.exit_codes.ERROR_CALCULATION_FAILED
 
         update_step_status_path(DBComposition, row.uuid, path, "Done")
+        status = "Running" if settings.AKMC_ENABLED else "Done"
+        update_row(DBComposition, row.uuid, {"status": status})
+
+    def akmc(self):
+        """Running AKMCWorkChain"""
+        row = self.ctx.dbcomposition_row
+        path = ["akmc", self.ctx.reaction.value, self.ctx.reaction_path.value]
+        update_step_status_path(DBComposition, row.uuid, path, "Running")
+        update_row(DBComposition, row.uuid, {"status": "Running"})
+        builder = self._construct_akmc_builder()
+        future = self.submit(builder)
+        self.to_context(**{"akmc": future})
+
+    def inspect_akmc(self):
+        """Inspecting AKMCWorkChain"""
+        wch = self.ctx.akmc
+        row = self.ctx.dbcomposition_row
+        path = ["akmc", self.ctx.reaction.value, self.ctx.reaction_path.value]
+        if not wch.is_finished_ok:
+            update_step_status_path(DBComposition, row.uuid, path, "Failed")
+            update_row(DBComposition, row.uuid, {"status": "Failed"})
+            self.report("AKMC WorkChain failed")
+            return self.exit_codes.ERROR_CALCULATION_FAILED
+
+        update_step_status_path(DBComposition, row.uuid, path, "Done")
         update_row(DBComposition, row.uuid, {"status": "Done"})
 
     def nano_generator(self):
@@ -548,6 +622,15 @@ class MainWorkChain(WorkChain):
         """Adsorbates WorkChain builder"""
         AdsorbatesWorkChain = WorkflowFactory("adsorbates")
         builder = AdsorbatesWorkChain.get_builder()
+        builder.chemical_formula = Str(self.ctx.chemical_formula)
+        builder.reaction = self.ctx.reaction
+        builder.reaction_path = self.ctx.reaction_path
+        return builder
+
+    def _construct_akmc_builder(self):
+        """AKMC WorkChain builder"""
+        AKMCWorkChain = WorkflowFactory("akmc")
+        builder = AKMCWorkChain.get_builder()
         builder.chemical_formula = Str(self.ctx.chemical_formula)
         builder.reaction = self.ctx.reaction
         builder.reaction_path = self.ctx.reaction_path
