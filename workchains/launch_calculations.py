@@ -15,6 +15,7 @@ class MainSubmissionController(BaseSubmissionController):
             nanoparticles,
             similarities,
             sqs,
+            interfaces,
             *args,
             **kwargs):
         super().__init__(*args, **kwargs)
@@ -26,6 +27,7 @@ class MainSubmissionController(BaseSubmissionController):
         self.nanoparticles = nanoparticles
         self.similarities = similarities
         self.sqs = sqs
+        self.interfaces = interfaces or {}
 
     def get_extra_unique_keys(self):
         """ Return a tuple of the keys of the unique extras that
@@ -64,5 +66,6 @@ class MainSubmissionController(BaseSubmissionController):
                   "nanoparticles": Str(self.nanoparticles),
                   "similarities": Dict(self.similarities),
                   "sqs": Dict(self.sqs),
+                  "interfaces": Dict(self.interfaces),
                   "metadata": {"label": label}}
         return inputs, MainWorkChain

@@ -1,6 +1,5 @@
-import os
+import io
 import json
-import tempfile
 from aiida.engine import BaseRestartWorkChain, while_
 from aiida.orm import List, Dict, SinglefileData, Code, Str
 from aiida.plugins import CalculationFactory
@@ -26,11 +25,14 @@ def get_options():
 
 
 def get_structures_file(structures):
-    """Stage the tagged bulk structures as input_structures.json."""
-    file_path = os.path.join(tempfile.gettempdir(), "input_structures.json")
-    with open(file_path, 'w') as f:
-        json.dump(structures, f)
-    return SinglefileData(file=file_path)
+    """Stage the tagged bulk structures as input_structures.json.
+
+    Built straight from memory: staging via a fixed path in the system temp dir
+    races between daemon workers, which can hand a job another job's structures
+    (silently) or a half-written file.
+    """
+    payload = json.dumps(structures).encode('utf-8')
+    return SinglefileData(io.BytesIO(payload), filename='input_structures.json')
 
 
 def _photocat_cmdline(job_info):

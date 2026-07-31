@@ -54,7 +54,15 @@ def get_entries_from_db(chemical_formula, method):
                 composition=struct.composition,
                 structure=struct,
                 energy=row.energy,
-                data={"struct_uuid": row.structure_uuid})
+                # model_head travels WITH the entry. The query filters on
+                # `method` ("MACE") only, but input.yaml runs different task
+                # heads per stage (bulk_relax/battery use matpes_r2scan while
+                # adsorbates/SQS use Default), so one method spans several
+                # absolute energy references. Untagged entries make that
+                # invisible; tagged, a consumer can filter or refuse -- see
+                # interface_stability.assert_single_reference.
+                data={"struct_uuid": row.structure_uuid,
+                      "model_head": (row.attributes or {}).get("model_head")})
         )
     return entries
 

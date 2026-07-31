@@ -23,6 +23,7 @@ class MainWorkChain(WorkChain):
         spec.input("nanoparticles", valid_type=Str)
         spec.input("similarities", valid_type=Dict)
         spec.input('sqs', valid_type=Dict)
+        spec.input('interfaces', valid_type=Dict, required=False)
 
         spec.outline(
             cls.setup,
@@ -98,6 +99,14 @@ class MainWorkChain(WorkChain):
                 cls.battery_neb,
                 cls.inspect_battery_neb
             ),
+            if_(cls.should_run_interface)(
+                while_(cls.should_wait_interface)(
+                    cls.wait_sleep,
+                    cls.check_pythonjob_sleep
+                ),
+                cls.interface,
+                cls.inspect_interface
+            ),
             if_(cls.should_run_nano_particles)(
                 while_(cls.should_wait_nano_particles)(
                     cls.wait_sleep,
@@ -124,6 +133,10 @@ class MainWorkChain(WorkChain):
         # battery submissions carry the working ion in reaction_path and run
         # the bulk battery pathway INSTEAD of surface builder + adsorbates
         self.ctx.battery = self.ctx.reaction.value.strip().upper() == "BATTERY"
+        # electrode|electrolyte half-cells; the working ion is reaction_path,
+        # so this rides with a BATTERY submission
+        self.ctx.interface_request = (self.inputs.interfaces.get_dict()
+                                      if "interfaces" in self.inputs else {})
         if self.ctx.nano_generator:
             self.ctx.nano_particles_range = self.inputs.nanoparticles.value
             self.ctx.nano_elements = '-'.join(sorted(list([str(el) for el in Composition(self.ctx.chemical_formula).elements])))
@@ -301,7 +314,7 @@ class MainWorkChain(WorkChain):
         battery stage is Done for this ion (it consumes db_battery_path)."""
         if not self.ctx.battery:
             return False
-        if self.ctx.nano_generator or self.ctx.sqs:
+        if self.ctx.nano_generator:
             return False
         if not (settings.inputs.get("battery") or {}).get("neb", {}).get("enabled", False):
             return False
@@ -347,6 +360,52 @@ class MainWorkChain(WorkChain):
         update_row(DBComposition, row.uuid, {"status": state})
         if state == "Failed":
             self.report(f"BatteryNEB WorkChain failed (exit {wch.exit_status})")
+            return self.exit_codes.ERROR_CALCULATION_FAILED
+
+    def should_run_interface(self):
+        """Half-cell interfaces: only for a battery submission carrying an
+        `interfaces` request. The working ion is reaction_path, and the
+        electrode structures come from the same stable_struct manifest the
+        battery stage reads -- so an SQS sweep is covered without extra work."""
+        if not self.ctx.interface_request:
+            return False
+        if not self.ctx.battery:
+            return False
+        if self.ctx.nano_generator:
+            return False
+        working_ion = self.ctx.reaction_path.value
+        step = (self._fresh_step_status().get("interface") or {})
+        return step.get(working_ion) not in ["Done"]
+
+    def should_wait_interface(self):
+        working_ion = self.ctx.reaction_path.value
+        step = (self._fresh_step_status().get("interface") or {})
+        if step.get(working_ion) in ["Running"]:
+            self.ctx.sts = f"interface:{working_ion}"
+            return True
+        return False
+
+    def interface(self):
+        """Running InterfaceWorkChain"""
+        row = self.ctx.dbcomposition_row
+        working_ion = self.ctx.reaction_path.value
+        update_step_status_path(DBComposition, row.uuid,
+                                ["interface", working_ion], "Running")
+        update_row(DBComposition, row.uuid, {"status": "Running"})
+        builder = self._construct_interface_builder()
+        self.to_context(**{"interface_wch": self.submit(builder)})
+
+    def inspect_interface(self):
+        """Inspecting InterfaceWorkChain"""
+        wch = self.ctx.interface_wch
+        row = self.ctx.dbcomposition_row
+        working_ion = self.ctx.reaction_path.value
+        state = "Done" if wch.is_finished_ok else "Failed"
+        update_step_status_path(DBComposition, row.uuid,
+                                ["interface", working_ion], state)
+        update_row(DBComposition, row.uuid, {"status": state})
+        if state == "Failed":
+            self.report(f"Interface WorkChain failed (exit {wch.exit_status})")
             return self.exit_codes.ERROR_CALCULATION_FAILED
 
     def should_run_nano_particles(self):
@@ -535,11 +594,16 @@ class MainWorkChain(WorkChain):
         update_row(DBComposition, row.uuid,{"status": "Running", "step_status": row.step_status})
         builder = self._construct_sqs_builder(self.ctx.sqs_request)
         future = self.submit(builder)
-        self.to_context(**{"sqs": future})
+        # 'sqs_wch', NOT 'sqs': to_context('sqs') would overwrite the boolean
+        # ctx.sqs set in setup with a WorkChainNode. Every later
+        # `if self.ctx.sqs:` still reads truthy (a node is truthy), so the bug
+        # is invisible -- until a stage needs it as a bool. Same convention as
+        # battery_wch.
+        self.to_context(**{"sqs_wch": future})
 
     def inspect_sqs(self):
         """Inspecting PhaseDiagramML WorkChain"""
-        wch = self.ctx.sqs
+        wch = self.ctx.sqs_wch
         row = self.ctx.dbcomposition_row
         if not wch.is_finished_ok:
             # update row status in DBComposition table
@@ -747,8 +811,13 @@ class MainWorkChain(WorkChain):
         submission's reaction_path). Battery replaces the catalysis branch."""
         if not self.ctx.battery:
             return False
-        if self.ctx.nano_generator or self.ctx.sqs:
+        if self.ctx.nano_generator:
             return False
+        # ctx.sqs is NOT a skip here: an SQS sweep feeds the battery chain via
+        # DBComposition.stable_struct, which battery._host_structs already
+        # reads. One BatteryWorkChain covers the whole manifest (one
+        # DBBatteryPath row per host uuid), so no per-formula fan-out is
+        # needed the way the adsorbates leaf needs one.
         working_ion = self.ctx.reaction_path.value
         comp_row = query_by_columns(DBComposition, {"composition": self.ctx.chemical_formula})[0]
         if self._battery_status(comp_row.step_status, working_ion) in ["Done"]:
@@ -875,6 +944,15 @@ class MainWorkChain(WorkChain):
         builder = BatteryWorkChain.get_builder()
         builder.chemical_formula = Str(self.ctx.chemical_formula)
         builder.working_ion = Str(self.ctx.reaction_path.value)
+        return builder
+
+    def _construct_interface_builder(self):
+        """Interface WorkChain builder -- the working ion IS the reaction_path."""
+        InterfaceWorkChain = WorkflowFactory("interface")
+        builder = InterfaceWorkChain.get_builder()
+        builder.chemical_formula = Str(self.ctx.chemical_formula)
+        builder.working_ion = Str(self.ctx.reaction_path.value)
+        builder.request = Dict(dict=self.ctx.interface_request)
         return builder
 
     def _construct_photocat_builder(self):

@@ -141,7 +141,7 @@ class CSPWorkChain(WorkChain):
                             + ", ".join(e["mp_id"] for e in exp))
             else:
                 self.report("Warning: MP experimental injection returned "
-                            "nothing (no entries or MP unreachable)")
+                            "nothing for {} (no entries or MP unreachable)".format(self.ctx.chemical_formula))
 
         self.ctx.n_gen = len(self.ctx.csp_structures)
         self.ctx.n_exp = len(exp_structs)

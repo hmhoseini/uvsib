@@ -1,6 +1,5 @@
-import os
+import io
 import json
-import tempfile
 from aiida.engine import BaseRestartWorkChain, while_
 from aiida.orm import List, Dict, SinglefileData, Code, Str
 from aiida.plugins import CalculationFactory
@@ -26,18 +25,19 @@ def get_options():
     return options
 
 def get_structures_file(structures):
-    """ temp structure file """
+    """Stage the structures as a SinglefileData named input_structures.json.
+
+    Built straight from memory: staging via a fixed path in the system temp dir
+    races between daemon workers, which can hand a job another job's structures
+    (silently) or a half-written file.
+    """
     # `structures` arrives as an aiida ``List`` node (the workchain input),
     # which json cannot serialise -- unwrap it to the plain Python list first.
     # Its stored contents are already JSON-safe by construction.
     if isinstance(structures, List):
         structures = structures.get_list()
-    filename = "input_structures.json"
-    temp_dir = tempfile.gettempdir()
-    file_path = os.path.join(temp_dir, filename)
-    with open(file_path, 'w') as f:
-        json.dump(structures, f)
-    return SinglefileData(file=file_path)
+    payload = json.dumps(structures).encode('utf-8')
+    return SinglefileData(io.BytesIO(payload), filename='input_structures.json')
 
 
 SQSCalculation = CalculationFactory('sqs')

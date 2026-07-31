@@ -1,6 +1,5 @@
-import os
+import io
 import json
-import tempfile
 
 from aiida.engine import BaseRestartWorkChain, while_
 from aiida.orm import List, Dict, SinglefileData, Code, Str
@@ -32,13 +31,15 @@ def get_options():
 def get_structures_file(structures):
     """Stage the [{uuid, structure}, ...] request as input_structures.json.
 
-    Accepts a plain list or an AiiDA ``List`` node (unwrapped via ``get_list``)."""
+    Accepts a plain list or an AiiDA ``List`` node (unwrapped via ``get_list``).
+
+    Built straight from memory: staging via a fixed path in the system temp dir
+    races between daemon workers, which can hand a job another job's structures
+    (silently) or a half-written file."""
     if hasattr(structures, "get_list"):
         structures = structures.get_list()
-    path = os.path.join(tempfile.gettempdir(), "input_structures.json")
-    with open(path, 'w', encoding='utf-8') as f:
-        json.dump(structures, f)
-    return SinglefileData(file=path)
+    payload = json.dumps(structures).encode('utf-8')
+    return SinglefileData(io.BytesIO(payload), filename='input_structures.json')
 
 
 def get_cmdline(ji):

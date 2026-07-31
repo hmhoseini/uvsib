@@ -126,7 +126,7 @@ class PhotocatWorkChain(WorkChain):
         self.ctx.bulk_model = model
         self.ctx.bundle = [{"structure": s, "tag": uuid}
                            for uuid, s in sorted(bulk_by_uuid.items())]
-        self.report(f"photocat {self.ctx.chemical_formula} "
+        self.report(f"PhotoCat {self.ctx.chemical_formula} "
                     f"{self.ctx.reaction}/{self.ctx.reaction_path}: "
                     f"{len(self.ctx.slab_tags)} slab(s) -> "
                     f"{len(self.ctx.bundle)} unique bulk structure(s), "

@@ -32,9 +32,8 @@ Phonons need a *conservative* MLIP (MACE / MatterSim); see input.yaml
 ``synthesizability.finite_T.model``.
 """
 
-import os
+import io
 import json
-import tempfile
 
 import numpy as np
 
@@ -213,11 +212,14 @@ def _precursor_search_config():
 
 
 def _precursor_request_file(request):
-    """Stage the precursor-search request as request.json (SinglefileData)."""
-    path = os.path.join(tempfile.gettempdir(), "request.json")
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(request, f)
-    return SinglefileData(file=path)
+    """Stage the precursor-search request as request.json (SinglefileData).
+
+    Built straight from memory: staging via a fixed path in the system temp dir
+    races between daemon workers, which can hand a job another job's request
+    (silently) or a half-written file.
+    """
+    payload = json.dumps(request).encode("utf-8")
+    return SinglefileData(io.BytesIO(payload), filename="request.json")
 
 
 def _precursor_options(ps):
@@ -257,11 +259,14 @@ def _finite_T_sqs_request(formula, ft):
 
 
 def _sqs_request_file(request):
-    """Stage the SQS request as sqs_request.json (SinglefileData)."""
-    path = os.path.join(tempfile.gettempdir(), "sqs_request.json")
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(request, f)
-    return SinglefileData(file=path)
+    """Stage the SQS request as sqs_request.json (SinglefileData).
+
+    Built straight from memory: staging via a fixed path in the system temp dir
+    races between daemon workers, which can hand a job another job's request
+    (silently) or a half-written file.
+    """
+    payload = json.dumps(request).encode("utf-8")
+    return SinglefileData(io.BytesIO(payload), filename="sqs_request.json")
 
 
 def _sqs_options():

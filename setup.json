@@ -76,7 +76,8 @@
             "similarity_calc = uvsib.codes.similarity.workchain:SimilarityWorkChain",
             "sqs = uvsib.workchains.sqs:SQSWorkChain",
             "sqs_calc = uvsib.codes.sqs.workchain:SQSWorkChain",
-            "phonon = uvsib.codes.phonon.workchain:PhononWorkChain"
+            "phonon = uvsib.codes.phonon.workchain:PhononWorkChain",
+            "interface = uvsib.workchains.interface:InterfaceWorkChain"
         ]
     }
 }

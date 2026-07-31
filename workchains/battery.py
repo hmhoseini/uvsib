@@ -98,25 +98,39 @@ def _battery_cfg():
 
 
 def _host_structs(chemical_formula, model, max_hosts, working_ion):
-    """(structure_dict, uuid) pairs to sweep: the stable_struct manifest when
-    present (same convention as the surface builder), else the legacy
-    composition+method query; filtered to hosts that contain the ion."""
+    """(structure_dict, uuid, n_dropped) -- hosts to sweep.
+
+    Sources, in order of authority: the ``DBComposition.stable_struct``
+    manifest when present (same convention as the surface builder), else the
+    legacy composition+method query. Filtered to hosts that contain the ion.
+
+    ``max_hosts`` DOES NOT APPLY TO A MANIFEST. The manifest is a list a
+    producing workchain deliberately wrote -- for an SQS sweep it is the union
+    over the whole composition grid, and truncating it to the first
+    ``max_hosts`` entries would return an arbitrary handful of substitutions
+    (uuid order is not physically meaningful) while the run still reported
+    success. The cap exists to bound the legacy query, which can match an
+    unbounded pile of historical relaxations, and it stays there.
+
+    Returns the number of hosts dropped by the cap so the caller can report it
+    rather than silently trimming.
+    """
     rows = query_by_columns(DBComposition, {"composition": chemical_formula})
     ss = rows[0].stable_struct if rows else None
-    if ss and ss.get("ml_uuid_list"):
+    from_manifest = bool(ss and ss.get("ml_uuid_list"))
+    if from_manifest:
         pairs = get_structs_by_uuids(ss["ml_uuid_list"], model)
     else:
         results = query_structure({"composition": chemical_formula}, method=model)
         pairs = sorted(((row.structure, str(row.structure_uuid))
                         for row in results), key=lambda x: x[1])
-    hosts = []
-    for struct_dict, uuid in pairs:
-        struct = Structure.from_dict(struct_dict)
-        if any(site.specie.symbol == working_ion for site in struct):
-            hosts.append((struct_dict, uuid))
-        if len(hosts) == max_hosts:
-            break
-    return hosts
+
+    with_ion = [(sd, uuid) for sd, uuid in pairs
+                if any(site.specie.symbol == working_ion
+                       for site in Structure.from_dict(sd))]
+    if from_manifest or max_hosts is None or len(with_ion) <= max_hosts:
+        return with_ion, 0
+    return with_ion[:max_hosts], len(with_ion) - max_hosts
 
 
 class BatteryWorkChain(WorkChain):
@@ -157,13 +171,27 @@ class BatteryWorkChain(WorkChain):
                         f"(known: {sorted(batt.ION_Z)})")
             return self.exit_codes.ERROR_NO_HOST
 
-        self.ctx.hosts = _host_structs(
+        self.ctx.hosts, n_dropped = _host_structs(
             self.ctx.chemical_formula, self.ctx.cfg["model"],
             self.ctx.cfg["max_hosts"], self.ctx.working_ion)
         if not self.ctx.hosts:
             self.report(f"No stable structure of {self.ctx.chemical_formula} "
                         f"contains {self.ctx.working_ion}")
             return self.exit_codes.ERROR_NO_HOST
+        if n_dropped:
+            # never trim in silence -- a truncated sweep otherwise looks
+            # identical to a complete one in the result table
+            self.report(f"max_hosts={self.ctx.cfg['max_hosts']} dropped "
+                        f"{n_dropped} host(s) of "
+                        f"{len(self.ctx.hosts) + n_dropped}")
+
+        # uuid -> the host's OWN reduced formula, resolved here because the
+        # structures are only in scope at this point; analyze_and_store()
+        # iterates (uuid, entries) and would otherwise have nothing but the
+        # parent formula to label an SQS sweep with.
+        self.ctx.host_formula = {
+            uuid: Structure.from_dict(sd).composition.reduced_formula
+            for sd, uuid in self.ctx.hosts}
         self.report(f"BatteryWorkChain {self.ctx.chemical_formula} / "
                     f"{self.ctx.working_ion}: {len(self.ctx.hosts)} host(s)")
 
@@ -205,7 +233,7 @@ class BatteryWorkChain(WorkChain):
             },
             "metadata": {
                 "options": _enum_options(code_name),
-                "label": f"battery enum: {self.ctx.chemical_formula} "
+                "label": f"Battery Enum: {self.ctx.chemical_formula} "
                          f"{self.ctx.working_ion}",
             },
         }
@@ -345,7 +373,11 @@ class BatteryWorkChain(WorkChain):
 
             add_row(DBBatteryPath, {
                 "structure_uuid": uuid,
-                "composition": self.ctx.chemical_formula,
+                # the HOST's own formula (see ctx.host_formula in setup), not
+                # ctx.chemical_formula: across an SQS sweep the hosts span the
+                # whole composition grid
+                "composition": self.ctx.host_formula.get(
+                    uuid, self.ctx.chemical_formula),
                 "working_ion": ion,
                 "model": model,
                 "avg_voltage": summary["avg_voltage"],

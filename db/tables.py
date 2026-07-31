@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import create_engine, Column, String, Text, Integer, DateTime, ForeignKey, UniqueConstraint, Float
+from sqlalchemy import create_engine, Column, String, Text, Integer, DateTime, ForeignKey, UniqueConstraint, Float, Boolean
 from sqlalchemy.dialects.postgresql import UUID, JSONB, DOUBLE_PRECISION
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.sql import func
@@ -304,9 +304,58 @@ class DBSimilarities(Base):
     ctime = Column(DateTime(timezone=True), server_default=func.now())
 
 
-if __name__ == "__main__":
-    engine = create_engine(DB_URL, echo=False)
-    Base.metadata.create_all(engine)
+class DBInterface(Base):
+    """One electrode|electrolyte half-cell junction.
+
+    Written by InterfaceWorkChain. Rows exist for BOTH outcomes of the stage-1
+    thermodynamic screen: a pair that reacts is recorded with
+    ``built = False`` and no structure, because "this pair decomposes" is a
+    result worth keeping, not an absence. See docs/interfaces.md.
+
+    ``active_mask`` marks the atoms within the junction region; downstream
+    relaxation and NEB freeze the rest.
+    """
+    __tablename__ = "db_interface"
+
+    id = Column(Integer, primary_key=True)
+    # nullable: a pair rejected by the stage-1 screen never gets a structure
+    structure_uuid = Column(
+        UUID(as_uuid=True),
+        ForeignKey("db_structure.uuid", ondelete="CASCADE"),
+        nullable=True
+    )
+    composition = Column(String, nullable=True)        # parent electrode formula
+    electrode = Column(String, nullable=False)
+    electrolyte = Column(String, nullable=False)
+    working_ion = Column(String, nullable=False)
+    half_cell = Column(String, nullable=False)         # 'anode' | 'cathode'
+    model = Column(String, nullable=True)
+
+    # --- stage 1: pseudo-binary interface reaction (Chem. Mater. 28, 266) ---
+    reaction_energy = Column(DOUBLE_PRECISION, nullable=True)  # eV/atom, <= 0
+    reaction_products = Column(JSONB, nullable=True)
+    reacts = Column(Boolean, nullable=True)
+    severe = Column(Boolean, nullable=True)
+    mu_worst = Column(DOUBLE_PRECISION, nullable=True)  # mu_ion of the worst case
+    reaction_scan = Column(JSONB, nullable=True)        # the whole mu sweep
+
+    # --- stage 2: Zur-McGill geometry (null when the pair was rejected) -----
+    built = Column(Boolean, nullable=False, default=False)
+    # The UNRELAXED junction geometry lives here rather than in db_structure:
+    # a db_structure row implies a computed energy, and these have none until
+    # the relaxation stage runs (which then fills structure_uuid).
+    structure = Column(JSONB, nullable=True)
+    film_miller = Column(JSONB, nullable=True)
+    substrate_miller = Column(JSONB, nullable=True)
+    termination = Column(JSONB, nullable=True)
+    n_atoms = Column(Integer, nullable=True)
+    area = Column(DOUBLE_PRECISION, nullable=True)
+    strain_percent = Column(DOUBLE_PRECISION, nullable=True)
+    active_mask = Column(JSONB, nullable=True)
+
+    attributes = Column(JSONB, nullable=True)
+    ctime = Column(DateTime(timezone=True), server_default=func.now())
+    mtime = Column(DateTime(timezone=True), onupdate=func.now())
 
 
 if __name__ == "__main__":

@@ -1,6 +1,5 @@
-import os
+import io
 import json
-import tempfile
 
 from aiida.engine import BaseRestartWorkChain, while_
 from aiida.orm import Str, Dict, Code, SinglefileData
@@ -29,11 +28,14 @@ def get_options():
 
 
 def _templates_file(structures):
-    """Stage the seed pool as a SinglefileData named templates.json."""
-    path = os.path.join(tempfile.gettempdir(), "templates.json")
-    with open(path, 'w', encoding='utf-8') as f:
-        json.dump(structures, f)
-    return SinglefileData(file=path)
+    """Stage the seed pool as a SinglefileData named templates.json.
+
+    Built straight from memory: staging via a fixed path in the system temp dir
+    races between daemon workers, which can hand a job another job's payload
+    (silently) or a half-written file.
+    """
+    payload = json.dumps(structures).encode('utf-8')
+    return SinglefileData(io.BytesIO(payload), filename='templates.json')
 
 
 def _get_cmdline(mode, target, ji):

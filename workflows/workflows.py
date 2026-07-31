@@ -71,6 +71,8 @@ def add_from_frontend(dict_from_frontend_list):
         # grid, surfaces, defects) rides through verbatim; {} means a normal
         # (non-SQS) submission. submit_mainworkchain wraps it in an aiida Dict.
         sqs = entry.get("sqs", {})
+        # electrode|electrolyte half-cells; {} means no interface stage
+        interfaces = entry.get("interfaces", {})
 
         reaction, reaction_path = check_valid(reaction, reaction_path)
 
@@ -148,7 +150,8 @@ def add_from_frontend(dict_from_frontend_list):
 
         submit_mainworkchain(chemical_formula=chemical_formula, chemical_systems=new_chemsys,
                              reaction=reaction, reaction_path=reaction_path,
-                             nano=nano, similarities=similars, sqs=sqs)
+                             nano=nano, similarities=similars, sqs=sqs,
+                             interfaces=interfaces)
         update_dbfrontend()
 
 
