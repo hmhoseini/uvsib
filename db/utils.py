@@ -73,12 +73,13 @@ def get_structure_uuid_surface_id(composition):
 
     return [(row.structure_uuid, row.surface_id) for row in results]
 
-def add_slab(existing_uuid, comp, slab_dict):
+def add_slab(existing_uuid, comp, slab_dict, head=None):
     with get_session() as session:
         slab = DBSurface(
             structure_uuid=existing_uuid,
             composition=comp,
             slab=slab_dict,
+            attributes={"model_head": head} if head else None,
         )
 
         session.add(slab)

@@ -1,6 +1,6 @@
 from pymatgen.core import Composition, Structure
 from pymatgen.entries.computed_entries import ComputedStructureEntry
-from aiida.orm import Bool, Str, List, Dict
+from aiida.orm import Bool, Int, Str, List, Dict
 from aiida.engine import WorkChain, if_
 from aiida.plugins import WorkflowFactory
 import aiida_pythonjob
@@ -50,8 +50,8 @@ def get_entries_from_db(chemical_formula, method):
     for row in results:
         if row.source == "MPDB_ref":
             continue
-        if not Composition(row.composition).is_element and row.composition != chemical_formula:
-            continue
+#        if not Composition(row.composition).is_element and row.composition != chemical_formula:
+#            continue
         struct = Structure.from_dict(row.structure)
         entries.append(
                 ComputedStructureEntry(
@@ -106,12 +106,24 @@ class PhaseDiagramMLWorkChain(WorkChain):
         else:
             self.report("No new chemical system!")
 
+    def _has_mpdb_ml_structures(self):
+        """Return True when MPDB structures have already been ML-relaxed
+        (method == ml_bulk_model) for this formula.
+        """
+        results = query_structure(
+            {"composition": self.ctx.chemical_formula},
+            method=self.ctx.ml_bulk_model,
+        )
+        sources = {result.source for result in results}
+        return bool({"MPDB_stb", "MPDB_exp"} & sources)
+
     def should_run_mpdb_ml(self):
         """Check whether should run MPDBMLWorkChain"""
-        results = query_structure({"composition": self.ctx.chemical_formula}, method = "DFT")
-        existing_sources = {result.source for result in results}
-        if "MPDB_stb" in existing_sources or "MPDB_exp" in existing_sources:
-            self.report(f"Skipping MPDBMLWorkChain for {self.ctx.chemical_formula}")
+        if self._has_mpdb_ml_structures():
+            self.report(
+                f"Skipping MPDBMLWorkChain for {self.ctx.chemical_formula}: "
+                "MPDB structures are already ML-relaxed."
+            )
             return False
         return True
 
@@ -120,7 +132,7 @@ class PhaseDiagramMLWorkChain(WorkChain):
         if _SKIP_CSP:
             self.report(f"Skipping CSP calculations for {self.ctx.chemical_formula}")
             return False
-        results = query_structure({"composition": self.ctx.chemical_formula}, source = "csp")
+        results = query_structure({"composition": self.ctx.chemical_formula}, method = self.ctx.ml_bulk_model, source = "csp")
         if results:
             self.report(f"Nothing to do! Skipping CSP calculations for {self.ctx.chemical_formula}")
             return False
@@ -262,16 +274,16 @@ class PhaseDiagramMLWorkChain(WorkChain):
         MPDBMLWorkChain = WorkflowFactory("mpdbml")
         builder = MPDBMLWorkChain.get_builder()
         builder.chemical_formula = Str(self.ctx.chemical_formula)
-        builder.ml_bulk_model = self.ctx.ml_bulk_model
+        builder.ml_bulk_model = Str(self.ctx.ml_bulk_model)
         return builder
 
     def _construct_csp_builder(self):
         Workflow = WorkflowFactory("csp")
         builder = Workflow.get_builder()
         builder.chemical_formula = Str(self.ctx.chemical_formula)
-        builder.n_csp = settings.inputs["MatterGen_CSP"]["num_runs"]
-        builder.n_mh = settings.inputs["MinimaHopping"]["num_runs"]
-        builder.ml_bulk_model = self.ctx.ml_bulk_model
+        builder.n_csp = Int(settings.inputs["MatterGen_CSP"]["num_runs"])
+        builder.n_mh = Int(settings.inputs["MinimaHopping"]["num_runs"])
+        builder.ml_bulk_model = Str(self.ctx.ml_bulk_model)
         return builder
 
     def _construct_gen_builder(self):
@@ -279,31 +291,5 @@ class PhaseDiagramMLWorkChain(WorkChain):
         builder = Workflow.get_builder()
         builder.chemical_formula = Str(self.ctx.chemical_formula)
         builder.chemical_systems = List(self.ctx.chemical_systems)
-        builder.ml_bulk_model = self.ctx.ml_bulk_model
-        return builder
-
-    def _construct_ML_relax_builder(self, structures):
-        """
-        General builder for structure optimization with an ML model
-        """
-        ML_model = self.ctx.ml_bulk_model
-        Workflow = WorkflowFactory(ML_model.lower())
-        builder = Workflow.get_builder()
-        builder.input_structures = List(structures)
-        builder.code = get_code(ML_model)
-        builder.local_label = Str(f"relax {self.ctx.chemical_formula}")
-        model, model_path, device = get_model_device(ML_model)
-
-        job_info = {
-            "job_type": "relax",
-            "ML_model": ML_model,
-            "model_name": model,
-            "model_path": model_path,
-            "model_head": settings.inputs["bulk_relax"]["head"],
-            "device": device,
-            "fmax": settings.inputs["bulk_relax"]["fmax"],
-            "max_steps": settings.inputs["bulk_relax"]["max_steps"]
-        }
-
-        builder.job_info = Dict(job_info)
+        builder.ml_bulk_model = Str(self.ctx.ml_bulk_model)
         return builder

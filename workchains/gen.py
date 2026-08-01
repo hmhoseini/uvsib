@@ -81,7 +81,6 @@ class GeneratorWorkChain(WorkChain):
                 self.report(f"Warning: GNoME branch for {chemical_system} failed")
 
     def predict_ml_energies(self):
-        self.ctx.n_main = {}
         for chemical_system in self.ctx.chemical_systems:
             output_structures = []
 
@@ -103,7 +102,6 @@ class GeneratorWorkChain(WorkChain):
                 self.report(f"No generated structures for {chemical_system}")
                 return self.exit_codes.ERROR_GENERATIVE_FAILED
 
-            self.ctx.n_main[chemical_system] = len(output_structures)
             builder = self._construct_ML_relax_builder(output_structures)
             builder.local_label = Str("relax: {}".format(chemical_system))
             future = self.submit(builder)
@@ -118,26 +116,29 @@ class GeneratorWorkChain(WorkChain):
             wch = self.ctx[f"{chemical_system}_ml_e"]
 
             if not wch.is_finished_ok:
-                failed_ml_e.append(chemical_system)
                 self.report(f"Warning: {self.ctx.ml_bulk_model} for {chemical_system} failed")
+                failed_ml_e.append(chemical_system)
                 continue
             try:
                 new_entries = get_output_as_entry(wch)
 
             except:
-                self.report(
-                    f"Warning: Failed to store results for {chemical_system}"
-                )
+                self.report(f"Warning: Failed to store results for {chemical_system}")
                 failed_ml_e.append(chemical_system)
                 continue
 
             low_energy_entries = unique_low_energy_chemsys(chemical_system, new_entries,
                                                            EHULL_ML,
                                                            element_entries=self.ctx.ref_entries)
+
+            if not low_energy_entries:
+                self.report(f"Warning: No low-energy generated structures for {chemical_system}")
+                failed_ml_e.append(chemical_system)
+                continue
+
             structure_energy_pairs = []
             for entry in low_energy_entries:
                 structure_energy_pairs.append((entry.structure.as_dict(), entry.energy))
-
             add_structures("generated", ml_bulk_model, structure_energy_pairs)
             # DBChemsys status is updated to Ready
             row = query_by_columns(DBChemsys,{"chemsys": chemical_system})[0]

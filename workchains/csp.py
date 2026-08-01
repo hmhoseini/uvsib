@@ -1,4 +1,5 @@
 import random
+from pymatgen.core import Composition
 from aiida.engine import WorkChain
 from aiida.orm import Str, List, Dict, Int
 from aiida.plugins import DataFactory, WorkflowFactory
@@ -57,7 +58,17 @@ class CSPWorkChain(WorkChain):
         toggles (`mattergen.enabled`, `gnome.enabled`); at least one required."""
         self.report("Launching CSP calculations")
         self.ctx.n_csp_jobs = 0
-        if settings.MATTERGEN_ENABLED:
+
+        natom = Composition(self.ctx.chemical_formula).num_atoms
+        mattergen_csp_allowed = settings.MATTERGEN_ENABLED and natom <= 20
+
+        if settings.MATTERGEN_ENABLED and not mattergen_csp_allowed:
+            self.report(
+                f"Skipping MatterGen CSP for {self.ctx.chemical_formula}: "
+                f"formula has {natom} atoms, above MatterGen's 20-atom CSP limit."
+            )
+
+        if mattergen_csp_allowed:
             self.ctx.n_csp_jobs = self.ctx.n_csp
             for i in range(1, self.ctx.n_csp + 1):
                 builder = self._construct_mattergen_csp_builder()
@@ -72,7 +83,7 @@ class CSPWorkChain(WorkChain):
                 self.to_context(**{f"gnome_{i}": self.submit(gbuilder)})
 
         if self.ctx.n_csp_jobs == 0 and self.ctx.n_gnome == 0:
-            self.report("ERROE: no CSP generator enabled (mattergen and gnome both off)")
+            self.report("ERROR: no CSP generator enabled (mattergen and gnome both off)")
             return self.exit_codes.ERROR_CSP_FAILED
 
     def inspect_csp_calcs(self):
@@ -102,8 +113,8 @@ class CSPWorkChain(WorkChain):
             self.report("No structure was found. Job stopped.")
             return self.exit_codes.ERROR_CSP_FAILED
 
-        if self.ctx.n_csp_jobs and failed_jobs / self.ctx.n_csp_jobs > 0.5:
-            self.report("Many CSP jobs failed. Jon sopped.")
+        if self.ctx.n_csp_jobs and failed_jobs / self.ctx.n_csp_jobs > 0.5 and not settings.GNOME_PARALLEL:
+            self.report("Many CSP jobs failed. Job stopped.")
             return self.exit_codes.ERROR_CSP_FAILED
 
     def predict_ml_energies(self):
@@ -141,9 +152,10 @@ class CSPWorkChain(WorkChain):
             self.to_context(**{f"mh_{i}": future})
 
     def mh_energies(self):
-        """Predict ML energies"""
+        """Collect MinimaHopping energies"""
         n_mh = min(len(self.ctx.low_energy_entries_csp), self.ctx.n_mh)
-        all_entries = []
+
+        all_mh_entries = []
         failed_jobs = 0
         for i in range(n_mh):
             wch = self.ctx[f"mh_{i}"]
@@ -152,15 +164,15 @@ class CSPWorkChain(WorkChain):
                 continue
             try:
                 new_entries = get_output_as_entry(wch)
-                all_entries.extend(new_entries)
+                all_mh_entries.extend(new_entries)
             except:
                 failed_jobs += 1
 
-        if not all_entries or failed_jobs / n_mh > 0.5:
+        if not all_mh_entries or failed_jobs / n_mh > 0.5:
             self.report("Many MH jobs failed.")
             return self.exit_codes.ERROR_MINIMAHOPPING_FAILED
 
-        self.ctx.low_energy_entries_mh, _ = unique_low_energy_comp(self.ctx.chemical_formula, all_entries,
+        self.ctx.low_energy_entries_mh, _ = unique_low_energy_comp(self.ctx.chemical_formula, all_mh_entries,
                                                                    EHULL_ML,
                                                                    element_entries=self.ctx.ref_entries)
 
@@ -168,10 +180,11 @@ class CSPWorkChain(WorkChain):
         """Store structures"""
         ml_bulk_model = self.ctx.ml_bulk_model
         all_entries = self.ctx.low_energy_entries_csp + self.ctx.low_energy_entries_mh
+
         low_energy_entries, _ = unique_low_energy_comp(self.ctx.chemical_formula, all_entries, EHULL_ML,
                                                        element_entries=self.ctx.ref_entries)
+   
         structure_energy_pairs = []
-
         for entry in low_energy_entries:
             structure_energy_pairs.append((entry.structure.as_dict(), entry.energy))
 

@@ -41,7 +41,14 @@ def get_cmdline_csp(chemical_formula, job_info):
     comp = Composition(chemical_formula)
     el_amt = comp.get_el_amt_dict()
     natom = comp.num_atoms
-    coef = 20//natom
+
+    if natom > 20:
+        raise ValueError(
+            f"MatterGen CSP supports target compositions up to 20 atoms, "
+            f"but {chemical_formula} has {natom} atoms."
+        )
+
+    coef = 20 // natom
     inner = ", ".join(f"\'{k}\': {int(coef*v)}" for k, v in el_amt.items())
     target_str = f"{{{inner}}}"
     return [

@@ -141,13 +141,13 @@ def get_structures_from_mpdb_by_composition(chemical_formula, e_hull=0.1):
         summaries = mpr.materials.summary.search(**search_kwargs)
 
     if not summaries:
-        return False
+        return [], []
 
     for summary in summaries:
         if summary.theoretical:
-            exp_structures.append(summary.structure.as_dict())
-        else:
             stable_structures.append(summary.structure.as_dict())
+        else:
+            exp_structures.append(summary.structure.as_dict())
 
     return stable_structures, exp_structures
 

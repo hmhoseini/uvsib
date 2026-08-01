@@ -110,6 +110,8 @@ class MainWorkChain(WorkChain):
         )
 
         spec.exit_code(300,"ERROR_CALCULATION_FAILED", message="A sub-WorkChain did not finish successfully")
+        spec.exit_code(305,"ERROR_COMPOSITION_MISSING", message="The composition is missing in DBComposition")
+
 
     def setup(self):
         """Setup and report"""
@@ -118,7 +120,12 @@ class MainWorkChain(WorkChain):
         self.ctx.reaction = self.inputs.reaction
         self.ctx.reaction_path = self.inputs.reaction_path
         self.ctx.ml_bulk_model = settings.inputs['bulk_relax']['model'] # not an input of the workchain
-        self.ctx.dbcomposition_row = query_by_columns(DBComposition,{"composition": self.ctx.chemical_formula})[0]
+        rows = query_by_columns(DBComposition,{"composition": self.ctx.chemical_formula})
+        if not rows:
+            self.report(f"ERROR: no DBComposition row for {self.ctx.chemical_formula}")
+            return self.exit_codes.ERROR_COMPOSITION_MISSING
+        self.ctx.dbcomposition_row = rows[0]
+        self.ctx.composition_missing = False
         self.ctx.nano_generator = True if len(self.inputs.nanoparticles.value.split('-')) == 2 else False
         self.ctx.similarities = self.inputs.similarities.value
         self.ctx.sqs_request = self.inputs.sqs.get_dict()
@@ -132,14 +139,25 @@ class MainWorkChain(WorkChain):
             self.report(f"Running MainWorkChain for {self.ctx.chemical_formula}: "
                         f"reaction {self.ctx.reaction.value} path {self.ctx.reaction_path.value}")
 
+
     def _fresh_step_status(self):
         """
         Re-query the composition row so the shared-step gates observe a
         sibling chain's transitions.
         """
-        row = query_by_columns(DBComposition, {"composition": self.ctx.chemical_formula})[0]
+        rows = query_by_columns(DBComposition, {"composition": self.ctx.chemical_formula})
+        if not rows:
+            self.ctx.composition_missing = True
+            return {} 
+
+        row = rows[0]
+        self.ctx.composition_missing = False
         self.ctx.dbcomposition_row = row
         return row.step_status or {}
+
+    def _step_done(self, step):
+        """Return True if a shared composition-level step is already done."""
+        return self._fresh_step_status().get(step) == "Done"
 
     def should_run_pd_ml(self):
         """Check whether should run PhaseDiagramML"""
@@ -310,7 +328,7 @@ class MainWorkChain(WorkChain):
         return False
 
     def should_wait_adsorbates(self):
-        """Wait only if THIS (reaction, pathway) is running elsewhere.
+        """Wait only if this (reaction, pathway) is running elsewhere.
         Different reactions/pathways (e.g. CO2RR vs NOXRR) are independent work
         and must not block each other; only a duplicate of the same triple does.
         """
@@ -354,6 +372,19 @@ class MainWorkChain(WorkChain):
 
     def pd_ml(self):
         """Running PhaseDiagramML WorkChain"""
+        # Re-check after waiting: another MainWorkChain may have completed pd_ml.
+        if self._step_done("pd_ml"):
+            self.report(
+                f"Skipping PhaseDiagramML WorkChain for {self.ctx.chemical_formula}: "
+                "pd_ml was completed by another WorkChain."
+            )
+            return
+
+        if self.ctx.composition_missing:
+            self.report(f"ERROR: no DBComposition row for {self.ctx.chemical_formula}")
+            return self.exit_codes.ERROR_COMPOSITION_MISSING
+
+
         row = self.ctx.dbcomposition_row
         # update row status in DBComposition table
         row.step_status.update({"pd_ml": "Running"})
@@ -364,6 +395,10 @@ class MainWorkChain(WorkChain):
 
     def inspect_pd_ml(self):
         """Inspecting PhaseDiagramML WorkChain"""
+        # return if WorkChain was not set
+        if "pd_ml" not in self.ctx:
+            return
+
         pd_ml_wch = self.ctx.pd_ml
         row = self.ctx.dbcomposition_row
         if not pd_ml_wch.is_finished_ok:
@@ -379,6 +414,14 @@ class MainWorkChain(WorkChain):
 
     def pd_verification(self):
         """Running PDVerificationWorkChain"""
+        # Re-check after waiting: another MainWorkChain may have completed pd_verification.
+        if self._step_done("pd_verification"):
+            self.report(
+                f"Skipping PDVerification WorkChain for {self.ctx.chemical_formula}: "
+                "it was completed by another WorkChain."
+            )
+            return
+
         row = self.ctx.dbcomposition_row
         # update row status in DBComposition table
         row.step_status.update({"pd_verification": "Running"})
@@ -389,6 +432,10 @@ class MainWorkChain(WorkChain):
 
     def inspect_pd_verification(self):
         """Inspecting PDVerificationWorkChain"""
+        # return if WorChain was not set
+        if "pdverification" not in self.ctx:
+            return
+
         pd_ver_wch = self.ctx.pdverification
         row = self.ctx.dbcomposition_row
 
@@ -405,6 +452,14 @@ class MainWorkChain(WorkChain):
 
     def synthesizability(self):
         """Running SynthesizabilityWorkChain (classify all generated structures)"""
+        # Re-check after waiting: another MainWorkChain may have completed synthesizability.
+        if self._step_done("synthesizability"):
+            self.report(
+                f"Skipping Synthesizability WorkChain for {self.ctx.chemical_formula}: "
+                "it was completed by another WorkChain."
+            )
+            return
+
         row = self.ctx.dbcomposition_row
         row.step_status.update({"synthesizability": "Running"})
         update_row(DBComposition, row.uuid, {"status": "Running", "step_status": row.step_status})
@@ -414,6 +469,10 @@ class MainWorkChain(WorkChain):
 
     def inspect_synthesizability(self):
         """Inspecting SynthesizabilityWorkChain"""
+        # return if WorChain was not set
+        if "synthesizability" not in self.ctx:
+            return
+
         wch = self.ctx.synthesizability
         row = self.ctx.dbcomposition_row
         if not wch.is_finished_ok:
@@ -427,6 +486,14 @@ class MainWorkChain(WorkChain):
 
     def sqs(self):
         """Running SQS WorkChain"""
+        # Re-check after waiting: another MainWorkChain may have completed pd_ml.
+        if self._step_done("sqs"):
+            self.report(
+                f"Skipping SQS WorkChain for {self.ctx.chemical_formula}: "
+                "it was completed by another WorkChain."
+            )
+            return
+
         row = self.ctx.dbcomposition_row
         # update row status in DBComposition table
         row.step_status.update({"sqs": "Running"})
@@ -437,6 +504,10 @@ class MainWorkChain(WorkChain):
 
     def inspect_sqs(self):
         """Inspecting SQS WorkChain"""
+        # return if WorChain was not set
+        if "sqs" not in self.ctx:
+            return
+
         wch = self.ctx.sqs
         row = self.ctx.dbcomposition_row
         if not wch.is_finished_ok:
@@ -487,6 +558,14 @@ class MainWorkChain(WorkChain):
 
     def surface_builder(self):
         """Running SurfaceBuilderWorkChain"""
+        # Re-check after waiting: another MainWorkChain may have completed pd_ml.
+        if self._step_done("surface_builder"):
+            self.report(
+                f"Skipping SurfaceBuilder WorkChain for {self.ctx.chemical_formula}: "
+                "it completed by another WorkChain."
+            )
+            return
+
         row = self.ctx.dbcomposition_row
         row.step_status.update({"surface_builder": "Running"})
         update_row(DBComposition, row.uuid,{"status": "Running", "step_status": row.step_status})
@@ -496,6 +575,10 @@ class MainWorkChain(WorkChain):
 
     def inspect_surface_builder(self):
         """Inspecting SurfaceBuilderWorkChain"""
+        # return if WorChain was not set
+        if "surface_builder" not in self.ctx:
+            return
+
         wch = self.ctx.surface_builder
         row = self.ctx.dbcomposition_row
         if not wch.is_finished_ok:
@@ -521,6 +604,10 @@ class MainWorkChain(WorkChain):
 
     def inspect_adsorbates(self):
         """Inspecting SurfaceBuilderWorkChain"""
+        # return if WorChain was not set
+        if "adsorbates" not in self.ctx:
+            return
+
         wch = self.ctx.adsorbates
         row = self.ctx.dbcomposition_row
         path = ["adsorbates", self.ctx.reaction.value, self.ctx.reaction_path.value]
@@ -536,6 +623,14 @@ class MainWorkChain(WorkChain):
 
     def akmc(self):
         """Running AKMCWorkChain"""
+        # Re-check after waiting: another MainWorkChain may have completed akmc.
+        if self._step_done("akmc"):
+            self.report(
+                f"Skipping AKMC WorkChain for {self.ctx.chemical_formula}: "
+                "it  was completed by another WorkChain."
+            )
+            return
+
         row = self.ctx.dbcomposition_row
         path = ["akmc", self.ctx.reaction.value, self.ctx.reaction_path.value]
         update_step_status_path(DBComposition, row.uuid, path, "Running")
@@ -546,6 +641,10 @@ class MainWorkChain(WorkChain):
 
     def inspect_akmc(self):
         """Inspecting AKMCWorkChain"""
+        # return if WorChain was not set
+        if "akmc" not in self.ctx:
+            return
+
         wch = self.ctx.akmc
         row = self.ctx.dbcomposition_row
         path = ["akmc", self.ctx.reaction.value, self.ctx.reaction_path.value]
@@ -569,6 +668,10 @@ class MainWorkChain(WorkChain):
 
     def inspect_nano_generator(self):
         """Analyze results of the builder chain"""
+        # return if WorChain was not set
+        if "nano_particles" not in self.ctx:
+            return
+
         chain = self.ctx.nano_particles
         row = self.ctx.nano_row
         if not chain.is_finished_ok:
