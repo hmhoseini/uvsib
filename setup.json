@@ -18,7 +18,8 @@
         "dscribe==2.1.2",
         "phonopy",
         "icet",
-        "pymatgen"
+        "pymatgen",
+        "pymongo"
     ],
     "entry_points": {
         "aiida.calculations": [
