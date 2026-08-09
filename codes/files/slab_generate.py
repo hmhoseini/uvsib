@@ -31,12 +31,16 @@ contract (still pymatgen ``Slab`` -> ``pmg_to_ase`` with the oriented cell):
      ``GEN_TIMEOUT_S`` walltime cap turn a pathological cell into a clean per-bulk
      skip instead of taking down the whole 10-bulk job. The guard skips ONLY
      large *and* low-symmetry cells, so legitimate high-symmetry oxides (e.g. a
-     Fd-3m pyrochlore, 88-atom conventional cell) still pass.
+     Fd-3m pyrochlore, 88-atom conventional cell) still pass. Bulks marked
+     ``from_manifest`` (deliberately produced via the ``DBComposition.stable_struct``
+     manifest -- SQS cells are P1 by construction and can exceed the atom cap)
+     BYPASS this skip; the walltime cap remains their safety net.
 
 See ``docs/slab_generation.md`` for the full diagnosis and benchmark.
 
 Input (``input_structures.json``, staged via the ``file`` namespace)
-    [{"uuid": "<structure uuid>", "structure": <pymatgen Structure.as_dict()>},
+    [{"uuid": "<structure uuid>", "structure": <pymatgen Structure.as_dict()>,
+      "from_manifest": <bool, optional: bypass the size+symmetry skip>},
      ...]
 
 Submitted on the gnome@v100 code (the generic v100 Python code) via the reused
@@ -86,7 +90,7 @@ MAX_CONV_ATOMS = 60          # atom-count threshold for the skip
 LOWSYM_SG_MAX = 15           # spacegroup numbers 1-15 = triclinic + monoclinic
 # Per-bulk walltime cap on generate_all_slabs; a slower cell is skipped, not
 # allowed to take down the shared multi-bulk job.
-GEN_TIMEOUT_S = 600
+GEN_TIMEOUT_S = 3600 * 2 # timeout for generate_all_slabs call
 
 
 class SlabGenTimeout(Exception):
@@ -185,8 +189,16 @@ def process_slab(slab, target_vacuum=10.0, angle_tol=1.0):
     )
 
 
-def generate_for_structure(calc, structure, max_miller_idx):
-    """epa + orthogonal slabs for one bulk; returns the per-structure result."""
+def generate_for_structure(calc, structure, max_miller_idx, from_manifest=False):
+    """epa + orthogonal slabs for one bulk; returns the per-structure result.
+
+    ``from_manifest=True`` marks a bulk the producing workchain deliberately
+    requested surfaces for (``DBComposition.stable_struct`` manifest, e.g. an
+    SQS cell -- P1 by construction, and above MAX_CONV_ATOMS for larger
+    supercells). The size+symmetry skip below exists to catch ACCIDENTAL
+    large-P1 cells from relaxation noise, so it is bypassed for manifest
+    bulks; the GEN_TIMEOUT_S walltime cap still applies to them.
+    """
     nat = structure.num_sites
 
     # Bulk per-atom energy (epa), passed to every relax chunk of this structure.
@@ -201,11 +213,18 @@ def generate_for_structure(calc, structure, max_miller_idx):
 
     # Skip ONLY large + low-symmetry cells: that is the OOM/hang regime and not
     # a meaningful slab target. Ordered oxides (large but high-symmetry) pass.
+    # Manifest bulks (deliberate, e.g. SQS) bypass the skip -- the walltime
+    # guard around generate_all_slabs remains their safety net.
     if conv_struct.num_sites > MAX_CONV_ATOMS and sg_number <= LOWSYM_SG_MAX:
-        print(f"Skipping slab generation: standardized cell has "
-              f"{conv_struct.num_sites} atoms at spacegroup #{sg_number} "
-              f"(low-symmetry & > MAX_CONV_ATOMS={MAX_CONV_ATOMS}); epa: {epa}")
-        return {'epa': epa, 'n_total': 0, 'n_orth': 0, 'slabs': []}
+        if not from_manifest:
+            print(f"Skipping slab generation: standardized cell has "
+                  f"{conv_struct.num_sites} atoms at spacegroup #{sg_number} "
+                  f"(low-symmetry & > MAX_CONV_ATOMS={MAX_CONV_ATOMS}); epa: {epa}")
+            return {'epa': epa, 'n_total': 0, 'n_orth': 0, 'slabs': []}
+        print(f"Manifest bypass: standardized cell has {conv_struct.num_sites} "
+              f"atoms at spacegroup #{sg_number} (would be skipped as "
+              f"low-symmetry & > MAX_CONV_ATOMS={MAX_CONV_ATOMS}); generating "
+              f"anyway under the {GEN_TIMEOUT_S}s walltime guard")
 
     # max_normal_search=1 (cheap): orthogonality is enforced afterwards by
     # process_slab, so a costly search (=max_miller_idx) is wasted work. The
@@ -214,7 +233,7 @@ def generate_for_structure(calc, structure, max_miller_idx):
         slabs = generate_all_slabs(conv_struct,
                                    max_index=max_miller_idx,
                                    min_slab_size=4,
-                                   min_vacuum_size=4,
+                                   min_vacuum_size=10,
                                    max_normal_search=1,
                                    in_unit_planes=True)
 
@@ -245,7 +264,8 @@ def run_slab_generate(calc, max_miller_idx):
         structure = Structure.from_dict(entry["structure"])
         print(f"--- generating slabs for uuid={uuid_str} ---")
         try:
-            res = generate_for_structure(calc, structure, max_miller_idx)
+            res = generate_for_structure(calc, structure, max_miller_idx,
+                                         from_manifest=bool(entry.get("from_manifest")))
         except Exception as e:  # noqa: BLE001 -- log + continue per structure
             print(f"Error generating slabs for uuid={uuid_str}: {e}")
             res = {'epa': None, 'n_total': 0, 'n_orth': 0, 'slabs': []}

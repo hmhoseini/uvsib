@@ -128,8 +128,8 @@ class SurfaceBuilderWorkChain(WorkChain):
 
     def setup(self):
         """Setup and report"""
-        self.report("Running SurfaceBuilder WorkChain")
         self.ctx.chemical_formula = self.inputs.chemical_formula.value
+        self.report(f"Running SurfaceBuilder WorkChain for {self.ctx.chemical_formula}")
         self.ctx.struct_uuid, self.ctx.from_manifest = \
             get_struct_uuid(self.ctx.chemical_formula)
         if not self.ctx.struct_uuid:
@@ -204,7 +204,7 @@ class SurfaceBuilderWorkChain(WorkChain):
             for res in node.outputs.output_dict.get_dict().get("results", []):
                 slabs = res.get("slabs", [])
                 if not slabs:
-                    self.report(f"Warning: no orthogonal slab generated for uuid={uuid_str}")
+                    self.report(f"Warning: no orthogonal slab generated for uuid={uuid_str}, source={source}")
                     continue
                 bulks[uuid_str] = {"epa": res["epa"], "n_slabs": len(slabs)}
                 self.report(f"uuid={uuid_str}, source={source}: {len(slabs)} orthogonal slabs "

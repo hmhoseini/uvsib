@@ -81,6 +81,7 @@ class PhaseDiagramMLWorkChain(WorkChain):
                 cls.csp_calcs,
                 cls.inspect_csp_cals,
             ),
+            cls.prepare_gen,
             if_(cls.should_run_gen)(
                 cls.gen_calcs,
                 cls.inspect_gen_calcs,
@@ -94,6 +95,7 @@ class PhaseDiagramMLWorkChain(WorkChain):
         spec.exit_code(300, "ERROR_CALCULATION_FAILED", message="The WorkChain did not finish successfully")
         spec.exit_code(301, "ERROR_NO_STRUCTURES_FOUND", message="No stable structures were found")
         spec.exit_code(302, "ERROR_NO_CHEMSYS_FOUND", message="Chemical system does not exist in DBChemsys")
+        spec.exit_code(303, "ERROR_NO_COMPOSITION_FOUND", message="Chemical formula does not exist in DBComposition")
 
     def setup(self):
         """Setup and report"""
@@ -138,19 +140,26 @@ class PhaseDiagramMLWorkChain(WorkChain):
             return False
         return True
 
-    def should_run_gen(self):
-        """Check whether should run MatterGen"""
+    def prepare_gen(self):
+        """Prepare generation stage and handle skip-gen bookkeeping."""
         if _SKIP_GEN:
             # DBChemsys status is updated to Ready
             for chemical_system in self.ctx.chemical_systems:
-                r = query_by_columns(DBChemsys,{"chemsys": chemical_system})
-                if r:
-                    row = r[0]
+                rows = query_by_columns(DBChemsys,{"chemsys": chemical_system})
+                if rows:
+                    row = rows[0]
                     update_row(DBChemsys, row.uuid,{"gen_structures": "Ready"})
                 else:
                     self.report(f"ERROR: {chemical_system} does not exist in the DBChemsys database.")
                     return self.exit_codes.ERROR_NO_CHEMSYS_FOUND
-            self.report(f"Skipping Gen calculations for {self.ctx.chemical_formula}")
+            self.report(
+                f"Skipping Gen calculations for {self.ctx.chemical_formula}; "
+                "requested chemical systems were marked Ready."
+            )
+
+    def should_run_gen(self):
+        """Check whether to run GeneratorWorkChain."""
+        if _SKIP_GEN:
             return False
         if not self.ctx.chemical_systems:
             self.report(f"Nothing to do! Skipping MatterGen calculations for {self.ctx.chemical_formula}")
@@ -181,9 +190,9 @@ class PhaseDiagramMLWorkChain(WorkChain):
         if not self.ctx.csp.is_finished_ok:
            # remove corresponding row from DBChemsys
             for chemsys in self.ctx.chemical_systems:
-                results = query_by_columns(DBChemsys, {'chemsys': chemsys})
-                if results:
-                    row = results[0]
+                rows = query_by_columns(DBChemsys, {'chemsys': chemsys})
+                if rows:
+                    row = rows[0]
                     if not row.gen_structures:
                         failed_chemsys.append(chemsys)
             cleanup_failed_systems(failed_chemsys)
@@ -215,8 +224,13 @@ class PhaseDiagramMLWorkChain(WorkChain):
 
     def wait_for_data(self):
         """Wait until all chemical systems are available"""
-        if _SKIP_CSP or _SKIP_GEN:
+        if _SKIP_GEN:
+            self.report(
+                "Skipping chemical-system readiness wait because _SKIP_GEN is enabled "
+                "and requested chemical systems were marked Ready."
+            )
             return
+
         all_chemical_systems, _ = get_chemical_systems(self.ctx.chemical_formula)
         inputs = aiida_pythonjob.prepare_pythonjob_inputs(is_data_available,
             function_inputs= {"chemical_systems": all_chemical_systems},
@@ -228,7 +242,7 @@ class PhaseDiagramMLWorkChain(WorkChain):
 
     def check_pythonjob(self):
         """Inspect PythonJob"""
-        if _SKIP_CSP or _SKIP_GEN:
+        if "pyjob" not in self.ctx:
             return
         calculation = self.ctx["pyjob"]
         if not calculation.is_finished_ok or not calculation.outputs.moveon.value:
@@ -244,25 +258,51 @@ class PhaseDiagramMLWorkChain(WorkChain):
             self.report(f"Constructing phase diagram for {chemical_formula} failed.")
             return self.exit_codes.ERROR_CALCULATION_FAILED
 
-        ref_entries, _ = get_ref_entries(self.ctx.chemical_formula, self.ctx.ml_bulk_model)
+        ref_entries, _ = get_ref_entries(chemical_formula, self.ctx.ml_bulk_model)
 
         uuid_list = []
-        unique_entries, _ = unique_low_energy_comp(chemical_formula, entries,
-                                                   EHULL_ML, min_n_return=1,
-                                                   element_entries=ref_entries)
+        ml_selection = []
+        unique_entries, ehulls = unique_low_energy_comp(chemical_formula, entries,
+                                                        EHULL_ML, min_n_return=1,
+                                                        element_entries=ref_entries)
 
         if not unique_entries:
-            self.report(f"ERROR: no stable structures for {self.ctx.chemical_formula} were found.")
+            self.report(f"ERROR: no stable structures for {chemical_formula} were found.")
             return self.exit_codes.ERROR_NO_STRUCTURES_FOUND
 
-        for entry in unique_entries:
-            uuid_list.append(str(entry.data["struct_uuid"]))
+        for entry, ehull in zip(unique_entries, ehulls):
+            uuid = str(entry.data["struct_uuid"])
+            selected_above_threshold = ehull > EHULL_ML
+            uuid_list.append(uuid)
+            ml_selection.append({
+                "uuid": uuid,
+                "ehull": float(ehull),
+                "selected_above_threshold": bool(selected_above_threshold),
+            })
+            if selected_above_threshold:
+                self.report(
+                    f"WARNING: selected structure {uuid} for {chemical_formula} "
+                    f"above EHULL_ML threshold: ehull={ehull:.3f} eV/atom, "
+                    f"threshold={EHULL_ML:.3f} eV/atom. "
+                    "This happened because the workflow requires at least one candidate."
+                )
 
         # add uuids of stable structures to the DBComposition table
-        row = query_by_columns(DBComposition,{"composition": self.ctx.chemical_formula})[0]
+        rows = query_by_columns(DBComposition,{"composition": chemical_formula})
+        if not rows:
+            self.report(f"ERROR: {chemical_formula} was not found in DBComposition")
+            return self.exit_codes.ERROR_NO_COMPOSITION_FOUND
 
-        update_row(DBComposition, row.uuid,{"stable_struct": {"ml_uuid_list": uuid_list}})
-        self.report(f"{len(unique_entries)} stable structures for {self.ctx.chemical_formula} were stored.")
+        row = rows[0]
+        stable_struct = dict(row.stable_struct or {})
+        stable_struct.update({
+            "ml_uuid_list": uuid_list,
+            "ml_selection": ml_selection,
+            "ml_ehull_threshold": float(EHULL_ML),
+            "ml_bulk_model": self.ctx.ml_bulk_model,
+        })
+        update_row(DBComposition, row.uuid, {"stable_struct": stable_struct})
+        self.report(f"{len(unique_entries)} stable structures for {chemical_formula} were stored.")
 
     def final_report(self):
         """Final report"""

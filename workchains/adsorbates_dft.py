@@ -16,14 +16,12 @@ from uvsib.workchains.co2rr import calculate_co2rr_overpotential
 from uvsib.workchains.noxrr import calculate_noxrr_overpotential
 from uvsib.workflows import settings
 
-_SKIP_AD_VERIFICATION = settings._SKIP_AD_VERIFICATION
 
 def read_yaml(file_path):
     """Read yaml file"""
     with open(file_path, "r", encoding="utf8") as fhandle:
         data = yaml.safe_load(fhandle)
     return data
-
 
 class AdsorbatesWorkChain(WorkChain):
     """Adsorbates WorkChain"""
@@ -150,11 +148,8 @@ class AdsorbatesWorkChain(WorkChain):
                                          site_type=site_type, ads_coord=ads_coord, repeat=repeat,
                                          e=eta, dG_steps=dG_steps, dG_cumulative=dG_cumulative,
                                          ad_set=adsorb_set)
-    # TODO: Only for test
     def run_dft(self):
         """Run r2SCAN geometry optimization"""
-        if _SKIP_AD_VERIFICATION:
-            return
         for parent_key, adsorption_sets in self.ctx.verification.items():
             for adsorb_set in adsorption_sets:
                 for idx, ads_json in enumerate(adsorb_set["structures"]):
@@ -174,9 +169,6 @@ class AdsorbatesWorkChain(WorkChain):
 
     def inspect_store_dft(self):
         """Inspect r2SCAN geometry optimization"""
-        if _SKIP_AD_VERIFICATION:
-            return
-
         reaction_map = {
             "OER": (calculate_oer_overpotential, 2.0),
             "CO2RR": (calculate_co2rr_overpotential, 1.5),

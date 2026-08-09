@@ -12,10 +12,8 @@ from uvsib.workflows import settings
 def _akmc_settings():
     return settings.inputs.get("akmc", {})
 
-
 def _surface_bound_adsorbate(name):
     return isinstance(name, str) and name.startswith("*") and name != "*"
-
 
 class AKMCWorkChain(WorkChain):
     """Adaptive kinetic Monte Carlo workchain using MLIP dimer searches."""

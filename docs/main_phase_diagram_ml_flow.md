@@ -125,6 +125,8 @@ If the child workflow succeeds, it changes the step to `"Done"`. If it fails, it
 ## What PhaseDiagramMLWorkChain does
 
 `PhaseDiagramMLWorkChain` owns the bulk-structure discovery and filtering step.
+For a more implementation-focused maintainer guide, see
+`docs/phase_diagram_ml_workchain.md`.
 
 Inputs:
 
@@ -174,7 +176,9 @@ Important parameters:
 | `EHULL_SCAN` | `workflows/settings.py`, currently `0.1` eV/atom | Used when fetching MPDB structures near the DFT hull. |
 | `DFT_FUNC` | `workflows/settings.py`, currently `GGA` | Selects fallback elemental reference energies when ML-relaxed references are missing. |
 
-Note: `MPDBMLWorkChain` defines a `final_report()` method, but the current outline does not call it. The relaxation/storage logic still runs; the final warning about DFT-fallback elemental references is not emitted by the outline as currently written.
+`MPDBMLWorkChain.final_report()` runs at the end of the current outline. It
+reports any DFT-fallback elemental references returned by `get_ref_entries()`,
+which is a sign that hull energies may include per-element offset risk.
 
 ### 2. CSPWorkChain
 
@@ -367,7 +371,9 @@ If `DBComposition.step_status["pd_ml"]` is already `"Done"`, `MainWorkChain` doe
 
 ### Known MPDB structure exists
 
-If MPDB stable or experimental DFT structures are already present for the target formula, `PhaseDiagramMLWorkChain` skips `MPDBMLWorkChain`. CSP and Generator may still run if needed.
+If MPDB stable or experimental structures are already present for the target
+formula with `method == ml_bulk_model`, `PhaseDiagramMLWorkChain` skips
+`MPDBMLWorkChain`. CSP and Generator may still run if needed.
 
 ### No new chemical systems
 

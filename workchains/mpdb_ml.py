@@ -67,6 +67,13 @@ class MPDBMLWorkChain(WorkChain):
         self.report(f"Running ML relaxation WorkChain for MPDB structures for {self.ctx.chemical_formula}")
         add_from_mpdb(self.ctx.chemical_formula)
         self.ctx.struct_uuid = get_struct_uuid(self.ctx.chemical_formula)
+        if not self.ctx.struct_uuid:
+            self.report(
+                    f"WARNING: No MPDB structures to relax for {self.ctx.chemical_formula}; "
+                     "skipping MPDB ML relaxation."
+            )
+        else:
+            self.report(f"{len(self.ctx.struct_uuid)} structures from the MPDB was found for {self.ctx.chemical_formula}.")
         ref_structs, missing_refs = get_ref_struct_uuid(self.ctx.chemical_formula, self.ctx.ml_bulk_model)
         if missing_refs:
             self.report(f"ERROR: missing elemental reference structures for {missing_refs}.")
@@ -78,13 +85,7 @@ class MPDBMLWorkChain(WorkChain):
     def run_relax_mpdb_structures(self):
         """Optimize structures from MPDB"""
         if not self.ctx.struct_uuid:
-            self.report(
-                    f"WARNING: No MPDB structures to relax for {self.ctx.chemical_formula}; "
-                     "skipping MPDB ML relaxation."
-            )
             return
-        else:
-            self.report(f"{len(self.ctx.struct_uuid)} structures from the MPDB was found for {self.ctx.chemical_formula}.")
 
         structs = []
         for s, _, _ in self.ctx.struct_uuid:

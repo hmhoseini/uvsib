@@ -187,6 +187,7 @@ def unique_low_energy_chemsys(chemical_system, entries, ehull, element_entries=N
     bundled DFT references are used (``DFT_FUNC`` selects GGA/r2SCAN) -- legacy
     behaviour, kept for backward compatibility.
     """
+    entries = list(entries)
     if "-" in chemical_system:
         elements = chemical_system.split("-")
         entries.extend(element_entries if element_entries is not None
@@ -218,6 +219,7 @@ def unique_low_energy_comp(chemical_formula, entries, ehull, min_n_return=None, 
     references from ``element_reference_entries``); ``None`` -> bundled DFT
     references (legacy).
     """
+    entries = list(entries)
     chemical_system = Composition(chemical_formula).chemical_system
     if "-" in chemical_system:
         elements = chemical_system.split("-")
@@ -323,9 +325,9 @@ def get_ref_entries(chemical_formula, ML_model):
     missing = []
     elements = Composition(chemical_formula).chemical_system.split("-")
     for el in elements:
-        r = query_structure({"chemsys": el}, method = ML_model, source = "MPDB_ref")
-        if r:
-            row = r[0]
+        rows = query_structure({"chemsys": el}, method = ML_model, source = "MPDB_ref")
+        if rows:
+            row = rows[0]
             struct = Structure.from_dict(row.structure)
             el_entries.append(
                     ComputedStructureEntry(
