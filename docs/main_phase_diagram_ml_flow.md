@@ -140,9 +140,10 @@ Its stages run in this order:
 
 1. `MPDBMLWorkChain`, if needed.
 2. `CSPWorkChain`, unless disabled or already done.
-3. `GeneratorWorkChain`, unless disabled or no new chemical systems are needed.
-4. Wait until all chemical systems needed for the phase diagram are marked ready.
-5. Build the phase diagram and store the low-energy structures for the target formula.
+3. `prepare_gen()`: skip-gen bookkeeping, always runs before the generator gate.
+4. `GeneratorWorkChain`, unless disabled or no new chemical systems are needed.
+5. Wait until all chemical systems needed for the phase diagram are marked ready.
+6. Build the phase diagram and store the low-energy structures for the target formula.
 
 ### 1. MPDBMLWorkChain
 
@@ -240,11 +241,16 @@ The most scientifically important CSP parameters are `ml_bulk_model`, `EHULL_ML`
 
 Example: for `Y2Ru2O7`, the full chemical space includes elements, binaries, and the ternary `O-Ru-Y`. If some of those systems are missing from `DBChemsys`, they are passed as `chemical_systems` and generated here.
 
-It is skipped if:
+Before the generator gate runs, `prepare_gen()` always executes. When `_SKIP_GEN`
+is `True`, it marks each requested `DBChemsys.gen_structures` row as `"Ready"`
+directly, without launching `GeneratorWorkChain`. If a requested chemical
+system does not exist in `DBChemsys`, `prepare_gen()` returns
+`ERROR_NO_CHEMSYS_FOUND`. `should_run_gen()` itself is now a plain boolean
+check; it skips generation if:
 
 | Condition | Reason |
 |---|---|
-| `_SKIP_GEN` is `True` | Developer switch to disable generation. The code marks each requested `DBChemsys.gen_structures` as `"Ready"` instead. |
+| `_SKIP_GEN` is `True` | Developer switch to disable generation. `prepare_gen()` already marked requested rows `"Ready"`. |
 | `chemical_systems` is empty | There are no new chemical systems to generate. |
 
 When it runs, it does this for each chemical system:
@@ -294,6 +300,11 @@ DBChemsys.gen_structures = "Ready"
 
 This wait is performed by a `PythonJob` running `is_data_available(...)`, which checks the database every 60 seconds and times out after 36000 seconds, or 10 hours.
 
+Only `_SKIP_GEN` bypasses this wait, because `prepare_gen()` already marked the
+requested chemical systems `"Ready"` in that case. `_SKIP_CSP` does **not**
+bypass the wait. When the wait is skipped, no `pyjob` is submitted, and
+`check_pythonjob()` simply returns instead of inspecting a result.
+
 Then `store_stable_structs()` builds the final ML phase diagram:
 
 1. Reads all `DBStructureVersion` rows whose `chemsys` is in the chemical space and whose `method` equals `ml_bulk_model`.
@@ -307,15 +318,29 @@ Then `store_stable_structs()` builds the final ML phase diagram:
 7. Removes obviously invalid structures with lattice vector components larger than 100 Angstrom.
 8. Reduces structures to primitive cells when possible.
 9. Removes duplicates using `StructureMatcher`.
-10. Keeps structures with `energy_above_hull <= EHULL_ML`.
+10. Keeps structures with `energy_above_hull <= EHULL_ML`, and always keeps at least one candidate (`min_n_return=1`) even if it is above the threshold.
 11. If no structure passes, returns `ERROR_NO_STRUCTURES_FOUND`.
-12. Stores selected structure UUIDs in:
+12. Looks up the target `DBComposition` row; if it does not exist, returns `ERROR_NO_COMPOSITION_FOUND`.
+13. Merges the following into `DBComposition.stable_struct`, preserving any existing keys:
 
 ```text
-DBComposition.stable_struct["ml_uuid_list"]
+DBComposition.stable_struct = {
+    "ml_uuid_list": [...],
+    "ml_selection": [
+        {"uuid": "...", "ehull": 0.03, "selected_above_threshold": False},
+        ...
+    ],
+    "ml_ehull_threshold": EHULL_ML,
+    "ml_bulk_model": ml_bulk_model,
+}
 ```
 
-By default, `EHULL_ML = 0.1`, so the workflow stores unique structures within 0.1 eV/atom of the ML convex hull.
+By default, `EHULL_ML = 0.1`, so the workflow stores unique structures within
+0.1 eV/atom of the ML convex hull. If the fallback candidate above the
+threshold is used, the workflow reports a `WARNING` with the structure UUID,
+its `ehull`, and the threshold; downstream consumers should check
+`ml_selection[...]["selected_above_threshold"]` rather than assuming every
+stored UUID is within `EHULL_ML`.
 
 ## Status and restart behavior
 
@@ -332,6 +357,15 @@ Practical consequences:
 - If a phase-diagram ML stage is already `Running`, another `MainWorkChain` for the same composition waits instead of launching duplicate MPDB/CSP/gen jobs.
 - If `pd_ml` is already `Done`, later reaction pathways reuse the existing stable bulk structures.
 - If CSP or Generator fails for a chemical system and no generated data were stored, `PhaseDiagramMLWorkChain` removes the corresponding `DBChemsys` rows during failure handling. That allows a later retry to recreate them.
+
+`PhaseDiagramMLWorkChain` exit codes:
+
+| Code | Name | Typical cause |
+|---|---|---|
+| 300 | `ERROR_CALCULATION_FAILED` | A child workflow (MPDB, CSP, Generator) or the data-readiness `PythonJob` did not finish OK, or no phase-diagram entries could be loaded. |
+| 301 | `ERROR_NO_STRUCTURES_FOUND` | No candidate for the target formula survived final selection. |
+| 302 | `ERROR_NO_CHEMSYS_FOUND` | `prepare_gen()` expected a `DBChemsys` row for a requested chemical system that does not exist. |
+| 303 | `ERROR_NO_COMPOSITION_FOUND` | `store_stable_structs()` could not find the target formula's `DBComposition` row. |
 
 ## Parameters that most affect scientific results
 

@@ -1,21 +1,28 @@
 import os
 import yaml
-# import numpy as np
 from ase.io import jsonio
 from aiida.engine import WorkChain
 from aiida.plugins import WorkflowFactory
 from aiida.orm import Str, List, Dict, load_code, StructureData
 from uvsib.db.tables import DBSurface
-from uvsib.db.utils import add_surface_ml_adsorbate # add_surface_adsorbate
+from uvsib.db.utils import add_surface_ml_adsorbate
 from uvsib.codes.vasp.workchains import construct_vasp_builder
 from uvsib.codes.utils import ase_to_pmg
-from uvsib.db.utils import get_structure_uuid_surface_id, query_by_columns
+from uvsib.db.utils import query_by_columns
 from uvsib.workchains.utils import get_code, get_model_device
 from uvsib.workchains.oer import calculate_oer_overpotential
 from uvsib.workchains.co2rr import calculate_co2rr_overpotential
 from uvsib.workchains.noxrr import calculate_noxrr_overpotential
 from uvsib.workflows import settings
 
+
+def get_structure_uuid_surface_id(chemical_formula):
+    """
+    Return (structure_uuid, surface_id) tuples for all DBSurface entries 
+    with the given composition
+    """
+    rows = query_by_columns(DBSurface, {"composition": chemical_formula})
+    return [(row.structure_uuid, row.id) for row in rows]
 
 def read_yaml(file_path):
     """Read yaml file"""

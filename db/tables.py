@@ -95,6 +95,7 @@ class DBSurface(Base):
     )
     composition = Column(String, nullable=True)
     slab = Column(JSONB, nullable=False) # structure & energy
+    formation_energy = Column(DOUBLE_PRECISION, nullable=True)
     attributes = Column(JSONB, nullable=True)
     ctime = Column(DateTime(timezone=True), server_default=func.now())
     mtime = Column(DateTime(timezone=True), onupdate=func.now())

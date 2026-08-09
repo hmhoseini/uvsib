@@ -1,7 +1,7 @@
 import re
 from itertools import combinations
 from sqlalchemy import inspect, delete, select, text
-from sqlalchemy.orm import aliased
+#from sqlalchemy.orm import aliased
 from pymatgen.core import Composition, Structure
 from uvsib.db.session import get_session
 from uvsib.db.tables import (DBChemsys, DBStructure, DBStructureVersion, DBSurface,
@@ -50,35 +50,35 @@ def add_surface_ml_adsorbate(existing_uuid, surf_id, surface_miller_index, comp,
         session.commit()
     return True
 
+#def get_structure_uuid_surface_id(composition):
+#    """
+#    Return (structure_uuid, surface_id) tuples for all DBStructure rows
+#    with the given composition that have corresponding DBSurface entries
+#    """
+#    structure = aliased(DBStructure)
+#    surface = aliased(DBSurface)
+#
+#    query = (
+#        select(
+#            structure.uuid.label("structure_uuid"),
+#            surface.id.label("surface_id"),
+#        )
+#        .join(surface, surface.structure_uuid == structure.uuid)
+#        .where(structure.composition == composition)
+#    )
+#
+#    with get_session() as session:
+#        results = session.execute(query).all()
+#
+#    return [(row.structure_uuid, row.surface_id) for row in results]
 
-def get_structure_uuid_surface_id(composition):
-    """
-    Return (structure_uuid, surface_id) tuples for all DBStructure rows
-    with the given composition that have corresponding DBSurface entries
-    """
-    structure = aliased(DBStructure)
-    surface = aliased(DBSurface)
-
-    query = (
-        select(
-            structure.uuid.label("structure_uuid"),
-            surface.id.label("surface_id"),
-        )
-        .join(surface, surface.structure_uuid == structure.uuid)
-        .where(structure.composition == composition)
-    )
-
-    with get_session() as session:
-        results = session.execute(query).all()
-
-    return [(row.structure_uuid, row.surface_id) for row in results]
-
-def add_slab(existing_uuid, comp, slab_dict, head=None):
+def add_slab(existing_uuid, comp, slab_dict, head=None, formation_energy=None):
     with get_session() as session:
         slab = DBSurface(
             structure_uuid=existing_uuid,
             composition=comp,
             slab=slab_dict,
+            formation_energy=formation_energy,
             attributes={"model_head": head} if head else None,
         )
 

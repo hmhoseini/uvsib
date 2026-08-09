@@ -15,8 +15,6 @@ from uvsib.workchains.nrr import calculate_nrr_overpotential
 from uvsib.workchains.orr import calculate_orr_overpotential
 from uvsib.workflows import settings
 
-MAX_NUM_ADS = settings.MAX_NUM_ADS
-
 def get_structure_uuid_surface_id(chemical_formula):
     """
     Return (structure_uuid, surface_id) tuples for all DBSurface entries 
@@ -64,23 +62,20 @@ class AdsorbatesWorkChain(WorkChain):
             return self.exit_codes.ERROR_NO_SURFACE_FOUND
 
     def run_adsorbs(self):
-        """Run Adsorbates WorkChain: up to MAX_NUM_ADS most stable surfaces per bulk uuid."""
-        by_uuid = {}
+        """Run Adsorbates WorkChain"""
+        selected = []
         for structure_uuid, surface_id in self.ctx.structure_surface_rows:
             slab_row = query_by_columns(DBSurface, {"id": surface_id})[0]
-            sfe = slab_row.formation_energy if slab_row.formation_energy is not None else float("inf")
-            by_uuid.setdefault(str(structure_uuid), []).append((sfe, slab_row, surface_id))
+            selected.append((slab_row.slab['energy'], slab_row, str(structure_uuid), surface_id))
 
-        for uid, rows in by_uuid.items():
-            rows.sort(key=lambda x: x[0])
-            considered = rows[:MAX_NUM_ADS]
-            self.report(f"uuid={uid}: {len(considered)} surface(s) considered "
-                        f"(of {len(rows)} available)")
-            for sfe, row, fid in considered:
-                self.ctx.selected_surfaces.append((f"{uid}", f"{fid}"))
-                builder = self._construct_adsorbate_builder(row.slab, self.ctx.reaction, self.ctx.reaction_path)
-                future = self.submit(builder)
-                self.to_context(**{f"{uid}_{fid}": future})
+        selected.sort(key=lambda x: x[0])
+        for count, (en, row, uid, fid) in enumerate(selected):
+            self.ctx.selected_surfaces.append((f"{uid}", f"{fid}"))
+            builder = self._construct_adsorbate_builder(row.slab, self.ctx.reaction, self.ctx.reaction_path)
+            future = self.submit(builder)
+            self.to_context(**{f"{uid}_{fid}": future})
+            if count == 9:
+                return
 
     def inspect_adsorbs(self):
         """Inspect Adsorbates WorkChain"""

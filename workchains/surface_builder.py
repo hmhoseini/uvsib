@@ -12,6 +12,7 @@ from uvsib.workchains.utils import get_code, get_model_device
 from uvsib.workflows import settings
 
 MAX_NUM_BULK = settings.MAX_NUM_BULK
+MAX_NUM_SURF = settings.MAX_NUM_SURF
 _PD_VERIFICATION = settings._PD_VERIFICATION
 MAX_SLABS_PER_CHUNK = 50
 
@@ -262,7 +263,6 @@ class SurfaceBuilderWorkChain(WorkChain):
         """Regroup the chunk outputs BY THE ECHOED BULK UUID, then select the
         lowest-energy faces per bulk (the selection stays per-bulk and
         global-across-chunks, exactly as before)."""
-        max_num_surf = settings.MAX_NUM_SURF
         by_uuid = {uuid_str: [] for uuid_str in self.ctx.relax_plan["bulks"]}
 
         for i, composition in enumerate(self.ctx.relax_plan["chunk_uuids"]):
@@ -291,10 +291,9 @@ class SurfaceBuilderWorkChain(WorkChain):
                 self.report(f"Warning: no slab converged for uuid={uuid_str}")
                 continue
             merged.sort(key=lambda x: x["surface_formation_energy"])
-            selected = [entry["slab"] for entry in merged[:max_num_surf]]
-            if len(merged) < max_num_surf:
-                self.report(f"uuid={uuid_str}: only {len(merged)} slabs converged, "
-                            f"requested {max_num_surf}")
+            selected = [(entry["slab"], entry["surface_formation_energy"])
+                        for entry in merged[:MAX_NUM_SURF]]
+            self.report(f"uuid={uuid_str}: {len(merged)} slabs converged")
             self.ctx.slabs_uuid.append([selected, uuid_str])
 
         if not self.ctx.slabs_uuid:
@@ -304,9 +303,10 @@ class SurfaceBuilderWorkChain(WorkChain):
     def store_results(self):
         """Store results"""
         for slabs, uuid_str in self.ctx.slabs_uuid:
-            for slab in slabs:
+            for slab, surface_formation_energy in slabs:
                 add_slab(uuid_str, self.ctx.chemical_formula, slab,
-                         head=settings.inputs['face_build'].get('head'))
+                         head=settings.inputs['face_build'].get('head'),
+                         formation_energy=surface_formation_energy)
 
     def final_report(self):
         """Final report"""

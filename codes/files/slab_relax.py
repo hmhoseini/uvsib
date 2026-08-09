@@ -1,7 +1,7 @@
 """Relax one chunk of pre-generated slabs and score their surface energy.
 
 The second half of the old ``face_build.py`` pipeline, split out so the
-SurfaceBuilderWorkChain can submit many balanced chunks (<= 250 slabs each) in
+SurfaceBuilderWorkChain can submit many balanced chunks (<= 50 slabs each) in
 parallel instead of relaxing every slab inside a single, unpredictable job.
 Runs on the gnome@v100 code via the reused GNoMECalculation + generic
 ``sqs_parser``.

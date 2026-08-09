@@ -137,7 +137,7 @@ def _reference_molecule_count(atoms: Atoms, ref_name: str) -> int:
 
 def _create_adsorbate_with_dummy(species: List[str],
                                  coords: List[List[float]],
-                                 properties: Dict = {},
+                                 properties: Dict = None,
                                  height: float = 2) -> Molecule:
     """
     Create a Pymatgen Molecule with a DummySpecies binding atom.
@@ -162,7 +162,7 @@ def _create_adsorbate_with_dummy(species: List[str],
         [DummySpecies("X")] + species,
         [[0.0, 0.0, 0.0]] + shifted_coords,
     )
-    mol.properties = properties
+    mol.properties = properties or {}
     return mol
 
 
@@ -409,16 +409,16 @@ def _flag_energy_outliers(relaxed_sets, model_key, factor: float):
     return kept, rejects
 
 
-def ase_to_pmg(atoms):
-    """Convert an ASE Atoms object to a pymatgen Structure"""
-    lattice = atoms.cell.array.tolist()
-    symbols = atoms.get_chemical_symbols()
-    frac_coords = atoms.get_scaled_positions().tolist()
-    lattice_obj = Lattice(lattice)
-    return Structure(lattice_obj,
-                     symbols,
-                     frac_coords,
-                     coords_are_cartesian=False)
+#def ase_to_pmg(atoms):
+#    """Convert an ASE Atoms object to a pymatgen Structure"""
+#    lattice = atoms.cell.array.tolist()
+#    symbols = atoms.get_chemical_symbols()
+#    frac_coords = atoms.get_scaled_positions().tolist()
+#    lattice_obj = Lattice(lattice)
+#    return Structure(lattice_obj,
+#                     symbols,
+#                     frac_coords,
+#                     coords_are_cartesian=False)
 
 
 def pmg_to_ase(pmg_structure):
@@ -1654,16 +1654,14 @@ def generate_cer_adsorbates(pathway_name: str) -> tuple:
 
     Returns
     -------
-    dict
-        Dictionary mapping repeat indices to adsorption sets with 'clean_slab'
-        and 'adsorb_set' keys. Each adsorb_set contains structures with metadata.
+    tuple
+        (pathway, adsorbates_dict) where pathway is a ReactionPathway and
+        adsorbates_dict maps intermediate names to Molecule objects.
 
     Raises
     ------
-    ValueError
-        If reaction type is unknown or pathway_name missing for certain reactions.
-    FileNotFoundError
-        If input_structures.json is not found.
+    KeyError
+        If pathway_name is not registered.
     """
 
     # =========================================================================
@@ -2492,10 +2490,10 @@ def generate_adsorbed_structures(reaction: str, pathway_name: str = "") -> dict:
     site_types = ['ontop', 'bridge', 'hollow']
     adsorption_sets = {}
     multipliers = get_multipliers(slab_pmg)
-    base_slab = pmg_to_ase(asf.slab).copy()
-
     for idx, repeat in enumerate(multipliers):
-        clean_slab = base_slab * repeat
+        clean_slab_pmg = asf.slab.copy()
+        clean_slab_pmg.make_supercell(repeat)
+        clean_slab = pmg_to_ase(clean_slab_pmg)
         clean_slab.info['adsorbate'] = "*"
         adsorption_sets[idx] = {"clean_slab": clean_slab, "adsorb_set": []}
         for site_type in site_types:
@@ -2627,7 +2625,7 @@ def run_relaxation(ml_model: str, calc, fmax: float, max_steps: int,
         # Relax clean slab once per repeat configuration
         clean_slab = set_data['clean_slab']
         clean_slab.calc = calc
-        relax_clean = BFGSLineSearch(clean_slab, **relaxation_kwargs)
+        relax_clean = BFGSLineSearch(clean_slab, maxstep=0.1, logfile='opt.log')
 
         try:
             relax_clean.run(fmax=fmax, steps=max_steps)

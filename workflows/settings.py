@@ -21,6 +21,7 @@ api_key = configs['MP_API_KEY']['api_key']
 
 MAX_NUM_BULK = 10
 MAX_NUM_SURF = 10
+MAX_NUM_ADS = 10
 
 EHULL_ML = 0.1
 EHULL_SCAN = 0.1
