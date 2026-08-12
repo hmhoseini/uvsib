@@ -1,10 +1,10 @@
+from datetime import datetime, timezone
 from ase.io import jsonio
 from aiida.engine import WorkChain
 from aiida.orm import Dict, List, Str
 from aiida.plugins import WorkflowFactory
 from uvsib.db.tables import DBSurfaceMLAdsorbate
-from uvsib.db.session import get_session
-from uvsib.db.utils import query_by_columns
+from uvsib.db.utils import query_by_columns, add_akmc_events, merge_row_attributes
 from uvsib.workchains.utils import get_code, get_model_device
 from uvsib.workflows import settings
 
@@ -33,7 +33,6 @@ class AKMCWorkChain(WorkChain):
             cls.final_report,
         )
 
-        spec.output("output_dict", valid_type=Dict, required=False)
         spec.exit_code(300, "ERROR_CALCULATION_FAILED", message="The AKMC calculation did not finish successfully.")
         spec.exit_code(301, "ERROR_NO_MINIMA_FOUND", message="No adsorbate minima were found for AKMC.")
 
@@ -135,31 +134,53 @@ class AKMCWorkChain(WorkChain):
             return self.exit_codes.ERROR_CALCULATION_FAILED
 
         output = wch.outputs.output_dict.get_dict()
+        events = output.get("events", [])
+        cfg = _akmc_settings()
+        seed = int(cfg.get("seed", 13))
+
         events_by_row = {}
-        for event in output.get("events", []):
+        for event in events:
             events_by_row.setdefault(event["source_row_id"], []).append(event)
 
-        for row_id, events in events_by_row.items():
-            rows = query_by_columns(DBSurfaceMLAdsorbate, {"id": row_id})
-            if not rows:
-                continue
-            row = rows[0]
-            attributes = row.attributes or {}
-            attributes["akmc"] = {
-                "num_events": len(events),
-                "events": events,
+        db_events = [
+            {
+                "source_row_id": event["source_row_id"],
+                "composition": self.ctx.chemical_formula,
+                "reaction": self.ctx.reaction,
+                "reaction_path": self.ctx.reaction_path,
+                "source_adsorbate": event.get("source_adsorbate"),
+                "source_site_type": event.get("source_site_type"),
+                "source_eta": event.get("source_eta"),
+                "attempt": int(event.get("attempt", 0)),
+                "initial_energy": event["initial_energy"],
+                "saddle_energy": event["saddle_energy"],
+                "final_energy": event["final_energy"],
+                "barrier": event["barrier"],
+                "reverse_barrier": event["reverse_barrier"],
+                "rate": event["rate"],
+                "temperature": event["temperature"],
+                "prefactor": event["prefactor"],
+                "seed": seed,
+                "kmc_selected": bool(event.get("kmc_selected", False)),
+                "kmc_time_increment": event.get("kmc_time_increment"),
+                "final_state_key": event.get("final_state_key"),
+                "initial_atoms_json": event["initial_atoms_json"],
+                "saddle_atoms_json": event["saddle_atoms_json"],
+                "final_atoms_json": event["final_atoms_json"],
             }
-            stmt = (
-                DBSurfaceMLAdsorbate.__table__
-                .update()
-                .where(DBSurfaceMLAdsorbate.id == row_id)
-                .values(attributes=attributes)
-            )
-            with get_session() as session:
-                session.execute(stmt)
-                session.commit()
+            for event in events
+        ]
+        add_akmc_events(db_events)
 
-        self.out("output_dict", Dict(dict=output))
+        run_time = datetime.now(timezone.utc).isoformat()
+        for row_id, row_events in events_by_row.items():
+            merge_row_attributes(DBSurfaceMLAdsorbate, row_id, {
+                "akmc_last_run": {
+                    "num_events": len(row_events),
+                    "ctime": run_time,
+                },
+            })
+
         self.ctx.num_events = int(output.get("num_events", 0))
         self.ctx.num_rejected = int(output.get("num_rejected", 0))
 

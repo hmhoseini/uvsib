@@ -11,13 +11,21 @@ from ase.optimize import BFGSLineSearch
 KB_EV_PER_K = 8.617333262145e-5
 
 
-def _mobile_indices(atoms):
+def _mobile_mask(atoms):
+    """Per-atom boolean mask, True for atoms not held by a FixAtoms-like
+    constraint. This is the shape/dtype ASE's ``DimerControl(mask=...)`` and
+    ``MinModeAtoms.displace(mask=...)`` expect (one bool per atom) -- NOT a
+    list of the mobile atom indices."""
     fixed = set()
     for constraint in atoms.constraints:
         indices = getattr(constraint, "index", None)
         if indices is not None:
             fixed.update(int(i) for i in indices)
-    return [i for i in range(len(atoms)) if i not in fixed]
+    return [i not in fixed for i in range(len(atoms))]
+
+
+def _mobile_indices(atoms):
+    return [i for i, mobile in enumerate(_mobile_mask(atoms)) if mobile]
 
 
 def _displace_mobile_atoms(atoms, amplitude, rng):
@@ -76,7 +84,7 @@ def _run_single_dimer_event(record, calc, args, rng):
             initial_eigenmode_method="displacement",
             displacement_method="vector",
             logfile="akmc_dimer_control.log",
-            mask=_mobile_indices(saddle),
+            mask=_mobile_mask(saddle),
         )
     except TypeError:
         control = DimerControl(
@@ -107,24 +115,38 @@ def _run_single_dimer_event(record, calc, args, rng):
     saddle_atoms.calc = calc
     saddle_energy = float(saddle_atoms.get_potential_energy())
 
+    # Push off the saddle along the dimer's own converged unstable mode (not
+    # two independently-redrawn random kicks): the whole point of the two
+    # +/- displacements is to descend into the reactant and product basins
+    # that this specific saddle actually connects. Independent random
+    # directions per side have no relation to the reaction coordinate found
+    # by the dimer search and can both collapse back into the same basin.
+    reaction_coordinate = np.asarray(minmode_atoms.eigenmodes[0])
+    initial_state_key = _canonical_state_key(initial)
+
     final_states = []
     for sign in (-1.0, 1.0):
         product = saddle_atoms.copy()
         product.calc = calc
-        _displace_mobile_atoms(product, sign * args.product_displacement, rng)
+        product.positions += sign * args.product_displacement * reaction_coordinate
         opt = BFGSLineSearch(product, maxstep=args.maxstep, logfile="akmc_product.log")
         converged = opt.run(fmax=args.fmax, steps=args.relax_steps)
         if not converged:
             continue
+        state_key = _canonical_state_key(product)
+        if state_key == initial_state_key:
+            # Relaxed straight back into the source minimum -- not a distinct
+            # product state, so not a real AKMC event on this side.
+            continue
         product_energy = float(product.get_potential_energy())
         final_states.append({
             "energy": product_energy,
-            "state_key": _canonical_state_key(product),
+            "state_key": state_key,
             "atoms_json": jsonio.encode(product),
         })
 
     if not final_states:
-        return None, "product relaxation did not converge on either side"
+        return None, "product relaxation did not converge to a distinct state on either side"
 
     final_states.sort(key=lambda item: item["energy"])
     final_state = final_states[0]

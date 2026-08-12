@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \"import sqlalchemy; print\\(sqlalchemy.__version__\\)\")",
+      "Bash(xargs -I{} echo {})",
+      "Bash(python3 -c \"import matplotlib; print\\(matplotlib.__version__\\)\")",
+      "Bash(conda env *)",
+      "Bash(pip show *)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\('install_requires', d\\), indent=2\\)\\)\")",
+      "Bash(python3 -c \"import pymatgen; print\\(pymatgen.__file__\\)\")",
+      "Bash(python3 -c \"import aiida; print\\(aiida.__file__\\)\")",
+      "Bash(pip list *)",
+      "Bash(python3 -m py_compile workchains/pipeline_report.py)"
+    ]
+  }
+}

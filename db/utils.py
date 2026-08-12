@@ -5,7 +5,7 @@ from sqlalchemy import inspect, delete, select, text
 from pymatgen.core import Composition, Structure
 from uvsib.db.session import get_session
 from uvsib.db.tables import (DBChemsys, DBStructure, DBStructureVersion, DBSurface,
-                             DBSurfaceMLAdsorbate, DBNanoParticles)
+                             DBSurfaceMLAdsorbate, DBNanoParticles, DBAkmcEvent)
 
 
 #def add_surface_adsorbate(existing_uuid, surf_id, comp, react, react_path, site_type, ads_coord, e, dg, ad_set):
@@ -49,6 +49,38 @@ def add_surface_ml_adsorbate(existing_uuid, surf_id, surface_miller_index, comp,
         session.add(adsorb)
         session.commit()
     return True
+
+def add_akmc_events(events):
+    """Bulk-insert AKMC dimer-search events as DBAkmcEvent rows.
+
+    Parameters
+    ----------
+    events : list of dict
+        Each dict supplies the DBAkmcEvent columns (source_row_id, energies,
+        barrier, rate, kmc_selected, atoms_json blobs, etc).
+    """
+    if not events:
+        return []
+    with get_session() as session:
+        db_events = [DBAkmcEvent(**event) for event in events]
+        session.add_all(db_events)
+        session.commit()
+    return db_events
+
+
+def merge_row_attributes(table_class, row_id, new_attributes):
+    """Merge ``new_attributes`` into ``table_class.attributes`` (JSONB) for the
+    row with the given integer id, preserving unrelated existing keys."""
+    with get_session() as session:
+        row = session.query(table_class).filter_by(id=row_id).first()
+        if row is None:
+            return False
+        merged = dict(row.attributes or {})
+        merged.update(new_attributes)
+        row.attributes = merged
+        session.commit()
+    return True
+
 
 #def get_structure_uuid_surface_id(composition):
 #    """

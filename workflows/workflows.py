@@ -121,8 +121,8 @@ def add_from_frontend(dict_from_frontend_list):
         row = query_by_columns(DBSurfaceMLAdsorbate, {"composition": chemical_formula,
                                                       "reaction": reaction,
                                                       "reaction_path": reaction_path})
-        if row:
-            continue
+#        if row:
+#            continue
 
         # (b) already in flight -> an active MainWorkChain carries this label;
         # (c) failed + no retry  -> a terminated MainWorkChain carries this label.
