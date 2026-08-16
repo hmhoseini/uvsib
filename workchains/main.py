@@ -28,6 +28,12 @@ def _akmc_status(step_status, reaction, reaction_path):
         reaction, {}).get(reaction_path)
 
 
+def _report_status(step_status, reaction, reaction_path):
+    """Per-(reaction, pathway) pipeline_report status from the nested step_status."""
+    return ((step_status or {}).get("pipeline_report") or {}).get(
+        reaction, {}).get(reaction_path)
+
+
 class MainWorkChain(WorkChain):
     """ Main WorkChain"""
     @classmethod
@@ -98,6 +104,9 @@ class MainWorkChain(WorkChain):
                 ),
                 cls.akmc,
                 cls.inspect_akmc
+            ),
+            if_(cls.should_run_pipeline_report)(
+                cls.pipeline_report
             ),
             if_(cls.should_run_nano_generator)(
                 while_(cls.should_wait_nano_generator)(
@@ -248,6 +257,22 @@ class MainWorkChain(WorkChain):
             "reaction_path": reaction_path,
         })
         return bool(ads_rows)
+
+    def should_run_pipeline_report(self):
+        """Check whether the post-pipeline report should be (re)generated for
+        THIS (reaction, pathway) -- skipped for the nanoparticle branch (no
+        surfaces/reaction data to report on) and once a sibling MainWorkChain
+        has already generated it."""
+        if settings.SOFT_STOP_BEFORE_SURFACE:
+            return False
+        if self.ctx.nano_generator:
+            return False
+        reaction = self.ctx.reaction.value
+        reaction_path = self.ctx.reaction_path.value
+        comp_row = query_by_columns(DBComposition, {"composition": self.ctx.chemical_formula})[0]
+        if _report_status(comp_row.step_status, reaction, reaction_path) in ["Done"]:
+            return False
+        return True
 
 #    def should_run_band_alignment(self):
 #        """Check whether should run BandAlignment"""
@@ -656,6 +681,45 @@ class MainWorkChain(WorkChain):
 
         update_step_status_path(DBComposition, row.uuid, path, "Done")
         update_row(DBComposition, row.uuid, {"status": "Done"})
+
+    def pipeline_report(self):
+        """Generate and persist the post-pipeline report (bulk/surface/
+        reaction-path figures + tables, then an HTML page presenting them)
+        for THIS (reaction, pathway), now that PhaseDiagramMLWorkChain /
+        SurfaceBuilderWorkChain / AdsorbatesWorkChain (and AKMCWorkChain, if
+        enabled) have all written the rows ``pipeline_report.py`` joins.
+        Output goes to one folder per (composition, reaction, reaction_path)
+        under ``settings.run_dir/reports/`` so parallel/repeated runs never
+        collide or overwrite each other."""
+        import os
+        import json
+        import pipeline_report as pr
+
+        row = self.ctx.dbcomposition_row
+        reaction = self.ctx.reaction.value
+        reaction_path = self.ctx.reaction_path.value
+        path = ["pipeline_report", reaction, reaction_path]
+        update_step_status_path(DBComposition, row.uuid, path, "Running")
+
+        folder = f"{self.ctx.chemical_formula}_{reaction}_{reaction_path}"
+        output_dir = os.path.join(settings.run_dir, "reports", folder)
+        os.makedirs(output_dir, exist_ok=True)
+
+        try:
+            summaries = pr.report(self.ctx.chemical_formula, reaction, reaction_path,
+                                   plot_dir=output_dir)
+            with open(os.path.join(output_dir, "summary.json"), "w") as f:
+                json.dump(summaries, f, indent=2, default=str)
+            pr.render_html_report(self.ctx.chemical_formula, reaction, reaction_path,
+                                   summaries=summaries,
+                                   output_path=os.path.join(output_dir, "report.html"))
+        except Exception:
+            update_step_status_path(DBComposition, row.uuid, path, "Failed")
+            raise
+
+        update_step_status_path(DBComposition, row.uuid, path, "Done")
+        self.report(f"Pipeline report for {self.ctx.chemical_formula} "
+                    f"({reaction}/{reaction_path}) written to {output_dir}")
 
     def nano_generator(self):
         """Running NanoParticlesWorkChain"""
