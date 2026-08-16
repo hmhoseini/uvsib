@@ -2489,7 +2489,7 @@ def generate_adsorbed_structures(reaction: str, pathway_name: str = "") -> dict:
     # Build slab + adsorbate
     site_types = ['ontop', 'bridge', 'hollow']
     adsorption_sets = {}
-    multipliers = get_multipliers(slab_pmg)
+    multipliers = [(1,1,1), (1,2,1)] #get_multipliers(slab_pmg) #TODO only for test
     for idx, repeat in enumerate(multipliers):
         clean_slab_pmg = asf.slab.copy()
         clean_slab_pmg.make_supercell(repeat)
