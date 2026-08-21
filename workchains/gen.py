@@ -48,16 +48,16 @@ class GeneratorWorkChain(WorkChain):
         """Run the generative workchains for each unique chemical system.
 
         MatterGen and GNoME (SAPS) are independent generators, each toggled in
-        input.yaml (`mattergen.enabled`, `gnome.enabled`). Whichever are enabled
-        run in parallel for the same system and their candidates are merged
-        before the shared ML relaxation. At least one must be enabled.
+        input.yaml (`mattergen.gen_enabled`, `gnome.enabled`). Whichever are
+        enabled run in parallel for the same system and their candidates are
+        merged before the shared ML relaxation. At least one must be enabled.
         """
-        if not (settings.MATTERGEN_ENABLED or settings.GNOME_PARALLEL):
-            self.report("No generator enabled: set mattergen.enabled and/or gnome.enabled in input.yaml")
+        if not (settings.MATTERGEN_GEN_ENABLED or settings.GNOME_PARALLEL):
+            self.report("No generator enabled: set mattergen.gen_enabled and/or gnome.enabled in input.yaml")
             return self.exit_codes.ERROR_GENERATIVE_FAILED
 
         for chemical_system in self.ctx.chemical_systems:
-            if settings.MATTERGEN_ENABLED:
+            if settings.MATTERGEN_GEN_ENABLED:
                 builder = self._construct_mattergen_gen_builder(chemical_system)
                 future = self.submit(builder)
                 self.to_context(**{f"{chemical_system}_mattergen": future})

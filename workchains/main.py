@@ -1,3 +1,4 @@
+import os
 from aiida.orm import Str, List, Dict
 from aiida.plugins import WorkflowFactory
 from aiida.engine import WorkChain, if_, while_
@@ -690,9 +691,10 @@ class MainWorkChain(WorkChain):
         enabled) have all written the rows ``pipeline_report.py`` joins.
         Output goes to one folder per (composition, reaction, reaction_path)
         under ``settings.run_dir/reports/`` so parallel/repeated runs never
-        collide or overwrite each other."""
-        import os
-        import json
+        collide or overwrite each other. ``render_html_report()`` writes its
+        own "raw_data.json" (tables + full bulk/surface structures) next to
+        "report.html", so this step does not separately dump a summary.json
+        -- that would just be a lighter, easily-stale duplicate of it."""
         import uvsib.pipeline_report as pr
 
         row = self.ctx.dbcomposition_row
@@ -708,8 +710,6 @@ class MainWorkChain(WorkChain):
         try:
             summaries = pr.report(self.ctx.chemical_formula, reaction, reaction_path,
                                    plot_dir=output_dir)
-            with open(os.path.join(output_dir, "summary.json"), "w") as f:
-                json.dump(summaries, f, indent=2, default=str)
             pr.render_html_report(self.ctx.chemical_formula, reaction, reaction_path,
                                    summaries=summaries,
                                    output_path=os.path.join(output_dir, "report.html"))

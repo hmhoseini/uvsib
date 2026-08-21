@@ -18,6 +18,7 @@
 	"aiida.calculations": [
 		"mattergen = uvsib.codes.mattergen.calculation:MatterGenCalculation",
 		"gnome = uvsib.codes.gnome.calculation:GNoMECalculation",
+		"diffcsp = uvsib.codes.diffcsp.calculation:DiffCSPCalculation",
 		"mattersim = uvsib.codes.mattersim.calculation:MatterSimCalculation",
 		"mace = uvsib.codes.mace.calculation:MACECalculation",
 		"upet = uvsib.codes.upet.calculation:uPETCalculation",
@@ -31,6 +32,7 @@
 	"aiida.parsers": [
 		"mattergen_parser = uvsib.codes.mattergen.parser:MatterGenParser",
 		"gnome_parser = uvsib.codes.gnome.parser:GNoMEParser",
+		"diffcsp_parser = uvsib.codes.diffcsp.parser:DiffCSPParser",
 		"mattersim_parser = uvsib.codes.mattersim.parser:MatterSimParser",
 		"mace_parser = uvsib.codes.mace.parser:MACEParser",
 		"upet_parser = uvsib.codes.upet.parser:uPETParser",
@@ -46,6 +48,7 @@
 		"mattergen.csp = uvsib.codes.mattergen.workchain:MatterGenCSPWorkChain",
 		"gnome.base = uvsib.codes.gnome.workchain:GNoMEBaseWorkChain",
 		"gnome.csp = uvsib.codes.gnome.workchain:GNoMECSPWorkChain",
+		"diffcsp.csp = uvsib.codes.diffcsp.workchain:DiffCSPCSPWorkChain",
 		"mattersim = uvsib.codes.mattersim.workchain:MatterSimWorkChain",
 		"mace = uvsib.codes.mace.workchain:MACEWorkChain",
 		"upet = uvsib.codes.upet.workchain:uPETWorkChain",

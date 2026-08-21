@@ -32,12 +32,32 @@ DFT_FUNC = 'GGA'  # GGA/r2SCAN
 # existing runs without the block are unaffected.
 GNOME_PARALLEL = bool(inputs.get('gnome', {}).get('enabled', False))
 
-# Run the MatterGen generator at all (de-novo gen + CSP). Toggles
-# MatterGen_generate and MatterGen_CSP together. Configured in input.yaml under
-# `mattergen:`; defaults on so existing runs without the block are unaffected.
-# With this off and `gnome` on, generation runs GNoME-only; at least one
-# generator must be enabled.
-MATTERGEN_ENABLED = bool(inputs.get('mattergen', {}).get('enabled', True))
+# Run MatterGen's de-novo generator in the gen path (GeneratorWorkChain).
+# Configured in input.yaml under `mattergen: {gen_enabled: ...}`; defaults ON,
+# so MatterGen is the default gen-path generator for runs without a
+# `mattergen`/`gnome` block (DiffCSP does not participate in the gen path --
+# see MATTERGEN_CSP_ENABLED/DIFFCSP_ENABLED below). Turning this off requires
+# gnome.enabled on instead; at least one must be enabled for the gen path.
+MATTERGEN_GEN_ENABLED = bool(inputs.get('mattergen', {}).get('gen_enabled', True))
+
+# Run MatterGen's CSP mode in the csp path (CSPWorkChain), parallel to
+# GNoME/DiffCSP CSP if those are also enabled. Configured in input.yaml under
+# `mattergen: {csp_enabled: ...}`; defaults OFF, since DiffCSP (below) is the
+# default CSP-path generator. Independent from MATTERGEN_GEN_ENABLED -- e.g.
+# MatterGen can generate de-novo without also running its CSP mode, or vice
+# versa.
+MATTERGEN_CSP_ENABLED = bool(inputs.get('mattergen', {}).get('csp_enabled', False))
+
+# Run the DiffCSP generator (https://github.com/jiaor17/DiffCSP,
+# scripts/sample.py -- composition-conditioned structure prediction) in the
+# csp path (CSPWorkChain), parallel to MatterGen/GNoME CSP if those are also
+# enabled. Configured in input.yaml under `diffcsp:`; defaults ON, so DiffCSP
+# is the default CSP-path generator for runs without a
+# `diffcsp`/`mattergen`/`gnome` block. See DiffCSP_CSP for its parameters.
+# DiffCSP is not wired into the gen path (GeneratorWorkChain) -- its
+# generation task there would need to be unconditioned on chemical system
+# (scripts/generation.py), which was a worse fit; see docs/diffcsp_generation.md.
+DIFFCSP_ENABLED = bool(inputs.get('diffcsp', {}).get('enabled', True))
 
 # Classify all generated structures by synthesizability (thermo + reaction +
 # PU) as a MainWorkChain stage after the phase diagram. Configured in input.yaml

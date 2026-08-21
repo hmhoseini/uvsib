@@ -317,7 +317,6 @@ def get_model_device(ML_model):
     model = settings.configs["models"][ML_model]
     model_path = os.path.join(path_to_pretrained_models, model)
     device = settings.configs["codes"][ML_model]["job_script"]["device"]
-
     return model, model_path, device
 
 def get_ref_entries(chemical_formula, ML_model):

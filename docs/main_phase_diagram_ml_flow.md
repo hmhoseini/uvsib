@@ -194,15 +194,16 @@ It is skipped if:
 
 When it runs, it does this:
 
-1. Launches one or more MatterGen CSP jobs if `mattergen.enabled` is true.
+1. Launches one or more MatterGen CSP jobs if `mattergen.csp_enabled` is true.
 2. Launches one or more GNoME CSP jobs if `gnome.enabled` is true.
-3. Merges all structures from successful generator jobs.
-4. Fails if no structure was produced, or if more than half of the MatterGen CSP jobs failed.
-5. Relaxes all CSP structures with `ml_bulk_model`.
-6. Uses the ML phase diagram to keep unique low-energy structures.
-7. Randomly selects up to `n_mh` low-energy candidates and runs Minima Hopping from them.
-8. Filters Minima Hopping results again by ML energy above hull.
-9. Stores the combined low-energy CSP and Minima Hopping structures in the database with source `csp` and method `ml_bulk_model`.
+3. Launches one or more DiffCSP CSP jobs if `diffcsp.enabled` is true (default; see [diffcsp_generation.md](diffcsp_generation.md)).
+4. Merges all structures from successful generator jobs.
+5. Fails if no structure was produced, or if more than half of the MatterGen CSP jobs failed and neither GNoME nor DiffCSP is enabled.
+6. Relaxes all CSP structures with `ml_bulk_model`.
+7. Uses the ML phase diagram to keep unique low-energy structures.
+8. Randomly selects up to `n_mh` low-energy candidates and runs Minima Hopping from them.
+9. Filters Minima Hopping results again by ML energy above hull.
+10. Stores the combined low-energy CSP and Minima Hopping structures in the database with source `csp` and method `ml_bulk_model`.
 
 Important parameters:
 
@@ -212,8 +213,14 @@ Important parameters:
 | `MatterGen_CSP.batch_size` | `input.yaml` | Number of structures sampled per MatterGen batch. |
 | `MatterGen_CSP.num_batches` | `input.yaml` | Number of MatterGen batches. Approximate MatterGen candidate count is `batch_size * num_batches * num_runs`. |
 | `MatterGen_CSP` model path/code | `config.yaml` | Selects the MatterGen executable and checkpoint for CSP. |
-| `mattergen.enabled` | `input.yaml`, default `True` | Enables/disables MatterGen in both CSP and Generator paths. |
+| `mattergen.csp_enabled` | `input.yaml`, default `False` | Enables/disables MatterGen CSP. Independent from `mattergen.gen_enabled` (Generator path). |
 | `gnome.enabled` | `input.yaml`, default `False` | Enables/disables GNoME in both CSP and Generator paths. |
+| `diffcsp.enabled` | `input.yaml`, default `True` | Enables/disables DiffCSP in the CSP path only (not wired into the Generator path). |
+| `DiffCSP_CSP.num_runs` | `input.yaml`, default `1` | Number of independent DiffCSP CSP jobs. |
+| `DiffCSP_CSP.num_evals` | `input.yaml`, default `20` | Candidate structures sampled per formula, per job. |
+| `DiffCSP_CSP.batch_size` | `input.yaml`, default `20` | DiffCSP's internal sampling batch size. |
+| `DiffCSP_CSP.step_lr` | `input.yaml`, default `1e-5` | Diffusion sampler step size. |
+| `DiffCSP_CSP` repo/model path | `config.yaml` | Selects the DiffCSP checkout (`repo_path`) and CSP-trained checkpoint (`model_path`) -- see [diffcsp_generation.md](diffcsp_generation.md). |
 | `GNoME_CSP.num_runs` | `input.yaml`, default read as `1` if key is missing | Number of GNoME CSP jobs. |
 | `GNoME_CSP.n_max` | `input.yaml` | Maximum number of SAPS candidates before screening. |
 | `GNoME_CSP.max_per_template` | `input.yaml` | Candidate cap per seed template. |
@@ -233,7 +240,7 @@ Important parameters:
 | `MinimaHopping.mh_steps` | `input.yaml` | Length of the Minima Hopping search. Larger values explore more but cost more. |
 | `EHULL_ML` | `workflows/settings.py`, currently `0.1` eV/atom | Structures with energy above hull less than or equal to this threshold are treated as low-energy. |
 
-The most scientifically important CSP parameters are `ml_bulk_model`, `EHULL_ML`, `MatterGen_CSP.num_runs`, `MatterGen_CSP.batch_size`, `MatterGen_CSP.num_batches`, `GNoME_CSP.keep`, and `MinimaHopping.num_runs`/`mh_steps`.
+The most scientifically important CSP parameters are `ml_bulk_model`, `EHULL_ML`, `MatterGen_CSP.num_runs`, `MatterGen_CSP.batch_size`, `MatterGen_CSP.num_batches`, `GNoME_CSP.keep`, `DiffCSP_CSP.num_evals`, and `MinimaHopping.num_runs`/`mh_steps`.
 
 ### 3. GeneratorWorkChain
 
@@ -255,14 +262,20 @@ check; it skips generation if:
 
 When it runs, it does this for each chemical system:
 
-1. Launches MatterGen generation if `mattergen.enabled` is true.
-2. Launches GNoME generation if `gnome.enabled` is true.
+1. Launches MatterGen generation if `mattergen.gen_enabled` is true.
+2. Launches GNoME generation if `gnome.enabled` is true. (DiffCSP is not available in this path -- see the note below.)
 3. Treats each branch as best-effort. A MatterGen failure or GNoME failure is only a warning if the other branch produced structures.
 4. Fails the chemical system only if no enabled generator produced structures.
 5. Relaxes the merged generated structures with `ml_bulk_model`.
 6. Builds a phase diagram for that chemical system and keeps unique low-energy structures.
 7. Stores them in the database with source `generated` and method `ml_bulk_model`.
 8. Sets `DBChemsys.gen_structures = "Ready"` for that chemical system.
+
+Note: `mattergen.gen_enabled` defaults `True` specifically so this path has a
+default generator (DiffCSP is CSP-only -- see
+[diffcsp_generation.md](diffcsp_generation.md) -- so it can't cover for
+MatterGen here). If you also turn `mattergen.gen_enabled` off, set
+`gnome.enabled: true` or this path fails `ERROR_GENERATIVE_FAILED`.
 
 Important parameters:
 
@@ -271,7 +284,7 @@ Important parameters:
 | `MatterGen_generate.energy_above_hull` | `input.yaml` | Conditioning value sent to MatterGen. It guides generated structures toward a target stability range. |
 | `MatterGen_generate.batch_size` | `input.yaml` | Number of generated structures per batch. |
 | `MatterGen_generate.num_batches` | `input.yaml` | Number of batches. Approximate MatterGen candidate count is `batch_size * num_batches` per chemical system. |
-| `mattergen.enabled` | `input.yaml`, default `True` | Enables/disables MatterGen generation. |
+| `mattergen.gen_enabled` | `input.yaml`, default `True` | Enables/disables MatterGen generation. Independent from `mattergen.csp_enabled` (CSP path). |
 | `gnome.enabled` | `input.yaml`, default `False` | Enables/disables GNoME generation. |
 | `GNoME_generate.n_max` | `input.yaml` | Maximum number of SAPS candidates before screening. |
 | `GNoME_generate.max_per_template` | `input.yaml` | Candidate cap per template. |
@@ -288,7 +301,7 @@ Important parameters:
 | `bulk_relax.model/head/fmax/max_steps` | `input.yaml` | Controls relaxation and energy evaluation of generated structures. |
 | `EHULL_ML` | `workflows/settings.py`, currently `0.1` eV/atom | Final low-energy cutoff for generated structures. |
 
-The most important Generator parameters are the generator toggles (`mattergen.enabled`, `gnome.enabled`), the number of generated candidates, the ML relaxation settings, and `EHULL_ML`.
+The most important Generator parameters are the generator toggles (`mattergen.gen_enabled`, `gnome.enabled`), the number of generated candidates, the ML relaxation settings, and `EHULL_ML`.
 
 ## How the final stable structures are selected
 

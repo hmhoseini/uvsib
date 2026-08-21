@@ -79,14 +79,19 @@ gen:  GeneratorWorkChain
 
 csp:  CSPWorkChain
         ├── mattergen.csp ─┐
-        └── gnome.csp ─────┤→ extend csp_structures → ML relax → minima-hopping → store "csp"
+        ├── gnome.csp ─────┤→ extend csp_structures → ML relax → minima-hopping → store "csp"
+        └── diffcsp.csp ───┘  (see diffcsp_generation.md)
 ```
 
-Both generators are independently toggled in `input.yaml` (`mattergen.enabled`,
-`gnome.enabled`) and **at least one must be on**. Whichever are enabled run in
-parallel and are merged before the shared ML relaxation. Each is **best-effort**:
-a failed or empty branch is logged and the run continues on the other generator's
-structures; a system fails only if *no* generator yields any structure.
+Both generators are independently toggled in `input.yaml`: MatterGen has two
+separate flags, `mattergen.gen_enabled` (gen path, default `True`) and
+`mattergen.csp_enabled` (csp path, default `False`, since DiffCSP is the
+default CSP-path generator -- see [diffcsp_generation.md](diffcsp_generation.md));
+GNoME uses one flag, `gnome.enabled`, for both paths. **At least one generator
+must be on per path.** Whichever are enabled run in parallel and are merged
+before the shared ML relaxation. Each is **best-effort**: a failed or empty
+branch is logged and the run continues on the other generator's structures; a
+system fails only if *no* generator yields any structure.
 (Historically MatterGen was mandatory and GNoME best-effort; the `mattergen`
 switch made the two symmetric.)
 
@@ -201,7 +206,7 @@ funnel order.
 
 | Parameter | Funnel stage | What it controls | Default |
 |---|---|---|---|
-| `gnome.enabled` | — | run the GNoME generator at all (paired with `mattergen.enabled`; ≥1 required) | `false` |
+| `gnome.enabled` | — | run the GNoME generator at all (paired with `mattergen.gen_enabled`/`mattergen.csp_enabled`; ≥1 required per path) | `false` |
 | `k_donors` | template seeding | donor elements per target element → analog chemistries pulled from MP | `3` |
 | `seed_ehull` | template seeding | max MP `e_above_hull` (eV/atom) for a seed prototype | `0.10` |
 | `seed_cap` | template seeding | hard cap on seed prototypes (lowest-hull kept first) | `60` |
@@ -231,7 +236,7 @@ build_template_pool(seed_cap, k_donors, seed_ehull)            <- structural var
 **SAPS only re-decorates known template lattices — it never invents a new
 lattice.** GNoME's structural variety is therefore a strict subset of the
 template pool's variety. For genuinely new prototypes you need MatterGen
-(de-novo, `mattergen.enabled: true`) or the downstream MinimaHopping step; to get
+(de-novo, `mattergen.gen_enabled: true`) or the downstream MinimaHopping step; to get
 more of, and more spread across, the known prototypes, tune the knobs below. The
 two goals use different knobs.
 

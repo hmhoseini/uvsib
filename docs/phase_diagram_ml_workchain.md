@@ -128,8 +128,9 @@ If not skipped, `csp_calcs()` submits `CSPWorkChain` with:
 
 | Lower-level workflow | Entry point | When used |
 |---|---|---|
-| MatterGen CSP | `mattergen.csp` | When `settings.MATTERGEN_ENABLED` is true and the formula has 20 atoms or fewer. |
+| MatterGen CSP | `mattergen.csp` | When `settings.MATTERGEN_CSP_ENABLED` is true and the formula has 20 atoms or fewer. |
 | GNoME SAPS CSP | `gnome.csp` | When `settings.GNOME_PARALLEL` is true. |
+| DiffCSP CSP | `diffcsp.csp` | When `settings.DIFFCSP_ENABLED` is true (default). See [diffcsp_generation.md](diffcsp_generation.md). |
 | ML relax backend | `ml_bulk_model.lower()` | Always after CSP structures are collected. |
 | Minima hopping | `minimahopping` | Runs from sampled low-energy CSP candidates. |
 
@@ -165,7 +166,7 @@ If not skipped, `gen_calcs()` submits `GeneratorWorkChain` with:
 
 | Lower-level workflow | Entry point | When used |
 |---|---|---|
-| MatterGen generation | `mattergen.base` | When `settings.MATTERGEN_ENABLED` is true. |
+| MatterGen generation | `mattergen.base` | When `settings.MATTERGEN_GEN_ENABLED` is true (default). |
 | GNoME SAPS generation | `gnome.base` | When `settings.GNOME_PARALLEL` is true. |
 | ML relax backend | `ml_bulk_model.lower()` | Per chemical system after generated structures are collected. |
 
@@ -279,10 +280,13 @@ Generation and CSP volume/cost parameters:
 | `MatterGen_generate.energy_above_hull` | `mattergen.base` job info | MatterGen conditioning target for generated structures. |
 | `MatterGen_generate.batch_size` | `mattergen.base` job info | Number of generated structures per batch. |
 | `MatterGen_generate.num_batches` | `mattergen.base` job info | Number of generation batches. |
-| `mattergen.enabled` | CSP and Generator | Enables MatterGen branches through `settings.MATTERGEN_ENABLED`. |
+| `mattergen.csp_enabled` | CSP | Enables the `mattergen.csp` branch through `settings.MATTERGEN_CSP_ENABLED` (default `False`). |
+| `mattergen.gen_enabled` | Generator | Enables the `mattergen.base` branch through `settings.MATTERGEN_GEN_ENABLED` (default `True`). |
+| `diffcsp.enabled` | CSP only | Enables the `diffcsp.csp` branch through `settings.DIFFCSP_ENABLED` (default `True`). Not wired into Generator. |
 | `gnome.enabled` | CSP and Generator | Enables GNoME/SAPS branches through `settings.GNOME_PARALLEL`. |
 | `GNoME_CSP.*` | `gnome.csp` job info | Candidate generation and optional screening settings for CSP. |
 | `GNoME_generate.*` | `gnome.base` job info | Candidate generation and optional screening settings for missing chemical systems. |
+| `DiffCSP_CSP.*` | `diffcsp.csp` job info | Candidate count, batch size, and step size for DiffCSP CSP sampling; see [diffcsp_generation.md](diffcsp_generation.md). |
 
 Infrastructure parameters:
 

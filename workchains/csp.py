@@ -54,15 +54,16 @@ class CSPWorkChain(WorkChain):
         self.ctx.ref_entries, _ = get_ref_entries(self.ctx.chemical_formula, self.ctx.ml_bulk_model)
 
     def run_csp(self):
-        """Run MatterGen CSP and/or GNoME (SAPS) CSP in parallel, per input.yaml
-        toggles (`mattergen.enabled`, `gnome.enabled`); at least one required."""
+        """Run MatterGen CSP, GNoME (SAPS) CSP, and/or DiffCSP in parallel, per
+        input.yaml toggles (`mattergen.csp_enabled`, `gnome.enabled`,
+        `diffcsp.enabled`); at least one required."""
         self.report("Launching CSP calculations")
         self.ctx.n_csp_jobs = 0
 
         natom = Composition(self.ctx.chemical_formula).num_atoms
-        mattergen_csp_allowed = settings.MATTERGEN_ENABLED and natom <= 20
+        mattergen_csp_allowed = settings.MATTERGEN_CSP_ENABLED and natom <= 20
 
-        if settings.MATTERGEN_ENABLED and not mattergen_csp_allowed:
+        if settings.MATTERGEN_CSP_ENABLED and not mattergen_csp_allowed:
             self.report(
                 f"Skipping MatterGen CSP for {self.ctx.chemical_formula}: "
                 f"formula has {natom} atoms, above MatterGen's 20-atom CSP limit."
@@ -82,12 +83,19 @@ class CSPWorkChain(WorkChain):
                 gbuilder = self._construct_gnome_csp_builder()
                 self.to_context(**{f"gnome_{i}": self.submit(gbuilder)})
 
-        if self.ctx.n_csp_jobs == 0 and self.ctx.n_gnome == 0:
-            self.report("ERROR: no CSP generator enabled (mattergen and gnome both off)")
+        self.ctx.n_diffcsp = 0
+        if settings.DIFFCSP_ENABLED:
+            self.ctx.n_diffcsp = int(settings.inputs.get("DiffCSP_CSP", {}).get("num_runs", 1))
+            for i in range(1, self.ctx.n_diffcsp + 1):
+                dbuilder = self._construct_diffcsp_csp_builder()
+                self.to_context(**{f"diffcsp_{i}": self.submit(dbuilder)})
+
+        if self.ctx.n_csp_jobs == 0 and self.ctx.n_gnome == 0 and self.ctx.n_diffcsp == 0:
+            self.report("ERROR: no CSP generator enabled (mattergen, gnome, and diffcsp all off)")
             return self.exit_codes.ERROR_CSP_FAILED
 
     def inspect_csp_calcs(self):
-        """Collect structures from MatterGen (primary) and GNoME (best-effort) CSP"""
+        """Collect structures from MatterGen (primary), GNoME, and DiffCSP (best-effort) CSP"""
         failed_jobs = 0
         for i in range(1, self.ctx.n_csp_jobs + 1):
             csp_wch = self.ctx[f"csp_{i}"]
@@ -102,18 +110,29 @@ class CSPWorkChain(WorkChain):
         for i in range(1, self.ctx.n_gnome + 1):
             gnome_wch = self.ctx[f"gnome_{i}"]
             if not gnome_wch.is_finished_ok:
-                self.report(f"Warning: GNoME CSP job {i} failed; continuing with MatterGen")
+                self.report(f"Warning: GNoME CSP job {i} failed; continuing with other generators")
                 continue
             try:
                 self.ctx.csp_structures.extend(gnome_wch.outputs.output_dict["structures"])
             except Exception:
                 self.report(f"Warning: could not read GNoME CSP structures from job {i}")
 
+        for i in range(1, self.ctx.n_diffcsp + 1):
+            diffcsp_wch = self.ctx[f"diffcsp_{i}"]
+            if not diffcsp_wch.is_finished_ok:
+                self.report(f"Warning: DiffCSP CSP job {i} failed; continuing with other generators")
+                continue
+            try:
+                self.ctx.csp_structures.extend(diffcsp_wch.outputs.output_dict["structures"])
+            except Exception:
+                self.report(f"Warning: could not read DiffCSP CSP structures from job {i}")
+
         if not self.ctx.csp_structures:
             self.report("No structure was found. Job stopped.")
             return self.exit_codes.ERROR_CSP_FAILED
 
-        if self.ctx.n_csp_jobs and failed_jobs / self.ctx.n_csp_jobs > 0.5 and not settings.GNOME_PARALLEL:
+        if (self.ctx.n_csp_jobs and failed_jobs / self.ctx.n_csp_jobs > 0.5
+                and not settings.GNOME_PARALLEL and not settings.DIFFCSP_ENABLED):
             self.report("Many CSP jobs failed. Job stopped.")
             return self.exit_codes.ERROR_CSP_FAILED
 
@@ -181,7 +200,8 @@ class CSPWorkChain(WorkChain):
         ml_bulk_model = self.ctx.ml_bulk_model
         all_entries = self.ctx.low_energy_entries_csp + self.ctx.low_energy_entries_mh
 
-        low_energy_entries, _ = unique_low_energy_comp(self.ctx.chemical_formula, all_entries, EHULL_ML,
+        low_energy_entries, _ = unique_low_energy_comp(self.ctx.chemical_formula, all_entries,
+                                                       EHULL_ML,
                                                        element_entries=self.ctx.ref_entries)
    
         structure_energy_pairs = []
@@ -225,6 +245,30 @@ class CSPWorkChain(WorkChain):
         if str(screen).lower() != "none":
             model, model_path, device = get_model_device(screen)
             ji.update({"model_name": model, "model_path": model_path, "device": device})
+
+        builder.job_info = Dict(ji)
+        builder.max_iterations = Int(2)
+        return builder
+
+    def _construct_diffcsp_csp_builder(self):
+        """DiffCSP (composition-conditioned) CSP builder, parallel to
+        MatterGen's and GNoME's csp branches. `repo_path` is an explicit,
+        machine-specific path under config.yaml's codes.DiffCSP_CSP (the
+        DiffCSP checkout); `model_path` is resolved the same way as
+        MatterGen/GNoME, via configs["models"]["DiffCSP_CSP"] -- see
+        docs/diffcsp_generation.md."""
+        Workflow = WorkflowFactory("diffcsp.csp")
+        builder = Workflow.get_builder()
+        builder.chemical_formula = Str(self.ctx.chemical_formula)
+        builder.code = get_code("DiffCSP_CSP")
+        _, model_path, _ = get_model_device("DiffCSP_CSP")
+
+        codes_cfg = settings.configs["codes"]["DiffCSP_CSP"]
+        ji = dict(settings.inputs["DiffCSP_CSP"])
+        ji.update({
+            "repo_path": codes_cfg["repo_path"],
+            "model_path": model_path,
+        })
 
         builder.job_info = Dict(ji)
         builder.max_iterations = Int(2)

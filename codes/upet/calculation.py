@@ -4,6 +4,7 @@ from aiida.orm import Dict, SinglefileData
 from aiida.common.datastructures import CalcInfo, CodeInfo
 from uvsib.workflows import settings
 
+
 class uPETCalculation(CalcJob):
     """AiiDA plugin for uPET"""
     @classmethod
