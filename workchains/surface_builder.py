@@ -149,25 +149,29 @@ class SurfaceBuilderWorkChain(WorkChain):
         unpredictably long -- per-bulk jobs stay inside walltime and a
         pathological bulk fails alone instead of taking the run down."""
         for struct_dict, _, uuid_str in self.ctx.struct_uuid:
-            payload = [{"uuid": uuid_str, "structure": struct_dict,
-                        "from_manifest": self.ctx.from_manifest}]
-            inputs = {
-                "code": get_code(settings.inputs["face_build"]["model"]),
-                "parameters": Dict(dict={
-                    "job_type": "face_build",
-                    "cmdline_params": _model_cmdline() + [
-                        f"--max_miller_idx={settings.inputs['face_build']['max_miller_idx']}"],
-                    "staged_files": [["slab_generate.py", "aiida.py"],
-                                     ["_calculators.py", "_calculators.py"]],
-                    "retrieve_list": ["output.json"],
-                }),
-                "file": {"input_structures_file": _structures_file(payload)},
-                "metadata": {
-                    "options": _facebuild_options(),
-                    "label": f"Faces: {self.ctx.chemical_formula}",
-                },
-            }
-            self.to_context(**{f"slabgen_{uuid_str}": self.submit(FaceCalculation, **inputs)})
+            builder = self._construct_surface_builder(uuid_str, struct_dict)
+            self.to_context(**{f"slabgen_{uuid_str}": self.submit(builder)})
+
+    def _construct_surface_builder(self, uuid_str, struct_dict):
+        """Face-build (slab generation) Calculation builder for one bulk structure."""
+        payload = [{"uuid": uuid_str, "structure": struct_dict,
+                    "from_manifest": self.ctx.from_manifest}]
+        builder = FaceCalculation.get_builder()
+        builder.code = get_code(settings.inputs["face_build"]["model"])
+        builder.parameters = Dict(dict={
+            "job_type": "face_build",
+            "cmdline_params": _model_cmdline() + [
+                f"--max_miller_idx={settings.inputs['face_build']['max_miller_idx']}"],
+            "staged_files": [["slab_generate.py", "aiida.py"],
+                             ["_calculators.py", "_calculators.py"]],
+            "retrieve_list": ["output.json"],
+        })
+        builder.file = {"input_structures_file": _structures_file(payload)}
+        builder.metadata = {
+            "options": _facebuild_options(),
+            "label": f"Faces: {self.ctx.chemical_formula}",
+        }
+        return builder
 
     def _bulk_slabs(self, uuid_str):
         """This bulk's generated slabs, re-read from its own gen node (kept
@@ -239,25 +243,29 @@ class SurfaceBuilderWorkChain(WorkChain):
         """Submit one relaxation CalcJob per GLOBAL slab chunk."""
         items = self._global_items()
         for i, chunk in enumerate(_chunk(items, MAX_SLABS_PER_CHUNK)):
-            inputs = {
-                "code": get_code(settings.inputs['face_build']['model']),
-                "parameters": Dict(dict={
-                    "job_type": "face_relax",
-                    # no --epa: it rides per slab now (chunks mix bulks)
-                    "cmdline_params": _model_cmdline() + [
-                        f"--fmax={settings.inputs['face_build']['fmax']}",
-                        f"--max_steps={settings.inputs['face_build']['max_steps']}"],
-                    "staged_files": [["slab_relax.py", "aiida.py"],
-                                     ["_calculators.py", "_calculators.py"]],
-                    "retrieve_list": ["output.json"],
-                }),
-                "file": {"input_structures_file": _structures_file(chunk)},
-                "metadata": {
-                    "options": _facebuild_options(),
-                    "label": f"SlabRelax: {self.ctx.chemical_formula} #{i}",
-                },
-            }
-            self.to_context(**{f"relax_{i}": self.submit(FaceCalculation, **inputs)})
+            builder = self._construct_relax_builder(chunk, i)
+            self.to_context(**{f"relax_{i}": self.submit(builder)})
+
+    def _construct_relax_builder(self, chunk, index):
+        """Slab-relaxation Calculation builder for one GLOBAL slab chunk."""
+        builder = FaceCalculation.get_builder()
+        builder.code = get_code(settings.inputs['face_build']['model'])
+        builder.parameters = Dict(dict={
+            "job_type": "face_relax",
+            # no --epa: it rides per slab now (chunks mix bulks)
+            "cmdline_params": _model_cmdline() + [
+                f"--fmax={settings.inputs['face_build']['fmax']}",
+                f"--max_steps={settings.inputs['face_build']['max_steps']}"],
+            "staged_files": [["slab_relax.py", "aiida.py"],
+                             ["_calculators.py", "_calculators.py"]],
+            "retrieve_list": ["output.json"],
+        })
+        builder.file = {"input_structures_file": _structures_file(chunk)}
+        builder.metadata = {
+            "options": _facebuild_options(),
+            "label": f"SlabRelax: {self.ctx.chemical_formula} #{index}",
+        }
+        return builder
 
     def inspect_relax(self):
         """Regroup the chunk outputs BY THE ECHOED BULK UUID, then select the
