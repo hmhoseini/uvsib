@@ -280,7 +280,7 @@ def add_from_mpdb(chemical_formula):
     exp_structures = []
     stb_structures = []
     if missing_stb or missing_exp:
-        exp_structures, stb_structures = (
+        stb_structures, exp_structures = (
             get_structures_from_mpdb_by_composition(
                 chemical_formula,
                 EHULL_SCAN,

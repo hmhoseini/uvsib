@@ -39,9 +39,14 @@ HTML report (also lazily needs matplotlib; see result-sample.html for the refere
         embedded as base64 PNGs): a stable-bulks table (uuid + source), one
         surfaces table per bulk (miller index, surface energy, size, best
         candidate's adsorbate coverage), and one reaction-path diagram per
-        surface (titled with its site + eta + coverage). Also writes
-        "raw_data.json" (see raw_data()) next to output_path and links a
-        download button to it. Also returns the HTML string.
+        surface (titled with its site + eta + coverage). The size (# atoms/
+        area) shown per surface is scaled to its BEST candidate's own
+        supercell repeat (see _repeat_multiplier()), not the bare relaxed
+        slab -- different candidates on the same surface can use different
+        repeats for different coverages, so this scaling is per-candidate,
+        not a fixed per-surface number. Also writes "raw_data.json" (see
+        raw_data()) next to output_path and links a download button to it.
+        Also returns the HTML string.
 
 Caveats worth knowing:
 
@@ -60,12 +65,13 @@ Caveats worth knowing:
   right after AKMC, writing into ``settings.run_dir/reports/<composition>_
   <reaction>_<reaction_path>/`` -- works safely: it already runs inside a
   profile-loaded AiiDA worker process. ``render_html_report()`` ALSO always
-  tries this same profile-loading import via ``_ml_surface_model()`` (for the
-  "ML Surface Model" metadata field), but defensively -- unlike
-  ``step_labels()``, it catches the failure and just shows "&mdash;" rather
-  than raising, so calling ``render_html_report()`` outside a profile-loaded
-  environment still works (just without that one field). ``raw_data()``
-  itself stays DB-only like the functions above it -- no profile needed.
+  tries this same profile-loading import via ``_ml_surface_model()``/
+  ``_ml_stage_head()`` (for the "ML Bulk/Surface Model" + task metadata
+  fields), but defensively -- unlike ``step_labels()``, it catches the
+  failure and just shows "&mdash;" rather than raising, so calling
+  ``render_html_report()`` outside a profile-loaded environment still works
+  (just without those fields). ``raw_data()`` itself stays DB-only like the
+  functions above it -- no profile needed.
 * "Surfaces found" means "slabs SurfaceBuilderWorkChain kept after relaxation
   and ranked by formation energy" -- it already dropped non-converged slabs
   before storing (see ``inspect_relax`` in ``surface_builder.py``); there is no
@@ -605,6 +611,51 @@ def _ml_surface_model():
         return None
 
 
+def _ml_stage_head(stage):
+    """The ``head`` (task) an ML stage's model was run with -- e.g. UMA's
+    "omat" bulk-relax head vs "oc20" face-build head -- read the SAME way
+    ``_model_cmdline()`` (``workchains/surface_builder.py``) passes it on as
+    ``--task_name`` for face-build (``bulk_relax`` is analogous; see
+    ``input.yaml``'s ``bulk_relax``/``face_build`` blocks, each a
+    ``model``/``head``/... dict). ``stage`` is ``"bulk_relax"`` or
+    ``"face_build"``. Like ``_ml_surface_model()``, this is a run-level
+    config value, not a per-row DB field, so it lazily imports
+    ``uvsib.workflows.settings`` (AiiDA-profile-loading) and returns ``None``
+    if that fails, or if the stage has no ``head`` configured."""
+    try:
+        from uvsib.workflows import settings
+        return settings.inputs[stage].get("head")
+    except Exception:
+        return None
+
+
+def _model_label(model, task):
+    """Display label combining an ML model name with its task/head, e.g.
+    ``"UMA (omat)"`` -- or just the model name if no task is available.
+    Returns ``None`` if ``model`` itself is unavailable."""
+    if model is None:
+        return None
+    return f"{model} ({task})" if task else model
+
+
+def _repeat_multiplier(parsed_repeat):
+    """In-plane atom/area multiplier (``nx * ny``) implied by an already
+    ``_parse_repeat``-d ``(nx, ny, nz)`` repeat tuple -- the factor a
+    surface's base (1x1, as stored on ``DBSurface``) ``n_atoms``/``area``
+    must be scaled by to match the actual supercell a given reaction
+    candidate was computed on (``make_supercell((nx, ny, 1))`` in
+    ``generate_adsorbed_structures()``, ``codes/files/adsorbates.py`` --
+    z never repeats). Different candidates on the SAME surface can use
+    different repeats (different coverages), so this must be applied
+    per-candidate, not once per surface. Returns 1 (no scaling, i.e. the
+    base cell) if ``parsed_repeat`` is ``None``/unparseable/has a zero
+    in-plane multiplier."""
+    if not parsed_repeat or len(parsed_repeat) < 2:
+        return 1
+    nx, ny = parsed_repeat[0], parsed_repeat[1]
+    return nx * ny if nx and ny else 1
+
+
 def raw_data(chemical_formula, reaction, reaction_path, summaries=None):
     """Comprehensive raw-data export for one (composition, reaction,
     reaction_path): everything ``summarize()`` computes (ehull, surface
@@ -678,7 +729,9 @@ def render_html_report(chemical_formula, reaction, reaction_path, summaries=None
     etas = [s["best_candidate"]["eta"] for s in summaries if s["best_candidate"]]
     best_eta = min(etas) if etas else None
     model = next((s["bulk"]["ml_bulk_model"] for s in summaries if s["bulk"]), None)
+    bulk_task = _ml_stage_head("bulk_relax")
     surface_model = _ml_surface_model()
+    surface_task = _ml_stage_head("face_build")
     threshold = next((s["bulk"]["ehull_threshold"] for s in summaries if s["bulk"]), None)
 
     def esc(x):
@@ -712,18 +765,27 @@ def render_html_report(chemical_formula, reaction, reaction_path, summaries=None
             miller = str(tuple(surf["miller_index"])) if surf["miller_index"] else "?"
             best = surf["best_candidate"]
             eta_cell = f'{best["eta"]:.3f} V' if best else "&mdash;"
-            area_cell = f'{surf["area"]:.2f}' if surf["area"] is not None else "&mdash;"
+            # surf["n_atoms"]/["area"] are the base (1x1) slab DBSurface
+            # stored; the best candidate on this surface may have been
+            # computed on a repeated supercell (different candidates on the
+            # SAME surface can use different repeats for different
+            # coverages), so scale by that candidate's own repeat rather
+            # than showing the un-repeated base numbers alongside its eta.
+            mult = _repeat_multiplier(best.get("repeat")) if best else 1
+            n_atoms_cell = surf["n_atoms"] * mult if surf["n_atoms"] is not None else "&mdash;"
+            area_cell = f'{surf["area"] * mult:.2f}' if surf["area"] is not None else "&mdash;"
             fe_cell = f'{surf["formation_energy"]:.4f}' if surf["formation_energy"] is not None else "&mdash;"
-            coverage_cell = esc(_coverage_label(best.get("repeat"))) if best else "&mdash;"
+            repeat = best.get("repeat") if best else None
+            repeat_cell = f"({repeat[0]}, {repeat[1]})" if repeat and len(repeat) >= 2 else "&mdash;"
             surface_rows.append(f"""
                       <tr class="border-t">
                         <td class="px-4 py-3 font-mono text-xs">{surf["surface_id"]}</td>
                         <td class="px-4 py-3">{esc(miller)}</td>
                         <td class="px-4 py-3">{fe_cell}</td>
-                        <td class="px-4 py-3">{surf["n_atoms"]}</td>
+                        <td class="px-4 py-3">{n_atoms_cell}</td>
                         <td class="px-4 py-3">{area_cell}</td>
                         <td class="px-4 py-3">{eta_cell}</td>
-                        <td class="px-4 py-3">{coverage_cell}</td>
+                        <td class="px-4 py-3">{repeat_cell}</td>
                       </tr>""")
         surface_rows_html = "".join(surface_rows) or (
             '<tr><td colspan="7" class="px-4 py-4 text-slate-400 italic">'
@@ -752,10 +814,13 @@ def render_html_report(chemical_formula, reaction, reaction_path, summaries=None
                   <th class="px-4 py-3">Surface ID</th>
                   <th class="px-4 py-3">Miller Index</th>
                   <th class="px-4 py-3">Surface Energy (eV/&Aring;&sup2;)</th>
-                  <th class="px-4 py-3"># Atoms</th>
-                  <th class="px-4 py-3">Area (&Aring;&sup2;)</th>
+                  <th class="px-4 py-3" title="Scaled to the best candidate's supercell repeat, not the bare relaxed slab">
+                    # Atoms</th>
+                  <th class="px-4 py-3" title="Scaled to the best candidate's supercell repeat, not the bare relaxed slab">
+                    Area (&Aring;&sup2;)</th>
                   <th class="px-4 py-3">Best &eta;</th>
-                  <th class="px-4 py-3">Coverage</th>
+                  <th class="px-4 py-3" title="In-plane supercell repeat (nx, ny) the best candidate's clean slab was built on, before the adsorbate was placed">
+                    Repeat (n<sub>x</sub>, n<sub>y</sub>)</th>
                 </tr>
               </thead>
               <tbody>{surface_rows_html}</tbody>
@@ -894,7 +959,7 @@ def render_html_report(chemical_formula, reaction, reaction_path, summaries=None
               </div>
               <div>
                 <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">ML Bulk Model</p>
-                <p class="text-sm font-bold text-slate-900">{esc(model)}</p>
+                <p class="text-sm font-bold text-slate-900">{esc(_model_label(model, bulk_task))}</p>
               </div>
             </div>
             <div class="flex items-center gap-4">
@@ -903,7 +968,7 @@ def render_html_report(chemical_formula, reaction, reaction_path, summaries=None
               </div>
               <div>
                 <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">ML Surface Model</p>
-                <p class="text-sm font-bold text-slate-900">{esc(surface_model)}</p>
+                <p class="text-sm font-bold text-slate-900">{esc(_model_label(surface_model, surface_task))}</p>
               </div>
             </div>
             <div class="flex items-center gap-4">

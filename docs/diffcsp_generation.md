@@ -76,6 +76,24 @@ codes/files/
 
 Entry points: `diffcsp` (calc), `diffcsp_parser`, `diffcsp.csp`.
 
+## Formula scaling: targeting a non-trivial cell size (`workchain.py`)
+
+`sample.py` diffuses exactly the atom counts parsed from `--formula`
+(`chemparse.parse_formula`) -- there is no search over cell size, so left
+alone it always targets the reduced (Z=1) formula unit (e.g. 2 atoms for
+ZnO). `get_cmdline_csp` in `codes/diffcsp/workchain.py` scales the formula it
+passes to `sample.py` by the largest integer coefficient that keeps the cell
+at or below 20 atoms -- the same scaling `get_cmdline_csp` in
+`codes/mattergen/workchain.py` applies to MatterGen's CSP
+`target_compositions`. For any composition with up to 20 atoms this lands in
+`[11, 20]` atoms/cell (e.g. ZnO -> `Zn10O10`, coefficient 10); a formula whose
+reduced unit already exceeds 20 atoms raises `ValueError` (mirroring
+MatterGen's own CSP limit). This only changes what's sent to `sample.py` --
+the identity `chemical_formula` used elsewhere in `CSPWorkChain` (reference
+entries, dedup, storage) is untouched, and `unique_low_energy_comp` matches
+structures by their own `reduced_formula`, so it's agnostic to what cell size
+any generator (MatterGen, GNoME, or DiffCSP) actually produced.
+
 ## Runner pipeline (`diffcsp_csp.py`)
 
 1. Shell out to `<repo_path>/scripts/sample.py --model_path ... --formula ... --num_evals ... --batch_size ... --step_lr ... --save_path <this job's own working directory>`, with `cwd=repo_path` -- `eval_utils.py` does `sys.path.append('.')` to resolve the `diffcsp` package, so the subprocess must run from the repo root; `--save_path` is passed explicitly (the CalcJob's own working directory, captured before changing `cwd`) so CIFs land there instead of inside the shared repo checkout.

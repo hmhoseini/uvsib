@@ -695,7 +695,7 @@ class MainWorkChain(WorkChain):
         own "raw_data.json" (tables + full bulk/surface structures) next to
         "report.html", so this step does not separately dump a summary.json
         -- that would just be a lighter, easily-stale duplicate of it."""
-        import uvsib.pipeline_report as pr
+        import uvsib.workchains.pipeline_report as pr
 
         row = self.ctx.dbcomposition_row
         reaction = self.ctx.reaction.value

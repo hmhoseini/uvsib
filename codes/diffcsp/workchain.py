@@ -1,3 +1,4 @@
+from pymatgen.core import Composition
 from aiida.engine import BaseRestartWorkChain, while_
 from aiida.orm import Str, Dict, Code
 from aiida.plugins import CalculationFactory
@@ -30,10 +31,23 @@ def get_cmdline_csp(chemical_formula, job_info):
     and coordinates), unlike ``scripts/generation.py``'s unconditioned
     ab-initio sampling. See ``codes/files/diffcsp_csp.py``.
     """
+    comp = Composition(chemical_formula)
+    el_amt = comp.get_el_amt_dict()
+    natom = comp.num_atoms
+
+    if natom > 20:
+        raise ValueError(
+            f"DiffCSP CSP formula scaling supports target compositions up to "
+            f"20 atoms, but {chemical_formula} has {natom} atoms."
+        )
+
+    coef = 20 // natom
+    scaled_formula = "".join(f"{el}{int(coef * amt)}" for el, amt in el_amt.items())
+
     return [
         f"--repo_path={job_info['repo_path']}",
         f"--model_path={job_info['model_path']}",
-        f"--chemical_formula={chemical_formula}",
+        f"--chemical_formula={scaled_formula}",
         f"--num_evals={job_info.get('num_evals', 20)}",
         f"--batch_size={job_info.get('batch_size', 20)}",
         f"--step_lr={job_info.get('step_lr', 1e-5)}",
