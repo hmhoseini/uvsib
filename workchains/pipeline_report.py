@@ -38,15 +38,18 @@ HTML report (also lazily needs matplotlib; see result-sample.html for the refere
         -> writes a self-contained HTML file (Tailwind/lucide chrome, plots
         embedded as base64 PNGs): a stable-bulks table (uuid + source), one
         surfaces table per bulk (miller index, surface energy, size, best
-        candidate's adsorbate coverage), and one reaction-path diagram per
+        candidate's supercell repeat), and one reaction-path diagram per
         surface (titled with its site + eta + coverage). The size (# atoms/
         area) shown per surface is scaled to its BEST candidate's own
         supercell repeat (see _repeat_multiplier()), not the bare relaxed
         slab -- different candidates on the same surface can use different
         repeats for different coverages, so this scaling is per-candidate,
-        not a fixed per-surface number. Also writes "raw_data.json" (see
-        raw_data()) next to output_path and links a download button to it.
-        Also returns the HTML string.
+        not a fixed per-surface number. Does NOT include the cross-bulk
+        comparison figure save_report_figures() writes as
+        "bulk_comparison.png" -- that PNG is a separate, optional artifact
+        for report(..., plot_dir=...) callers, not part of this page. Also
+        writes "raw_data.json" (see raw_data()) next to output_path and
+        links a download button to it. Also returns the HTML string.
 
 Caveats worth knowing:
 

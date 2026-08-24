@@ -1,0 +1,920 @@
+<title>Electrochemical Reaction Pathways</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg: #F5F6F4;
+    --surface: #FFFFFF;
+    --surface-2: #EDF0EC;
+    --border: #DDE2DD;
+    --border-soft: #E7EAE5;
+    --text: #1B2430;
+    --text-2: #556170;
+    --text-3: #8890988a;
+    --text-3-solid: #838C95;
+    --cathodic: #0E7C7B;
+    --cathodic-bg: #E4F1EF;
+    --anodic: #A8462A;
+    --anodic-bg: #F5E7DF;
+    --shadow: 0 1px 2px rgba(20,30,25,0.04), 0 8px 24px rgba(20,30,25,0.04);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #10151A;
+      --surface: #171E25;
+      --surface-2: #1C242C;
+      --border: #2B343D;
+      --border-soft: #232B33;
+      --text: #E8ECEF;
+      --text-2: #9AA5AF;
+      --text-3: #6E7981;
+      --cathodic: #46C2B7;
+      --cathodic-bg: #143432;
+      --anodic: #E08A55;
+      --anodic-bg: #3A2417;
+      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.3);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #10151A;
+    --surface: #171E25;
+    --surface-2: #1C242C;
+    --border: #2B343D;
+    --border-soft: #232B33;
+    --text: #E8ECEF;
+    --text-2: #9AA5AF;
+    --text-3: #6E7981;
+    --cathodic: #46C2B7;
+    --cathodic-bg: #143432;
+    --anodic: #E08A55;
+    --anodic-bg: #3A2417;
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.3);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection { background: var(--cathodic-bg); }
+
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 28px 120px; }
+
+  /* ---------- Header ---------- */
+  header.hero {
+    padding: 64px 28px 40px;
+    max-width: 1040px;
+    margin: 0 auto;
+  }
+  .eyebrow {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12px;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--text-2);
+    margin: 0 0 14px;
+  }
+  .eyebrow code {
+    background: var(--surface-2);
+    border: 1px solid var(--border-soft);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-family: "IBM Plex Mono", monospace;
+    color: var(--text);
+  }
+  h1 {
+    font-family: "Newsreader", Georgia, serif;
+    font-weight: 500;
+    font-size: clamp(32px, 5vw, 44px);
+    line-height: 1.1;
+    letter-spacing: -0.01em;
+    margin: 0 0 18px;
+    text-wrap: balance;
+    color: var(--text);
+  }
+  .dek {
+    font-size: 16.5px;
+    color: var(--text-2);
+    max-width: 640px;
+    margin: 0 0 6px;
+  }
+  .dek strong { color: var(--text); font-weight: 600; }
+
+  .convention {
+    margin-top: 28px;
+    padding: 16px 20px;
+    background: var(--surface);
+    border: 1px solid var(--border-soft);
+    border-radius: 10px;
+    font-size: 13.5px;
+    color: var(--text-2);
+    box-shadow: var(--shadow);
+  }
+  .convention b { color: var(--text); font-weight: 600; }
+  .convention .legend { display: flex; gap: 22px; margin-top: 12px; flex-wrap: wrap; }
+  .legend-item { display: flex; align-items: center; gap: 7px; font-size: 13px; }
+  .swatch { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+  .swatch.cathodic { background: var(--cathodic); }
+  .swatch.anodic { background: var(--anodic); }
+
+  /* ---------- Nav ---------- */
+  nav.toc {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 28px;
+    backdrop-filter: blur(6px);
+  }
+  .toc-inner {
+    max-width: 1040px;
+    margin: 0 auto;
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .toc-inner::-webkit-scrollbar { display: none; }
+  nav.toc a {
+    flex: none;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12.5px;
+    color: var(--text-2);
+    text-decoration: none;
+    padding: 7px 12px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    white-space: nowrap;
+    transition: color .15s, border-color .15s, background .15s;
+  }
+  nav.toc a:hover, nav.toc a:focus-visible {
+    color: var(--text);
+    border-color: var(--text-2);
+    outline: none;
+  }
+  nav.toc a .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 7px; }
+
+  /* ---------- Summary table ---------- */
+  section.summary { padding: 44px 0 8px; }
+  h2.section-title {
+    font-family: "Newsreader", Georgia, serif;
+    font-weight: 500;
+    font-size: 24px;
+    margin: 0 0 4px;
+  }
+  p.section-sub { color: var(--text-2); font-size: 14px; margin: 0 0 22px; }
+
+  .table-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); }
+  table { border-collapse: collapse; width: 100%; background: var(--surface); }
+  table.summary-table { min-width: 760px; }
+  thead th {
+    text-align: left;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-3-solid);
+    font-weight: 500;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-2);
+    white-space: nowrap;
+  }
+  tbody td {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-soft);
+    vertical-align: top;
+    font-size: 13.5px;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover td { background: var(--surface-2); }
+  td.eq, .eq { font-family: "IBM Plex Mono", monospace; font-size: 13px; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+  .rx-link { color: var(--text); text-decoration: none; font-weight: 600; border-bottom: 1px dotted var(--text-3-solid); }
+  .rx-link:hover { border-bottom-color: var(--text); }
+
+  .type-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    padding: 2px 8px 2px 6px;
+    border-radius: 20px;
+    white-space: nowrap;
+  }
+  .type-pill .dot { width: 6px; height: 6px; border-radius: 50%; }
+  .type-pill.cathodic { color: var(--cathodic); background: var(--cathodic-bg); }
+  .type-pill.cathodic .dot { background: var(--cathodic); }
+  .type-pill.anodic { color: var(--anodic); background: var(--anodic-bg); }
+  .type-pill.anodic .dot { background: var(--anodic); }
+
+  .note-flag {
+    display: inline-block;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px;
+    color: var(--text-3-solid);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+    margin-left: 6px;
+  }
+
+  /* ---------- Reaction sections ---------- */
+  section.reaction {
+    padding: 56px 0 8px;
+    border-top: 1px solid var(--border);
+    scroll-margin-top: 60px;
+  }
+  .rx-head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 6px; }
+  .rx-abbr {
+    font-family: "Newsreader", Georgia, serif;
+    font-weight: 500;
+    font-size: 30px;
+    letter-spacing: -0.01em;
+  }
+  .rx-name { color: var(--text-2); font-size: 15px; }
+  .rx-file {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11.5px;
+    color: var(--text-3-solid);
+    background: var(--surface-2);
+    border: 1px solid var(--border-soft);
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+  .rx-intro { color: var(--text-2); font-size: 14px; max-width: 680px; margin: 12px 0 30px; }
+  .rx-intro em { color: var(--text); font-style: italic; }
+
+  .pathway { margin-bottom: 34px; }
+  .pathway:last-child { margin-bottom: 8px; }
+  .pathway-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+  }
+  .pathway-name {
+    font-family: "IBM Plex Mono", monospace;
+    font-weight: 500;
+    font-size: 14.5px;
+    color: var(--text);
+  }
+  .meta-chip {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11.5px;
+    color: var(--text-2);
+    display: inline-flex;
+    gap: 4px;
+  }
+  .meta-chip b { color: var(--text); font-weight: 500; }
+
+  table.steps { width: 100%; }
+  table.steps col.step { width: 40px; }
+  table.steps col.eq { width: 40%; }
+  table.steps th { font-size: 10.5px; }
+  table.steps td.step-num {
+    font-family: "IBM Plex Mono", monospace;
+    color: var(--text-3-solid);
+    font-size: 12.5px;
+  }
+  table.steps td.eq { line-height: 1.5; }
+  table.steps td.desc { color: var(--text-2); font-size: 13.5px; }
+
+  .pathway-footnote {
+    margin-top: 10px;
+    font-size: 12.5px;
+    color: var(--text-3-solid);
+    border-left: 2px solid var(--border);
+    padding-left: 10px;
+  }
+
+  footer {
+    max-width: 1040px;
+    margin: 40px auto 0;
+    padding: 24px 28px 0;
+    border-top: 1px solid var(--border);
+    color: var(--text-3-solid);
+    font-size: 12.5px;
+    font-family: "IBM Plex Mono", monospace;
+  }
+
+  @media (max-width: 640px) {
+    header.hero { padding: 44px 20px 28px; }
+    .wrap { padding: 0 20px 100px; }
+    nav.toc { padding: 10px 20px; }
+    section.reaction { padding: 40px 0 8px; }
+  }
+</style>
+
+<header class="hero">
+  <p class="eyebrow">Source &nbsp;<code>uvsib/workchains/</code></p>
+  <h1>Electrochemical Reaction Pathways</h1>
+  <p class="dek">Every elementary-step pathway defined across the seven reaction-specific workchains — <strong>HER, OER, ORR, CER, CO2RR, NOXRR, NRR</strong> — with the free-energy convention and equilibrium potential each one is scored against.</p>
+
+  <div class="convention">
+    <div><b>Model.</b> All seven reactions use the computational hydrogen electrode (CHE): each elementary step is written as one dict of stoichiometric coefficients — products positive, reactants negative — and its ΔG is summed directly from DFT/ML electronic energies plus ZPE corrections, never differenced against a neighboring step. A consumed (H⁺ + e⁻) is booked against <span class="eq">½ H₂</span>; CER, referenced to the Cl⁻/Cl₂ couple, books it against <span class="eq">½ Cl₂</span> instead. Overpotential is the largest step ΔG minus the reaction's equilibrium potential <em>U</em><sub>eq</sub>.</div>
+    <div class="legend">
+      <div class="legend-item"><span class="swatch cathodic"></span>Cathodic (reduction) — electrons consumed</div>
+      <div class="legend-item"><span class="swatch anodic"></span>Anodic (oxidation) — electrons released</div>
+    </div>
+  </div>
+</header>
+
+<nav class="toc">
+  <div class="toc-inner">
+    <a href="#her"><span class="dot" style="background:var(--cathodic)"></span>HER</a>
+    <a href="#oer"><span class="dot" style="background:var(--anodic)"></span>OER</a>
+    <a href="#orr"><span class="dot" style="background:var(--cathodic)"></span>ORR</a>
+    <a href="#cer"><span class="dot" style="background:var(--anodic)"></span>CER</a>
+    <a href="#co2rr"><span class="dot" style="background:var(--cathodic)"></span>CO2RR</a>
+    <a href="#noxrr"><span class="dot" style="background:var(--cathodic)"></span>NOXRR</a>
+    <a href="#nrr"><span class="dot" style="background:var(--cathodic)"></span>NRR</a>
+  </div>
+</nav>
+
+<div class="wrap">
+
+  <section class="summary">
+    <h2 class="section-title">All reactions &amp; pathways</h2>
+    <p class="section-sub">22 pathways across 7 reactions. U<sub>eq</sub> is V vs RHE, except CER (V vs the Cl⁻/Cl₂ couple).</p>
+    <div class="table-scroll">
+      <table class="summary-table">
+        <thead>
+          <tr>
+            <th>Reaction</th>
+            <th>Pathway</th>
+            <th>Type</th>
+            <th class="num">n(e⁻)</th>
+            <th class="num">U<sub>eq</sub> (V)</th>
+            <th>Overall transformation</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td><a class="rx-link" href="#her">HER</a></td><td class="eq">volmer_tafel</td><td><span class="type-pill cathodic"><span class="dot"></span>cathodic</span></td><td class="num">2</td><td class="num">0.00</td><td>H⁺ + e⁻ → ½ H₂, via *H, chemical (Tafel) desorption</td></tr>
+          <tr><td><a class="rx-link" href="#her">HER</a></td><td class="eq">volmer_heyrovsky</td><td><span class="type-pill cathodic"><span class="dot"></span>cathodic</span></td><td class="num">2</td><td class="num">0.00</td><td>H⁺ + e⁻ → ½ H₂, via *H, electrochemical desorption</td></tr>
+          <tr><td><a class="rx-link" href="#oer">OER</a></td><td class="eq">4e_mechanism</td><td><span class="type-pill anodic"><span class="dot"></span>anodic</span></td><td class="num">4</td><td class="num">1.23</td><td>2 H₂O → O₂ + 4H⁺ + 4e⁻, via *OH → *O → *OOH</td></tr>
+          <tr><td><a class="rx-link" href="#orr">ORR</a></td><td class="eq">4e_associative</td><td><span class="type-pill cathodic"><span class="dot"></span>cathodic</span></td><td class="num">4</td><td class="num">1.23</td><td>O₂ + 4(H⁺+e⁻) → 2 H₂O, via *O₂ → *OOH → *O → *OH</td></tr>
+          <tr><td><a class="rx-link" href="#orr">ORR</a></td><td class="eq">4e_dissociative</td><td><span class="type-pill cathodic"><span class="dot"></span>cathodic</span></td><td class="num">4</td><td class="num">1.23</td><td>O₂ → 2*O, then 2*O → 2*OH → 2 H₂O</td></tr>
+          <tr><td><a class="rx-link" href="#orr">ORR</a></td><td class="eq">2e_to_h2o2</td><td><span class="type-pill cathodic"><span class="dot"></span>cathodic</span></td><td class="num">2</td><td class="num">0.70</td><td>O₂ + 2(H⁺+e⁻) → H₂O₂, via *O₂ → *OOH, no O–O cleavage</td></tr>
+          <tr><td><a class="rx-link" href="#cer">CER</a></td><td class="eq">volmer_tafel</td><td><span class="type-pill anodic"><span class="dot"></span>anodic</span></td><td class="num">2</td><td class="num">1.36</td><td>2 Cl⁻ → Cl₂ + 2e⁻, via *Cl, chemical (Tafel) desorption</td></tr>
+          <tr><td><a class="rx-link" href="#cer">CER</a></td><td class="eq">volmer_heyrovsky</td><td><span class="type-pill anodic"><span class="dot"></span>anodic</span></td><td class="num">2</td><td class="num">1.36</td><td>2 Cl⁻ → Cl₂ + 2e⁻, via *Cl, electrochemical desorption</td></tr>
+          <tr><td><a class="rx-link" href="#cer">CER</a></td><td class="eq">krishtalik</td><td><span class="type-pill anodic"><span class="dot"></span>anodic</span></td><td class="num">2</td><td class="num">1.36</td><td>2 Cl⁻ → Cl₂ + 2e⁻, O-covered oxide route via *OCl</td></tr>
+          <tr><td><a class="rx-link" href="#co2rr">CO2RR</a></td><td class="eq">co2_to_co</td><td><span class="type-pill cathodic"><span class="dot"></span>cathodic</span></td><td class="num">2</td><td class="num">−0.11</td><td>CO₂ → CO, via *COOH</td></tr>
+          <tr><td><a class="rx-link" href="#co2rr">CO2RR</a></td><td class="eq">co2_to_hcooh</td><td><span class="type-pill cathodic"><span class="dot"></span>cathodic</span></td><td class="num">2</td><td class="num">−0.12</td><td>CO₂ → HCOOH, via *OCHO</td></tr>
+          <tr><td><a class="rx-link" href="#co2rr">CO2RR</a></td><td class="eq">co_to_ch4</td><td><span class="type-pill cathodic"><span class="dot"></span>cathodic</span></td><td class="num">6</td><td class="num">0.26</td><td>*CO → CH₄, via *CHO → *CHOH → *CH → *CH₂ → *CH₃</td></tr>
+          <tr><td><a class="rx-link" href="#co2rr">CO2RR</a></td><td class="eq">co_to_ch3oh</td><td><span class="type-pill cathodic"><span class="dot"></span>cathodic</span></td><td class="num">4</td><td class="num">0.09</td><td>*CO → CH₃OH, via *CHO → *CHOH → *CH₂OH</td></tr>
+          <tr><td><a class="rx-link" href="#co2rr">CO2RR</a></td><td class="eq">co2_to_ch4</td><td><span class="type-pill cathodic"><span class="dot"></span>cathodic</span></td><td class="num">8</td><td class="num">0.17</td><td>CO₂ → CH₄, full chain: co2_to_co spliced onto co_to_ch4</td></tr>
+          <tr><td><a class="rx-link" href="#co2rr">CO2RR</a></td><td class="eq">co2_to_ch3oh</td><td><span class="type-pill cathodic"><span class="dot"></span>cathodic</span></td><td class="num">6</td><td class="num">0.03</td><td>CO₂ → CH₃OH, full chain: co2_to_co spliced onto co_to_ch3oh</td></tr>
+          <tr><td><a class="rx-link" href="#co2rr">CO2RR</a></td><td class="eq">co2_to_c2h4</td><td><span class="type-pill cathodic"><span class="dot"></span>cathodic</span></td><td class="num">8</td><td class="num">0.08</td><td>CO₂ → C₂H₄, C–C coupling via *OCCO <span class="note-flag">qualitative</span></td></tr>
+          <tr><td><a class="rx-link" href="#noxrr">NOXRR</a></td><td class="eq">no_dissociative</td><td><span class="type-pill cathodic"><span class="dot"></span>cathodic</span></td><td class="num">0</td><td class="num">−0.10</td><td>2 NO → N₂ + 2 O, direct N–N coupling <span class="note-flag">non-electrochemical</span></td></tr>
+          <tr><td><a class="rx-link" href="#noxrr">NOXRR</a></td><td class="eq">no_to_nh3_noh</td><td><span class="type-pill cathodic"><span class="dot"></span>cathodic</span></td><td class="num">5</td><td class="num">0.70</td><td>NO → NH₃, early N–O cleavage via *NOH</td></tr>
+          <tr><td><a class="rx-link" href="#noxrr">NOXRR</a></td><td class="eq">no_to_nh3_nhoh</td><td><span class="type-pill cathodic"><span class="dot"></span>cathodic</span></td><td class="num">5</td><td class="num">0.70</td><td>NO → NH₃, late N–O cleavage via *NHOH → *NH₂OH</td></tr>
+          <tr><td><a class="rx-link" href="#noxrr">NOXRR</a></td><td class="eq">no_to_n2o</td><td><span class="type-pill cathodic"><span class="dot"></span>cathodic</span></td><td class="num">0</td><td class="num">−0.03</td><td>2 NO → N₂O, via *N2O2 dimer <span class="note-flag">non-electrochemical</span></td></tr>
+          <tr><td><a class="rx-link" href="#noxrr">NOXRR</a></td><td class="eq">no2_to_no</td><td><span class="type-pill cathodic"><span class="dot"></span>cathodic</span></td><td class="num">2</td><td class="num">1.05</td><td>NO₂ → NO, deoxygenation via *O → *OH</td></tr>
+          <tr><td><a class="rx-link" href="#noxrr">NOXRR</a></td><td class="eq">no3_to_nh3</td><td><span class="type-pill cathodic"><span class="dot"></span>cathodic</span></td><td class="num">8</td><td class="num">0.88</td><td>NO₃⁻ → NH₃, via *NO₂ → *NO → *NOH → …→ *NH₃ <span class="note-flag">U_eq TODO</span></td></tr>
+          <tr><td><a class="rx-link" href="#noxrr">NOXRR</a></td><td class="eq">no3_to_n2</td><td><span class="type-pill cathodic"><span class="dot"></span>cathodic</span></td><td class="num">5</td><td class="num">1.25</td><td>NO₃⁻ → N₂, via *NO₂ → *NO → *N, N–N coupling</td></tr>
+          <tr><td><a class="rx-link" href="#nrr">NRR</a></td><td class="eq">distal</td><td><span class="type-pill cathodic"><span class="dot"></span>cathodic</span></td><td class="num">6</td><td class="num">0.092</td><td>N₂ → 2 NH₃, distal N hydrogenated &amp; released first</td></tr>
+          <tr><td><a class="rx-link" href="#nrr">NRR</a></td><td class="eq">alternating</td><td><span class="type-pill cathodic"><span class="dot"></span>cathodic</span></td><td class="num">6</td><td class="num">0.092</td><td>N₂ → 2 NH₃, H atoms alternate between both N atoms</td></tr>
+          <tr><td><a class="rx-link" href="#nrr">NRR</a></td><td class="eq">dissociative</td><td><span class="type-pill cathodic"><span class="dot"></span>cathodic</span></td><td class="num">6</td><td class="num">0.092</td><td>N₂ → 2 NH₃, N≡N scission before any hydrogenation</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============================= HER ============================= -->
+  <section class="reaction" id="her">
+    <div class="rx-head">
+      <span class="rx-abbr">HER</span>
+      <span class="rx-name">Hydrogen Evolution Reaction</span>
+      <span class="rx-file">her.py</span>
+    </div>
+    <p class="rx-intro">Single intermediate, <em>*H</em>; the Sabatier volcano apex sits at |ΔG<sub>H*</sub>| ≈ 0. Both pathways share one thermodynamic profile — only the kinetic split of the two electron transfers differs.</p>
+
+    <div class="pathway">
+      <div class="pathway-head">
+        <span class="pathway-name">volmer_tafel</span>
+        <span class="meta-chip"><b>2 e⁻</b></span>
+        <span class="meta-chip">U<sub>eq</sub> <b>0.00 V</b></span>
+      </div>
+      <div class="table-scroll"><table class="steps">
+        <thead><tr><th>Step</th><th>Elementary reaction</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="step-num">1</td><td class="eq">* + H⁺ + e⁻ → *H</td><td class="desc">Volmer step: a proton–electron pair adsorbs onto a bare site as *H.</td></tr>
+          <tr><td class="step-num">2</td><td class="eq">2 *H → H₂(g) + 2*</td><td class="desc">Tafel step: two adjacent *H recombine chemically (no electron transfer) and desorb as H₂.</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+
+    <div class="pathway">
+      <div class="pathway-head">
+        <span class="pathway-name">volmer_heyrovsky</span>
+        <span class="meta-chip"><b>2 e⁻</b></span>
+        <span class="meta-chip">U<sub>eq</sub> <b>0.00 V</b></span>
+      </div>
+      <div class="table-scroll"><table class="steps">
+        <thead><tr><th>Step</th><th>Elementary reaction</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="step-num">1</td><td class="eq">* + H⁺ + e⁻ → *H</td><td class="desc">Volmer step: a proton–electron pair adsorbs onto a bare site as *H.</td></tr>
+          <tr><td class="step-num">2</td><td class="eq">*H + H⁺ + e⁻ → H₂(g) + *</td><td class="desc">Heyrovsky step: a second proton–electron pair attacks the adsorbed *H electrochemically, releasing H₂.</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+  </section>
+
+  <!-- ============================= OER ============================= -->
+  <section class="reaction" id="oer">
+    <div class="rx-head">
+      <span class="rx-abbr">OER</span>
+      <span class="rx-name">Oxygen Evolution Reaction</span>
+      <span class="rx-file">oer.py</span>
+    </div>
+    <p class="rx-intro">4-electron acidic mechanism: <em>2 H₂O → O₂ + 4H⁺ + 4e⁻</em>. Only one pathway is implemented — the *OH → *O → *OOH adsorbate-evolution route. The final step is not computed directly; it closes the loop against the fixed total ΔG (4 × 1.23 eV), sidestepping DFT's O₂ overbinding error.</p>
+
+    <div class="pathway">
+      <div class="pathway-head">
+        <span class="pathway-name">4e_mechanism</span>
+        <span class="meta-chip"><b>4 e⁻</b></span>
+        <span class="meta-chip">U<sub>eq</sub> <b>1.23 V</b></span>
+      </div>
+      <div class="table-scroll"><table class="steps">
+        <thead><tr><th>Step</th><th>Elementary reaction</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="step-num">1</td><td class="eq">H₂O + * → *OH + H⁺ + e⁻</td><td class="desc">Water dissociatively adsorbs, leaving a hydroxyl on the surface.</td></tr>
+          <tr><td class="step-num">2</td><td class="eq">*OH → *O + H⁺ + e⁻</td><td class="desc">The adsorbed hydroxyl is deprotonated to an oxo species.</td></tr>
+          <tr><td class="step-num">3</td><td class="eq">H₂O + *O → *OOH + H⁺ + e⁻</td><td class="desc">A second water attacks the oxo site, forming a hydroperoxo intermediate.</td></tr>
+          <tr><td class="step-num">4</td><td class="eq">*OOH → O₂(g) + * + H⁺ + e⁻</td><td class="desc">O₂ is released and the site regenerated; ΔG set by energy-conserving closure, not computed from a DFT O₂ reference.</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+  </section>
+
+  <!-- ============================= ORR ============================= -->
+  <section class="reaction" id="orr">
+    <div class="rx-head">
+      <span class="rx-abbr">ORR</span>
+      <span class="rx-name">Oxygen Reduction Reaction</span>
+      <span class="rx-file">orr.py</span>
+    </div>
+    <p class="rx-intro">Cathodic counterpart of OER. The same *OH–*OOH scaling relation (~3.2 eV) caps activity at η ≈ 0.3–0.4 V on Pt-group metals, regardless of which O₂ activation route is taken.</p>
+
+    <div class="pathway">
+      <div class="pathway-head">
+        <span class="pathway-name">4e_associative</span>
+        <span class="meta-chip"><b>4 e⁻</b></span>
+        <span class="meta-chip">U<sub>eq</sub> <b>1.23 V</b></span>
+      </div>
+      <div class="table-scroll"><table class="steps">
+        <thead><tr><th>Step</th><th>Elementary reaction</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="step-num">1</td><td class="eq">O₂ + * → *O₂</td><td class="desc">Molecular chemical adsorption of O₂, no electron transfer.</td></tr>
+          <tr><td class="step-num">2</td><td class="eq">*O₂ + H⁺ + e⁻ → *OOH</td><td class="desc">First proton–electron transfer forms the hydroperoxo intermediate.</td></tr>
+          <tr><td class="step-num">3</td><td class="eq">*OOH + H⁺ + e⁻ → *O + H₂O</td><td class="desc">O–O bond cleaves, releasing the first water and leaving an oxo species.</td></tr>
+          <tr><td class="step-num">4</td><td class="eq">*O + H⁺ + e⁻ → *OH</td><td class="desc">The oxo species is hydrogenated to a hydroxyl.</td></tr>
+          <tr><td class="step-num">5</td><td class="eq">*OH + H⁺ + e⁻ → H₂O + *</td><td class="desc">Final proton–electron transfer releases the second water and frees the site.</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+
+    <div class="pathway">
+      <div class="pathway-head">
+        <span class="pathway-name">4e_dissociative</span>
+        <span class="meta-chip"><b>4 e⁻</b></span>
+        <span class="meta-chip">U<sub>eq</sub> <b>1.23 V</b></span>
+      </div>
+      <div class="table-scroll"><table class="steps">
+        <thead><tr><th>Step</th><th>Elementary reaction</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="step-num">1</td><td class="eq">O₂ + 2* → 2 *O</td><td class="desc">O₂ dissociates across two adjacent sites before any hydrogenation.</td></tr>
+          <tr><td class="step-num">2</td><td class="eq">*O + H⁺ + e⁻ → *OH</td><td class="desc">Each surface oxygen is hydrogenated to a hydroxyl (per-site).</td></tr>
+          <tr><td class="step-num">3</td><td class="eq">*OH + H⁺ + e⁻ → H₂O + *</td><td class="desc">Each hydroxyl is further reduced and desorbs as water, freeing the site.</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+
+    <div class="pathway">
+      <div class="pathway-head">
+        <span class="pathway-name">2e_to_h2o2</span>
+        <span class="meta-chip"><b>2 e⁻</b></span>
+        <span class="meta-chip">U<sub>eq</sub> <b>0.70 V</b></span>
+      </div>
+      <div class="table-scroll"><table class="steps">
+        <thead><tr><th>Step</th><th>Elementary reaction</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="step-num">1</td><td class="eq">O₂ + * → *O₂</td><td class="desc">Molecular chemical adsorption of O₂.</td></tr>
+          <tr><td class="step-num">2</td><td class="eq">*O₂ + H⁺ + e⁻ → *OOH</td><td class="desc">First proton–electron transfer forms the hydroperoxo intermediate.</td></tr>
+          <tr><td class="step-num">3</td><td class="eq">*OOH + H⁺ + e⁻ → H₂O₂(aq) + *</td><td class="desc">Second proton–electron transfer releases hydrogen peroxide without breaking the O–O bond.</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+  </section>
+
+  <!-- ============================= CER ============================= -->
+  <section class="reaction" id="cer">
+    <div class="rx-head">
+      <span class="rx-abbr">CER</span>
+      <span class="rx-name">Chlorine Evolution Reaction</span>
+      <span class="rx-file">cer.py</span>
+    </div>
+    <p class="rx-intro">Referenced to the Cl⁻/Cl₂ couple (E° = 1.36 V vs SHE in 1 M HCl) rather than RHE. Each step consumes Cl⁻ instead of H⁺; Cl₂ plays the bookkeeping role H₂ plays elsewhere. Because the reference <em>is</em> the couple itself, the equilibrium offset used in the overpotential calculation is 0.</p>
+
+    <div class="pathway">
+      <div class="pathway-head">
+        <span class="pathway-name">volmer_tafel</span>
+        <span class="meta-chip"><b>2 e⁻</b></span>
+        <span class="meta-chip">U<sub>eq</sub> <b>1.36 V</b> (vs SHE)</span>
+      </div>
+      <div class="table-scroll"><table class="steps">
+        <thead><tr><th>Step</th><th>Elementary reaction</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="step-num">1</td><td class="eq">* + Cl⁻ → *Cl + e⁻</td><td class="desc">Volmer step: chloride discharges onto a bare site as *Cl.</td></tr>
+          <tr><td class="step-num">2</td><td class="eq">2 *Cl → Cl₂(g) + 2*</td><td class="desc">Tafel step: two adjacent *Cl recombine chemically and desorb as Cl₂.</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+
+    <div class="pathway">
+      <div class="pathway-head">
+        <span class="pathway-name">volmer_heyrovsky</span>
+        <span class="meta-chip"><b>2 e⁻</b></span>
+        <span class="meta-chip">U<sub>eq</sub> <b>1.36 V</b> (vs SHE)</span>
+      </div>
+      <div class="table-scroll"><table class="steps">
+        <thead><tr><th>Step</th><th>Elementary reaction</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="step-num">1</td><td class="eq">* + Cl⁻ → *Cl + e⁻</td><td class="desc">Volmer step: chloride discharges onto a bare site as *Cl.</td></tr>
+          <tr><td class="step-num">2</td><td class="eq">*Cl + Cl⁻ → Cl₂(g) + * + e⁻</td><td class="desc">Heyrovsky step: a second chloride attacks the adsorbed *Cl electrochemically, releasing Cl₂.</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+
+    <div class="pathway">
+      <div class="pathway-head">
+        <span class="pathway-name">krishtalik</span>
+        <span class="meta-chip"><b>2 e⁻</b></span>
+        <span class="meta-chip">U<sub>eq</sub> <b>1.36 V</b> (vs SHE)</span>
+      </div>
+      <div class="table-scroll"><table class="steps">
+        <thead><tr><th>Step</th><th>Elementary reaction</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="step-num">1</td><td class="eq">*O + Cl⁻ → *OCl + e⁻</td><td class="desc">Chloride discharges onto a pre-existing surface oxo species (O-covered oxide route).</td></tr>
+          <tr><td class="step-num">2</td><td class="eq">*OCl + Cl⁻ → Cl₂(g) + *O + e⁻</td><td class="desc">A second chloride displaces Cl₂ from *OCl, regenerating the oxo site. Relevant on RuO₂(110), IrO₂(110), Co₃O₄.</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+  </section>
+
+  <!-- ============================= CO2RR ============================= -->
+  <section class="reaction" id="co2rr">
+    <div class="rx-head">
+      <span class="rx-abbr">CO2RR</span>
+      <span class="rx-name">CO₂ Reduction Reaction</span>
+      <span class="rx-file">co2rr.py</span>
+    </div>
+    <p class="rx-intro">Seven pathways spanning 2–8 electrons. <em>co2_to_ch4</em> and <em>co2_to_ch3oh</em> are full chains built by splicing <em>co2_to_co</em> onto <em>co_to_ch4</em> / <em>co_to_ch3oh</em>. The two <em>co_to_*</em> pathways start directly from *CO, which the caller must supply.</p>
+
+    <div class="pathway">
+      <div class="pathway-head">
+        <span class="pathway-name">co2_to_co</span>
+        <span class="meta-chip"><b>2 e⁻</b></span>
+        <span class="meta-chip">U<sub>eq</sub> <b>−0.11 V</b></span>
+      </div>
+      <div class="table-scroll"><table class="steps">
+        <thead><tr><th>Step</th><th>Elementary reaction</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="step-num">1</td><td class="eq">CO₂ + H⁺ + e⁻ → *COOH</td><td class="desc">CO₂ is activated by the first proton–electron transfer, forming carboxyl.</td></tr>
+          <tr><td class="step-num">2</td><td class="eq">*COOH + H⁺ + e⁻ → *CO + H₂O</td><td class="desc">Carboxyl loses a water and leaves adsorbed CO on the surface.</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+
+    <div class="pathway">
+      <div class="pathway-head">
+        <span class="pathway-name">co2_to_hcooh</span>
+        <span class="meta-chip"><b>2 e⁻</b></span>
+        <span class="meta-chip">U<sub>eq</sub> <b>−0.12 V</b></span>
+      </div>
+      <div class="table-scroll"><table class="steps">
+        <thead><tr><th>Step</th><th>Elementary reaction</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="step-num">1</td><td class="eq">CO₂ + H⁺ + e⁻ → *OCHO</td><td class="desc">CO₂ is activated via O-bound formate rather than C-bound carboxyl.</td></tr>
+          <tr><td class="step-num">2</td><td class="eq">*OCHO + H⁺ + e⁻ → HCOOH(g) + *</td><td class="desc">Formate is hydrogenated and desorbs as formic acid.</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+
+    <div class="pathway">
+      <div class="pathway-head">
+        <span class="pathway-name">co_to_ch4</span>
+        <span class="meta-chip"><b>6 e⁻</b></span>
+        <span class="meta-chip">U<sub>eq</sub> <b>0.26 V</b></span>
+        <span class="meta-chip">starts from <b>*CO</b></span>
+      </div>
+      <div class="table-scroll"><table class="steps">
+        <thead><tr><th>Step</th><th>Elementary reaction</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="step-num">1</td><td class="eq">*CO + H⁺ + e⁻ → *CHO</td><td class="desc">Adsorbed CO is hydrogenated at carbon to formyl.</td></tr>
+          <tr><td class="step-num">2</td><td class="eq">*CHO + H⁺ + e⁻ → *CHOH</td><td class="desc">Formyl is further hydrogenated to hydroxymethylidyne.</td></tr>
+          <tr><td class="step-num">3</td><td class="eq">*CHOH + H⁺ + e⁻ → *CH + H₂O</td><td class="desc">Loss of the hydroxyl as water leaves adsorbed methylidyne.</td></tr>
+          <tr><td class="step-num">4</td><td class="eq">*CH + H⁺ + e⁻ → *CH₂</td><td class="desc">Methylidyne is hydrogenated to methylene.</td></tr>
+          <tr><td class="step-num">5</td><td class="eq">*CH₂ + H⁺ + e⁻ → *CH₃</td><td class="desc">Methylene is hydrogenated to methyl.</td></tr>
+          <tr><td class="step-num">6</td><td class="eq">*CH₃ + H⁺ + e⁻ → CH₄(g) + *</td><td class="desc">Methyl is hydrogenated and desorbs as methane, freeing the site.</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+
+    <div class="pathway">
+      <div class="pathway-head">
+        <span class="pathway-name">co_to_ch3oh</span>
+        <span class="meta-chip"><b>4 e⁻</b></span>
+        <span class="meta-chip">U<sub>eq</sub> <b>0.09 V</b></span>
+        <span class="meta-chip">starts from <b>*CO</b></span>
+      </div>
+      <div class="table-scroll"><table class="steps">
+        <thead><tr><th>Step</th><th>Elementary reaction</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="step-num">1</td><td class="eq">*CO + H⁺ + e⁻ → *CHO</td><td class="desc">Adsorbed CO is hydrogenated at carbon to formyl.</td></tr>
+          <tr><td class="step-num">2</td><td class="eq">*CHO + H⁺ + e⁻ → *CHOH</td><td class="desc">Formyl is further hydrogenated to hydroxymethylidyne.</td></tr>
+          <tr><td class="step-num">3</td><td class="eq">*CHOH + H⁺ + e⁻ → *CH₂OH</td><td class="desc">Hydroxymethylidyne is hydrogenated at carbon, retaining the hydroxyl.</td></tr>
+          <tr><td class="step-num">4</td><td class="eq">*CH₂OH + H⁺ + e⁻ → CH₃OH(g) + *</td><td class="desc">Final hydrogenation releases methanol and frees the site.</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+
+    <div class="pathway">
+      <div class="pathway-head">
+        <span class="pathway-name">co2_to_ch4</span>
+        <span class="meta-chip"><b>8 e⁻</b></span>
+        <span class="meta-chip">U<sub>eq</sub> <b>0.17 V</b></span>
+        <span class="meta-chip">full chain</span>
+      </div>
+      <div class="table-scroll"><table class="steps">
+        <thead><tr><th>Step</th><th>Elementary reaction</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="step-num">1</td><td class="eq">CO₂ + H⁺ + e⁻ → *COOH</td><td class="desc">CO₂ is activated, forming carboxyl. <span style="color:var(--text-3-solid)">(= co2_to_co, step 1)</span></td></tr>
+          <tr><td class="step-num">2</td><td class="eq">*COOH + H⁺ + e⁻ → *CO + H₂O</td><td class="desc">Carboxyl loses water, leaving adsorbed CO.</td></tr>
+          <tr><td class="step-num">3</td><td class="eq">*CO + H⁺ + e⁻ → *CHO</td><td class="desc">CO is hydrogenated at carbon to formyl. <span style="color:var(--text-3-solid)">(= co_to_ch4, step 1)</span></td></tr>
+          <tr><td class="step-num">4</td><td class="eq">*CHO + H⁺ + e⁻ → *CHOH</td><td class="desc">Formyl is hydrogenated to hydroxymethylidyne.</td></tr>
+          <tr><td class="step-num">5</td><td class="eq">*CHOH + H⁺ + e⁻ → *CH + H₂O</td><td class="desc">Loss of hydroxyl as water leaves adsorbed methylidyne.</td></tr>
+          <tr><td class="step-num">6</td><td class="eq">*CH + H⁺ + e⁻ → *CH₂</td><td class="desc">Methylidyne is hydrogenated to methylene.</td></tr>
+          <tr><td class="step-num">7</td><td class="eq">*CH₂ + H⁺ + e⁻ → *CH₃</td><td class="desc">Methylene is hydrogenated to methyl.</td></tr>
+          <tr><td class="step-num">8</td><td class="eq">*CH₃ + H⁺ + e⁻ → CH₄(g) + *</td><td class="desc">Methyl is hydrogenated and desorbs as methane.</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+
+    <div class="pathway">
+      <div class="pathway-head">
+        <span class="pathway-name">co2_to_ch3oh</span>
+        <span class="meta-chip"><b>6 e⁻</b></span>
+        <span class="meta-chip">U<sub>eq</sub> <b>0.03 V</b></span>
+        <span class="meta-chip">full chain</span>
+      </div>
+      <div class="table-scroll"><table class="steps">
+        <thead><tr><th>Step</th><th>Elementary reaction</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="step-num">1</td><td class="eq">CO₂ + H⁺ + e⁻ → *COOH</td><td class="desc">CO₂ is activated, forming carboxyl. <span style="color:var(--text-3-solid)">(= co2_to_co, step 1)</span></td></tr>
+          <tr><td class="step-num">2</td><td class="eq">*COOH + H⁺ + e⁻ → *CO + H₂O</td><td class="desc">Carboxyl loses water, leaving adsorbed CO.</td></tr>
+          <tr><td class="step-num">3</td><td class="eq">*CO + H⁺ + e⁻ → *CHO</td><td class="desc">CO is hydrogenated at carbon to formyl. <span style="color:var(--text-3-solid)">(= co_to_ch3oh, step 1)</span></td></tr>
+          <tr><td class="step-num">4</td><td class="eq">*CHO + H⁺ + e⁻ → *CHOH</td><td class="desc">Formyl is hydrogenated to hydroxymethylidyne.</td></tr>
+          <tr><td class="step-num">5</td><td class="eq">*CHOH + H⁺ + e⁻ → *CH₂OH</td><td class="desc">Hydroxymethylidyne is hydrogenated at carbon, retaining the hydroxyl.</td></tr>
+          <tr><td class="step-num">6</td><td class="eq">*CH₂OH + H⁺ + e⁻ → CH₃OH(g) + *</td><td class="desc">Final hydrogenation releases methanol.</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+
+    <div class="pathway">
+      <div class="pathway-head">
+        <span class="pathway-name">co2_to_c2h4</span>
+        <span class="meta-chip"><b>8 e⁻</b></span>
+        <span class="meta-chip">U<sub>eq</sub> <b>0.08 V</b></span>
+      </div>
+      <div class="table-scroll"><table class="steps">
+        <thead><tr><th>Step</th><th>Elementary reaction</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="step-num">1</td><td class="eq">CO₂ + H⁺ + e⁻ → *COOH</td><td class="desc">CO₂ is activated, forming carboxyl.</td></tr>
+          <tr><td class="step-num">2</td><td class="eq">*COOH + H⁺ + e⁻ → *CO + H₂O</td><td class="desc">Carboxyl loses water, leaving adsorbed CO.</td></tr>
+          <tr><td class="step-num">3</td><td class="eq">2 *CO → *OCCO + *</td><td class="desc">C–C coupling: two adsorbed CO combine, freeing one site.</td></tr>
+          <tr><td class="step-num">4</td><td class="eq">*OCCO + 3(H⁺+e⁻) → *CCHO + H₂O</td><td class="desc">Three lumped proton–electron transfers strip one oxygen as water.</td></tr>
+          <tr><td class="step-num">5</td><td class="eq">*CCHO + 5(H⁺+e⁻) → C₂H₄(g) + H₂O + *</td><td class="desc">Five lumped proton–electron transfers release ethylene and a second water.</td></tr>
+        </tbody>
+      </table></div>
+      <p class="pathway-footnote">Coarse route: the *OCCO → *CCHO → C₂H₄ tail collapses several proton–electron transfers into two multi-electron steps, so the resulting overpotential is qualitative, not per-electron resolved.</p>
+    </div>
+  </section>
+
+  <!-- ============================= NOXRR ============================= -->
+  <section class="reaction" id="noxrr">
+    <div class="rx-head">
+      <span class="rx-abbr">NOXRR</span>
+      <span class="rx-name">NOₓ Reduction Reaction</span>
+      <span class="rx-file">noxrr.py</span>
+    </div>
+    <p class="rx-intro">Seven pathways covering NO, NO₂, and NO₃⁻ reduction toward N₂, N₂O, or NH₃. Released atomic O is referenced to ½ O₂, derived on the fly from the O₂ gas-phase energy.</p>
+
+    <div class="pathway">
+      <div class="pathway-head">
+        <span class="pathway-name">no_dissociative</span>
+        <span class="meta-chip"><b>0 e⁻</b></span>
+        <span class="meta-chip">U<sub>eq</sub> <b>−0.10 V</b> (nominal)</span>
+      </div>
+      <div class="table-scroll"><table class="steps">
+        <thead><tr><th>Step</th><th>Elementary reaction</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="step-num">1</td><td class="eq">* + NO → *N + O(g)</td><td class="desc">NO dissociates on a bare site, releasing atomic oxygen.</td></tr>
+          <tr><td class="step-num">2</td><td class="eq">2 *N → N₂(g) + 2*</td><td class="desc">Two adsorbed N atoms couple directly and desorb as N₂.</td></tr>
+        </tbody>
+      </table></div>
+      <p class="pathway-footnote">Non-electrochemical N–N coupling route; sketch stoichiometry, not atom-balanced in O. η here is not a true overpotential — treat as indicative only.</p>
+    </div>
+
+    <div class="pathway">
+      <div class="pathway-head">
+        <span class="pathway-name">no_to_nh3_noh</span>
+        <span class="meta-chip"><b>5 e⁻</b></span>
+        <span class="meta-chip">U<sub>eq</sub> <b>0.70 V</b></span>
+      </div>
+      <div class="table-scroll"><table class="steps">
+        <thead><tr><th>Step</th><th>Elementary reaction</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="step-num">1</td><td class="eq">NO + H⁺ + e⁻ → *NOH</td><td class="desc">NO is activated by hydrogenation at oxygen.</td></tr>
+          <tr><td class="step-num">2</td><td class="eq">*NOH + H⁺ + e⁻ → *N + H₂O</td><td class="desc">Early N–O cleavage: the hydroxyl leaves as water, leaving adsorbed N.</td></tr>
+          <tr><td class="step-num">3</td><td class="eq">*N + H⁺ + e⁻ → *NH</td><td class="desc">Adsorbed N is hydrogenated to imide.</td></tr>
+          <tr><td class="step-num">4</td><td class="eq">*NH + H⁺ + e⁻ → *NH₂</td><td class="desc">Imide is hydrogenated to amide.</td></tr>
+          <tr><td class="step-num">5</td><td class="eq">*NH₂ + H⁺ + e⁻ → *NH₃</td><td class="desc">Amide is hydrogenated to adsorbed ammonia.</td></tr>
+          <tr><td class="step-num">6</td><td class="eq">*NH₃ → NH₃(g) + *</td><td class="desc">Ammonia desorbs chemically, freeing the site.</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+
+    <div class="pathway">
+      <div class="pathway-head">
+        <span class="pathway-name">no_to_nh3_nhoh</span>
+        <span class="meta-chip"><b>5 e⁻</b></span>
+        <span class="meta-chip">U<sub>eq</sub> <b>0.70 V</b></span>
+      </div>
+      <div class="table-scroll"><table class="steps">
+        <thead><tr><th>Step</th><th>Elementary reaction</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="step-num">1</td><td class="eq">NO + H⁺ + e⁻ → *NOH</td><td class="desc">NO is activated by hydrogenation at oxygen.</td></tr>
+          <tr><td class="step-num">2</td><td class="eq">*NOH + H⁺ + e⁻ → *NHOH</td><td class="desc">Second hydrogenation adds H to nitrogen, retaining the N–O bond.</td></tr>
+          <tr><td class="step-num">3</td><td class="eq">*NHOH + H⁺ + e⁻ → *NH₂OH</td><td class="desc">Forms adsorbed hydroxylamine — the N–O bond survives three hydrogenations.</td></tr>
+          <tr><td class="step-num">4</td><td class="eq">*NH₂OH + H⁺ + e⁻ → *NH₂ + H₂O</td><td class="desc">Late N–O cleavage: hydroxylamine splits, releasing water and leaving amide.</td></tr>
+          <tr><td class="step-num">5</td><td class="eq">*NH₂ + H⁺ + e⁻ → *NH₃</td><td class="desc">Amide is hydrogenated to adsorbed ammonia.</td></tr>
+          <tr><td class="step-num">6</td><td class="eq">*NH₃ → NH₃(g) + *</td><td class="desc">Ammonia desorbs chemically, freeing the site.</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+
+    <div class="pathway">
+      <div class="pathway-head">
+        <span class="pathway-name">no_to_n2o</span>
+        <span class="meta-chip"><b>0 e⁻</b></span>
+        <span class="meta-chip">U<sub>eq</sub> <b>−0.03 V</b> (nominal)</span>
+      </div>
+      <div class="table-scroll"><table class="steps">
+        <thead><tr><th>Step</th><th>Elementary reaction</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="step-num">1</td><td class="eq">2 *NO → *N2O2 + *</td><td class="desc">Two adsorbed NO combine into a cis-dimer, freeing one site.</td></tr>
+          <tr><td class="step-num">2</td><td class="eq">*N2O2 → *N2O + O(g)</td><td class="desc">The dimer sheds one oxygen atom, leaving adsorbed N₂O.</td></tr>
+          <tr><td class="step-num">3</td><td class="eq">*N2O → N₂O(g) + *</td><td class="desc">N₂O desorbs, freeing the site.</td></tr>
+        </tbody>
+      </table></div>
+      <p class="pathway-footnote">Non-electrochemical coupling route; sketch stoichiometry, not atom-balanced in O. η here is not a true overpotential — treat as indicative only.</p>
+    </div>
+
+    <div class="pathway">
+      <div class="pathway-head">
+        <span class="pathway-name">no2_to_no</span>
+        <span class="meta-chip"><b>2 e⁻</b></span>
+        <span class="meta-chip">U<sub>eq</sub> <b>1.05 V</b></span>
+      </div>
+      <div class="table-scroll"><table class="steps">
+        <thead><tr><th>Step</th><th>Elementary reaction</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="step-num">1</td><td class="eq">NO₂ + * → *NO + O(g)</td><td class="desc">NO₂ deoxygenates on adsorption, releasing atomic oxygen and leaving adsorbed NO.</td></tr>
+          <tr><td class="step-num">2</td><td class="eq">*O + H⁺ + e⁻ → *OH</td><td class="desc">The released surface oxygen is hydrogenated to hydroxyl.</td></tr>
+          <tr><td class="step-num">3</td><td class="eq">*OH + H⁺ + e⁻ → H₂O + *</td><td class="desc">Hydroxyl is further reduced and desorbs as water.</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+
+    <div class="pathway">
+      <div class="pathway-head">
+        <span class="pathway-name">no3_to_nh3</span>
+        <span class="meta-chip"><b>8 e⁻</b></span>
+        <span class="meta-chip">U<sub>eq</sub> <b>0.88 V</b></span>
+      </div>
+      <div class="table-scroll"><table class="steps">
+        <thead><tr><th>Step</th><th>Elementary reaction</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="step-num">1</td><td class="eq">NO₃⁻ + 2(H⁺+e⁻) → *NO₂ + H₂O</td><td class="desc">Nitrate is reduced two electrons at once, releasing water and forming adsorbed NO₂.</td></tr>
+          <tr><td class="step-num">2</td><td class="eq">*NO₂ + 2(H⁺+e⁻) → *NO + H₂O</td><td class="desc">A second two-electron step strips another oxygen as water, leaving adsorbed NO.</td></tr>
+          <tr><td class="step-num">3</td><td class="eq">*NO + H⁺ + e⁻ → *NOH</td><td class="desc">NO is hydrogenated at oxygen.</td></tr>
+          <tr><td class="step-num">4</td><td class="eq">*NOH + H⁺ + e⁻ → *N + H₂O</td><td class="desc">N–O cleavage releases the last oxygen as water, leaving adsorbed N.</td></tr>
+          <tr><td class="step-num">5</td><td class="eq">*N + H⁺ + e⁻ → *NH</td><td class="desc">Adsorbed N is hydrogenated to imide.</td></tr>
+          <tr><td class="step-num">6</td><td class="eq">*NH + H⁺ + e⁻ → *NH₂</td><td class="desc">Imide is hydrogenated to amide.</td></tr>
+          <tr><td class="step-num">7</td><td class="eq">*NH₂ + H⁺ + e⁻ → *NH₃</td><td class="desc">Amide is hydrogenated to adsorbed ammonia.</td></tr>
+          <tr><td class="step-num">8</td><td class="eq">*NH₃ → NH₃(g) + *</td><td class="desc">Ammonia desorbs chemically, freeing the site.</td></tr>
+        </tbody>
+      </table></div>
+      <p class="pathway-footnote">U<sub>eq</sub> = 0.88 V is the NO₃⁻/NH₄⁺ standard potential, but this pathway's last step releases NH₃(g) — flagged in source as an open TODO; biases the pinned η by roughly 0.1 V.</p>
+    </div>
+
+    <div class="pathway">
+      <div class="pathway-head">
+        <span class="pathway-name">no3_to_n2</span>
+        <span class="meta-chip"><b>5 e⁻</b></span>
+        <span class="meta-chip">U<sub>eq</sub> <b>1.25 V</b></span>
+      </div>
+      <div class="table-scroll"><table class="steps">
+        <thead><tr><th>Step</th><th>Elementary reaction</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="step-num">1</td><td class="eq">NO₃⁻ + 2(H⁺+e⁻) → *NO₂ + H₂O</td><td class="desc">Nitrate is reduced two electrons at once, releasing water and forming adsorbed NO₂.</td></tr>
+          <tr><td class="step-num">2</td><td class="eq">*NO₂ + 2(H⁺+e⁻) → *NO + H₂O</td><td class="desc">A second two-electron step strips another oxygen as water, leaving adsorbed NO.</td></tr>
+          <tr><td class="step-num">3</td><td class="eq">*NO → *N + O(g)</td><td class="desc">NO dissociates, releasing the last oxygen atom and leaving adsorbed N.</td></tr>
+          <tr><td class="step-num">4</td><td class="eq">2 *N → N₂(g) + 2*</td><td class="desc">Two adsorbed N atoms couple directly and desorb as N₂.</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+  </section>
+
+  <!-- ============================= NRR ============================= -->
+  <section class="reaction" id="nrr">
+    <div class="rx-head">
+      <span class="rx-abbr">NRR</span>
+      <span class="rx-name">Nitrogen Reduction Reaction</span>
+      <span class="rx-file">nrr.py</span>
+    </div>
+    <p class="rx-intro">Electrochemical analog of Haber–Bosch, strongly limited by HER competition and by weak *N₂ binding on most metals. All three pathways share the same equilibrium potential; they differ only in where hydrogenation is added relative to the two nitrogen atoms.</p>
+
+    <div class="pathway">
+      <div class="pathway-head">
+        <span class="pathway-name">distal</span>
+        <span class="meta-chip"><b>6 e⁻</b></span>
+        <span class="meta-chip">U<sub>eq</sub> <b>0.092 V</b></span>
+      </div>
+      <div class="table-scroll"><table class="steps">
+        <thead><tr><th>Step</th><th>Elementary reaction</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="step-num">1</td><td class="eq">N₂ + * → *N₂</td><td class="desc">Molecular chemical adsorption of N₂, no electron transfer.</td></tr>
+          <tr><td class="step-num">2</td><td class="eq">*N₂ + H⁺ + e⁻ → *NNH</td><td class="desc">First hydrogenation on the distal (far) nitrogen.</td></tr>
+          <tr><td class="step-num">3</td><td class="eq">*NNH + H⁺ + e⁻ → *NNH₂</td><td class="desc">Second hydrogenation, still on the distal nitrogen.</td></tr>
+          <tr><td class="step-num">4</td><td class="eq">*NNH₂ + H⁺ + e⁻ → *N + NH₃(g)</td><td class="desc">The distal nitrogen is fully hydrogenated and leaves as the first NH₃, leaving adsorbed N.</td></tr>
+          <tr><td class="step-num">5</td><td class="eq">*N + H⁺ + e⁻ → *NH</td><td class="desc">The remaining adsorbed N is hydrogenated to imide.</td></tr>
+          <tr><td class="step-num">6</td><td class="eq">*NH + H⁺ + e⁻ → *NH₂</td><td class="desc">Imide is hydrogenated to amide.</td></tr>
+          <tr><td class="step-num">7</td><td class="eq">*NH₂ + H⁺ + e⁻ → NH₃(g) + *</td><td class="desc">Amide is hydrogenated and desorbs as the second NH₃, freeing the site.</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+
+    <div class="pathway">
+      <div class="pathway-head">
+        <span class="pathway-name">alternating</span>
+        <span class="meta-chip"><b>6 e⁻</b></span>
+        <span class="meta-chip">U<sub>eq</sub> <b>0.092 V</b></span>
+      </div>
+      <div class="table-scroll"><table class="steps">
+        <thead><tr><th>Step</th><th>Elementary reaction</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="step-num">1</td><td class="eq">N₂ + * → *N₂</td><td class="desc">Molecular chemical adsorption of N₂.</td></tr>
+          <tr><td class="step-num">2</td><td class="eq">*N₂ + H⁺ + e⁻ → *NNH</td><td class="desc">First hydrogenation on the distal nitrogen.</td></tr>
+          <tr><td class="step-num">3</td><td class="eq">*NNH + H⁺ + e⁻ → *NHNH</td><td class="desc">Second hydrogenation switches to the near (proximal) nitrogen.</td></tr>
+          <tr><td class="step-num">4</td><td class="eq">*NHNH + H⁺ + e⁻ → *NHNH₂</td><td class="desc">Third hydrogenation returns to the distal nitrogen.</td></tr>
+          <tr><td class="step-num">5</td><td class="eq">*NHNH₂ + H⁺ + e⁻ → *N₂H₄</td><td class="desc">Fourth hydrogenation forms adsorbed hydrazine, both nitrogens still bonded.</td></tr>
+          <tr><td class="step-num">6</td><td class="eq">*N₂H₄ + H⁺ + e⁻ → *NH₂ + NH₃(g)</td><td class="desc">The N–N bond breaks; one nitrogen leaves as the first NH₃.</td></tr>
+          <tr><td class="step-num">7</td><td class="eq">*NH₂ + H⁺ + e⁻ → *NH₃</td><td class="desc">The remaining amide is hydrogenated to adsorbed ammonia.</td></tr>
+          <tr><td class="step-num">8</td><td class="eq">*NH₃ → NH₃(g) + *</td><td class="desc">Second ammonia desorbs chemically, freeing the site.</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+
+    <div class="pathway">
+      <div class="pathway-head">
+        <span class="pathway-name">dissociative</span>
+        <span class="meta-chip"><b>6 e⁻</b></span>
+        <span class="meta-chip">U<sub>eq</sub> <b>0.092 V</b></span>
+      </div>
+      <div class="table-scroll"><table class="steps">
+        <thead><tr><th>Step</th><th>Elementary reaction</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="step-num">1</td><td class="eq">N₂ + 2* → 2 *N</td><td class="desc">N≡N is chemically split across two sites before any hydrogenation — needs very strong *N binding.</td></tr>
+          <tr><td class="step-num">2</td><td class="eq">*N + H⁺ + e⁻ → *NH</td><td class="desc">Each adsorbed N is hydrogenated to imide (per-site).</td></tr>
+          <tr><td class="step-num">3</td><td class="eq">*NH + H⁺ + e⁻ → *NH₂</td><td class="desc">Each imide is hydrogenated to amide.</td></tr>
+          <tr><td class="step-num">4</td><td class="eq">*NH₂ + H⁺ + e⁻ → NH₃(g) + *</td><td class="desc">Each amide is hydrogenated and desorbs as NH₃, freeing the site.</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+  </section>
+
+  <footer>
+    Compiled from co2rr.py · her.py · noxrr.py · nrr.py · oer.py · orr.py · cer.py — uvsib/workchains, using the CHE convention in utils.py (che_overpotential).
+  </footer>
+</div>

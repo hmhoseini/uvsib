@@ -43,12 +43,16 @@ def relax_structures(calc, fmax, max_steps):
         atoms.calc = calc
         cell_filter = FrechetCellFilter(atoms)
 
-        if 1 == 1:
-            opt = BFGSLineSearch(cell_filter, logfile="opt.log")
-        else:
+        opt = BFGSLineSearch(cell_filter, logfile="opt.log")
+        try:
+            opt.run(fmax=fmax, steps=max_steps)
+        except RuntimeError:
+            # BFGSLineSearch's Wolfe-condition line search can fail to find a
+            # valid step on some structures; FIRE has no line search and is
+            # more robust, so fall back to it and continue from where the
+            # atoms currently are.
             opt = FIRE(cell_filter, logfile="opt.log")
-
-        opt.run(fmax=fmax, steps=max_steps)
+            opt.run(fmax=fmax, steps=max_steps)
 
         if opt.converged:
             energy = float(atoms.get_potential_energy())

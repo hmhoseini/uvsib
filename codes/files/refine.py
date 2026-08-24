@@ -1,7 +1,7 @@
 import json
 from pymatgen.core.structure import Lattice, Structure
 from pymatgen.analysis.structure_matcher import StructureMatcher
-from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
+from pymatgen.symmetry.analyzer import SpacegroupAnalyzer, SymmetryUndeterminedError
 from ase.io import read
 from itertools import product
 
@@ -132,11 +132,14 @@ def refine_and_filter_structures(structures):
     for s_dict in structures:
         structure = Structure.from_dict(s_dict)
 
-        sga = SpacegroupAnalyzer(
-            structure,
-            symprec=0.05,
-            angle_tolerance=5,
-        )
+        try:
+            sga = SpacegroupAnalyzer(
+                structure,
+                symprec=0.05,
+                angle_tolerance=5,
+            )
+        except SymmetryUndeterminedError:
+            continue
 
         try:
             prim_struct = sga.get_primitive_standard_structure()
