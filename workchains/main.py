@@ -690,8 +690,11 @@ class MainWorkChain(WorkChain):
         SurfaceBuilderWorkChain / AdsorbatesWorkChain (and AKMCWorkChain, if
         enabled) have all written the rows ``pipeline_report.py`` joins.
         Output goes to one folder per (composition, reaction, reaction_path)
-        under ``settings.run_dir/reports/`` so parallel/repeated runs never
-        collide or overwrite each other. ``render_html_report()`` writes its
+        under ``settings.REPORTS_DIR`` (a fixed directory next to the
+        ``uvsib`` package, NOT the per-run ``settings.run_dir``) so
+        parallel/repeated runs never collide or overwrite each other, and
+        reports always land in the same predictable place regardless of
+        which run directory produced them. ``render_html_report()`` writes its
         own "raw_data.json" (tables + full bulk/surface structures) next to
         "report.html", so this step does not separately dump a summary.json
         -- that would just be a lighter, easily-stale duplicate of it."""
@@ -704,7 +707,7 @@ class MainWorkChain(WorkChain):
         update_step_status_path(DBComposition, row.uuid, path, "Running")
 
         folder = f"{self.ctx.chemical_formula}_{reaction}_{reaction_path}"
-        output_dir = os.path.join(settings.run_dir, "reports", folder)
+        output_dir = os.path.join(settings.REPORTS_DIR, folder)
         os.makedirs(output_dir, exist_ok=True)
 
         try:

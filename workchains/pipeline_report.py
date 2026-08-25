@@ -24,7 +24,7 @@ Plotting (matplotlib imported lazily -- only needed if you call these):
     plot_bulk_comparison(summaries, ax_ehull=None, ax_eta=None)
     plot_surface_fed(surface, reaction, reaction_path, ax=None)  # FED for one surface's best candidate
     plot_bulk_detail(summary, reaction, reaction_path)  # one FED panel per surface, stacked in a column
-    save_report_figures(summaries, reaction, reaction_path, output_dir) -> {uuid: path, ..., "comparison": path}
+    save_report_figures(summaries, reaction, reaction_path, output_dir) -> {structure_uuid: path, ...}
 
 HTML report (also lazily needs matplotlib; see result-sample.html for the reference layout):
 
@@ -45,10 +45,10 @@ HTML report (also lazily needs matplotlib; see result-sample.html for the refere
         slab -- different candidates on the same surface can use different
         repeats for different coverages, so this scaling is per-candidate,
         not a fixed per-surface number. Does NOT include the cross-bulk
-        comparison figure save_report_figures() writes as
-        "bulk_comparison.png" -- that PNG is a separate, optional artifact
-        for report(..., plot_dir=...) callers, not part of this page. Also
-        writes "raw_data.json" (see raw_data()) next to output_path and
+        comparison chart (E-above-hull + best eta per bulk) -- that plot
+        (plot_bulk_comparison()) is not rendered as part of the standard
+        pipeline report; call it directly if you want it. Also writes
+        "raw_data.json" (see raw_data()) next to output_path and
         links a download button to it. Also returns the HTML string.
 
 Caveats worth knowing:
@@ -65,9 +65,10 @@ Caveats worth knowing:
   available (e.g. the same process/script that ran the pipeline). This is why
   ``MainWorkChain.pipeline_report`` (``uvsib/workchains/main.py``) -- which
   calls ``report()`` and ``render_html_report()`` as its own outline step
-  right after AKMC, writing into ``settings.run_dir/reports/<composition>_
-  <reaction>_<reaction_path>/`` -- works safely: it already runs inside a
-  profile-loaded AiiDA worker process. ``render_html_report()`` ALSO always
+  right after AKMC, writing into ``settings.REPORTS_DIR/<composition>_
+  <reaction>_<reaction_path>/`` (a fixed directory next to the ``uvsib``
+  package, not the per-run ``settings.run_dir``) -- works safely: it already
+  runs inside a profile-loaded AiiDA worker process. ``render_html_report()`` ALSO always
   tries this same profile-loading import via ``_ml_surface_model()``/
   ``_ml_stage_head()`` (for the "ML Bulk/Surface Model" + task metadata
   fields), but defensively -- unlike ``step_labels()``, it catches the
@@ -557,21 +558,14 @@ def plot_bulk_detail(summary, reaction, reaction_path):
 
 
 def save_report_figures(summaries, reaction, reaction_path, output_dir):
-    """Render and save the comparison figure plus one detail figure per bulk
-    (one reaction-path FED panel per surface, stacked in a column) into
-    ``output_dir`` (created if missing). Returns
-    ``{structure_uuid: path, ..., "comparison": path}``."""
+    """Render and save one detail figure per bulk (one reaction-path FED
+    panel per surface, stacked in a column) into ``output_dir`` (created if
+    missing). Returns ``{structure_uuid: path, ...}``."""
     import os
     plt = _require_matplotlib()
     os.makedirs(output_dir, exist_ok=True)
 
     paths = {}
-
-    fig, _ = plot_bulk_comparison(summaries)
-    comparison_path = os.path.join(output_dir, "bulk_comparison.png")
-    fig.savefig(comparison_path, dpi=150)
-    plt.close(fig)
-    paths["comparison"] = comparison_path
 
     for summary in summaries:
         fig = plot_bulk_detail(summary, reaction, reaction_path)

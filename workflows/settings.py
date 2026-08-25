@@ -81,3 +81,11 @@ _SKIP_GEN = False
 code_folder_path =  os.path.join(uvsib_directory, 'codes')
 files_path = os.path.join(code_folder_path, 'files')
 molecular_reference_files = os.path.join(code_folder_path, 'files', 'molecular_references')
+
+# Where MainWorkChain.pipeline_report writes generated figures + report.html
+# (via uvsib.workchains.pipeline_report.report()/render_html_report()).
+# Sibling to the uvsib package directory (NOT run_dir, which is a
+# per-run/per-machine AiiDA-tracked directory) so reports always land in one
+# fixed, predictable place next to the code -- e.g.
+# /data/hossein/platform/reports if uvsib lives in /data/hossein/platform/uvsib.
+REPORTS_DIR = os.path.join(os.path.dirname(uvsib_directory), 'reports')
