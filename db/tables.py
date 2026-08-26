@@ -204,6 +204,7 @@ class DBFrontend(Base):
     status = Column(String, nullable=False, default="Created")
     step_status = Column(JSONB, nullable=True)
     result = Column(String, nullable=True)
+    nano_particles = Column(String, nullable=True)
     attributes = Column(JSONB, nullable=True)
     ctime = Column(DateTime(timezone=True), server_default=func.now())
     mtime = Column(DateTime(timezone=True), onupdate=func.now())
