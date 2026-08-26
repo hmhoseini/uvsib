@@ -197,10 +197,10 @@ class DBFrontend(Base):
         nullable=False
     )
     username = Column(String, nullable=True)
+    user_id = Column(UUID, nullable=True)
     composition = Column(String, nullable=True)
     reaction = Column(String, nullable=True)
     reaction_path = Column(String, nullable=False)
-    nano_particles = Column(String, nullable=True)
     status = Column(String, nullable=False, default="Created")
     step_status = Column(JSONB, nullable=True)
     result = Column(String, nullable=True)
