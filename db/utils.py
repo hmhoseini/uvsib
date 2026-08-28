@@ -1,31 +1,10 @@
 import re
 from itertools import combinations
-from sqlalchemy import inspect, delete, select, text
-#from sqlalchemy.orm import aliased
+from sqlalchemy import inspect, delete, text
 from pymatgen.core import Composition, Structure
 from uvsib.db.session import get_session
 from uvsib.db.tables import (DBChemsys, DBStructure, DBStructureVersion, DBSurface,
-                             DBSurfaceMLAdsorbate, DBNanoParticles, DBAkmcEvent)
-
-
-#def add_surface_adsorbate(existing_uuid, surf_id, comp, react, react_path, site_type, ads_coord, e, dg, ad_set):
-#    """Store a new DBSurfaceAdsorbate row corresponding to a given DBStructure UUID and surface ID"""
-#    with get_session() as session:
-#        adsorb = DBSurfaceAdsorbate(
-#                structure_uuid=existing_uuid,
-#                surface_id=surf_id,
-#                composition=comp,
-#                reaction=react,
-#                reaction_path=react_path,
-#                site_type=site_type,
-#                ads_coord=ads_coord,
-#                eta=e,
-#                dG=dg,
-#                adsorb_set=ad_set
-#        )
-#        session.add(adsorb)
-#        session.commit()
-#    return True
+                             DBSurfaceMLAdsorbate, DBAkmcEvent)
 
 
 def add_surface_ml_adsorbate(existing_uuid, surf_id, surface_miller_index, comp, react, react_path, site_type, ads_coord, repeat, e, dG_steps, dG_cumulative, ad_set):
@@ -81,28 +60,6 @@ def merge_row_attributes(table_class, row_id, new_attributes):
         session.commit()
     return True
 
-
-#def get_structure_uuid_surface_id(composition):
-#    """
-#    Return (structure_uuid, surface_id) tuples for all DBStructure rows
-#    with the given composition that have corresponding DBSurface entries
-#    """
-#    structure = aliased(DBStructure)
-#    surface = aliased(DBSurface)
-#
-#    query = (
-#        select(
-#            structure.uuid.label("structure_uuid"),
-#            surface.id.label("surface_id"),
-#        )
-#        .join(surface, surface.structure_uuid == structure.uuid)
-#        .where(structure.composition == composition)
-#    )
-#
-#    with get_session() as session:
-#        results = session.execute(query).all()
-#
-#    return [(row.structure_uuid, row.surface_id) for row in results]
 
 def add_slab(existing_uuid, comp, slab_dict, head=None, formation_energy=None):
     with get_session() as session:
@@ -514,22 +471,3 @@ def print_all_rows(session, table_class):
         print(f"\nRows from table '{table_class.__table__}':")
         for row in rows:
             print(row)
-
-def add_nano_particles(model, structure_energy_pairs, special_type=None):
-    """Add new particles and energies to the database"""
-    with get_session() as session:
-        for struct_dict, energy in structure_energy_pairs:
-            struct = Structure.from_dict(struct_dict)
-            composition = struct.composition.reduced_formula
-
-            nanoparticle = DBNanoParticles(
-                num_atoms=struct.num_sites,
-                composition=composition,
-                special_type=special_type,
-                structure=struct_dict,
-                energy=energy,
-                model=model
-            )
-            session.add(nanoparticle)
-            session.flush()
-        session.commit()

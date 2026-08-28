@@ -3,7 +3,7 @@ from uvsib.workchains.launch_calculations import MainSubmissionController
 
 
 def submit_mainworkchain(chemical_formula, chemical_systems, reaction, reaction_path,
-                         nano=False, similarities=None, sqs=None):
+                         similarities=None, sqs=None):
     controller = MainSubmissionController(
         group_label='wf_test',
         max_concurrent=20,
@@ -12,7 +12,6 @@ def submit_mainworkchain(chemical_formula, chemical_systems, reaction, reaction_
         chemical_systems=chemical_systems,
         reaction=reaction,
         reaction_path=reaction_path,
-        nanoparticles=nano,
         similarities=similarities,
         sqs=sqs
     )

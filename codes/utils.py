@@ -58,16 +58,6 @@ def get_cmdline(job_info):
             f"--maxstep={job_info['maxstep']}",
             f"--seed={job_info['seed']}"]
         )
-    elif job_type == 'nano_particles':
-        cmdline.extend([
-            '--fmax={}'.format(job_info['fmax']),
-            '--max_steps={}'.format(job_info['max_steps']),
-            '--elements={}'.format(job_info['elements']),
-            '--min_natoms={}'.format(job_info['particles_range'].split('-')[0]),
-            '--max_natoms={}'.format(job_info['particles_range'].split('-')[1]),
-            '--generator={}'.format(job_info['generator'])]
-        )
-    # print('DBG codes/utils: ', cmdline)
     return cmdline
 
 def get_element_entries(chemsys_list, functional):
@@ -150,69 +140,3 @@ def get_structures_from_mpdb_by_composition(chemical_formula, e_hull=0.1):
             exp_structures.append(summary.structure.as_dict())
 
     return stable_structures, exp_structures
-
-#def get_mp_element_structures(elements):
-#    """Stable elemental ground-state structures from the Materials Project.
-#
-#    Returns ``{element_symbol: structure_dict}`` with the lowest-e_above_hull
-#    elemental polymorph per element -- the seed crystals to be relaxed with the
-#    project MLIP so the hull's elemental endpoints are on-method.
-#    """
-#    out = {}
-#    with MPRester(settings.api_key) as mpr:
-#        for el in elements:
-#            try:
-#                docs = mpr.materials.summary.search(
-#                    chemsys=el, fields=["structure", "energy_above_hull"])
-#            except Exception:
-#                continue
-#            docs = [d for d in docs if getattr(d, "energy_above_hull", None) is not None]
-#            if not docs:
-#                continue
-#            best = min(docs, key=lambda d: d.energy_above_hull)
-#            out[el] = best.structure.as_dict()
-#    return out
-
-#def get_entries_from_mpdb(chemical_formula, run_type, ehull):
-#    """Get structures entry from the MPDB
-#       run_type: GGA or r2SCAN
-#    """
-#    entries = []
-#    api_key = settings.api_key
-#
-#    with MPRester(api_key) as mpr:
-#        material_data = mpr.materials.summary.search(
-#                formula=chemical_formula,
-#                fields=["material_id", "energy_above_hull", "task_ids"]
-#        )
-#
-#        for summary in material_data:
-#            if summary.energy_above_hull is None or summary.energy_above_hull > ehull:
-#                continue
-#
-#            tasks = mpr.tasks.search(task_ids=summary.task_ids)
-#
-#            task = next((t for t in tasks if t.run_type == run_type), None)
-#            if task and task.structure_entry:
-#                entries.append(task.structure_entry)
-#    return entries
-
-#def get_energy_per_atom(functional):
-#    elements = ["H","He",
-#                "Li","Be","B","C","N","O","F","Ne",
-#                "Na","Mg","Al","Si","P","S","Cl","Ar",
-#                "K","Ca","Sc","Ti","V","Cr","Mn","Fe","Co","Ni","Cu","Zn","Ga","Ge","As","Se","Br","Kr",
-#                "Rb","Sr","Y","Zr","Nb","Mo","Tc","Ru","Rh","Pd","Ag","Cd","In","Sn","Sb","Te","I","Xe",
-#                "Cs","Ba","La","Ce","Pr","Nd","Pm","Sm","Eu","Gd","Tb","Dy","Ho","Er","Tm","Yb","Lu","Hf","Ta",
-#                "W","Re","Os","Ir","Pt","Au","Hg","Tl","Pb","Bi","Ac","Th","Pa","U","Np","Pu"]
-#    with MPRester(settings.api_key) as mpr:
-#        entries = mpr.materials.thermo.search(
-#                chemsys=elements,
-#                thermo_types=[functional],
-#                energy_above_hull=(0,0),
-#                fields=["entries"]
-#        )
-#    to_dump = []
-#    for ents in entries:
-#        to_dump.append(ents.dict())
-#    return to_dump

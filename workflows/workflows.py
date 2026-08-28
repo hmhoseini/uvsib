@@ -2,9 +2,9 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import or_, text
 from pymatgen.core.structure import Composition
 from aiida.orm import QueryBuilder, WorkChainNode
-from uvsib.db.tables import DBFrontend, DBChemsys, DBComposition, DBSurfaceMLAdsorbate, DBNanoParticles
+from uvsib.db.tables import DBFrontend, DBChemsys, DBComposition
 from uvsib.db.session import get_session
-from uvsib.db.utils import (update_row, add_row, delete_row, get_chemical_systems, query_by_columns,
+from uvsib.db.utils import (update_row, add_row, get_chemical_systems, query_by_columns,
                             update_step_status_path)
 from uvsib.workchains.submit import submit_mainworkchain
 from uvsib.workchains.phase_diagram import cleanup_failed_systems
@@ -59,7 +59,6 @@ def add_from_frontend(dict_from_frontend_list):
         comp = Composition(e["chemical_formula"]).reduced_formula
         reactions_per_comp[comp] = reactions_per_comp.get(comp, 0) + 1
 
-    # pioneered = set()   # compositions whose shared steps a pioneer reaction owns
     for entry in dict_from_frontend_list:
         chemical_formula = Composition(entry["chemical_formula"]).reduced_formula
         user = entry["user"]
@@ -67,11 +66,6 @@ def add_from_frontend(dict_from_frontend_list):
         reaction_path = entry["reaction_path"]
 
         retry = entry["retry"] if "retry" in entry else False
-
-        if "nano_particles" in entry:
-            nano = entry['nano_particles']
-        else:
-            nano = False
 
         if "similarities" in entry:
             similars = entry['similarities']
@@ -93,8 +87,7 @@ def add_from_frontend(dict_from_frontend_list):
                 "username": user,
                 "composition": chemical_formula,
                 "reaction": reaction,
-                "reaction_path": reaction_path,
-                "nano_particles": nano}
+                "reaction_path": reaction_path}
             )
 
         # check if a composition is already processed
@@ -102,47 +95,15 @@ def add_from_frontend(dict_from_frontend_list):
         if not existing_composition:
             add_row(DBComposition, {"composition": chemical_formula})
 
-        # check if elements are processes for nano particles
-        elements = '-'.join(sorted(list([str(el) for el in Composition(chemical_formula).elements])))
-        existing_particles = query_by_columns(DBNanoParticles, {"elements": elements})
-        if not existing_particles:
-            add_row(DBNanoParticles,{"elements": elements})
-
-#        # remove crashed chemical systems
-#        chemical_systems, _ = get_chemical_systems(chemical_formula)
-#        for chemsys in chemical_systems:
-#            r = query_by_columns(DBChemsys, {"chemsys": chemsys})
-#            if r:
-#                row = r[0]
-#                if not row.gen_structures:
-#                    label = f"CatalystChain {reaction}:{reaction_path} on {chemical_formula}"
-#                    killed = QueryBuilder().append(
-#                        WorkChainNode,
-#                        filters={"label": label,
-#                                 "attributes.process_state": {"in": ["killed"]}},
-#                    ).all()
-#                    if killed:
-#                        pass
-
         # only new chemical systems
         _, new_chemsys = get_chemical_systems(chemical_formula)
         for chemsys in new_chemsys:
             add_row(DBChemsys, {"chemsys": chemsys})
 
-        # (a) already finished -> a result row exists
-        row = query_by_columns(DBSurfaceMLAdsorbate, {"composition": chemical_formula,
-                                                      "reaction": reaction,
-                                                      "reaction_path": reaction_path})
-#        if row:
-#            continue
-
-        # (b) already in flight -> an active MainWorkChain carries this label;
-        # (c) failed + no retry  -> a terminated MainWorkChain carries this label.
+        # (a) already in flight -> an active MainWorkChain carries this label;
+        # (b) failed + no retry  -> a terminated MainWorkChain carries this label.
         # Label must match launch_calculations.get_inputs_and_processclass_from_extras.
-        if nano:
-            label = f"NanoParticleChain: {chemical_formula}"
-        else:
-            label = f"CatalystChain {reaction}:{reaction_path} on {chemical_formula}"
+        label = f"CatalystChain {reaction}:{reaction_path} on {chemical_formula}"
         try:
             active = QueryBuilder().append(
                 WorkChainNode,
@@ -164,7 +125,7 @@ def add_from_frontend(dict_from_frontend_list):
 
         submit_mainworkchain(chemical_formula=chemical_formula, chemical_systems=new_chemsys,
                              reaction=reaction, reaction_path=reaction_path,
-                             nano=nano, similarities=similars, sqs=sqs)
+                             similarities=similars, sqs=sqs)
         update_dbfrontend()
 
 def reset_orphaned_chemsys():
@@ -316,8 +277,3 @@ def update_dbfrontend():
         for fe_row in db_fe_rows:
             db_c_row = query_by_columns(DBComposition,{"composition": fe_row.composition})[0]
             update_row(DBFrontend, fe_row.uuid,{"status": db_c_row.status, "step_status": db_c_row.step_status})
-        #
-        db_np_rows = query_by_columns(DBNanoParticles, {"status": status})
-        for np_row in db_np_rows:
-            db_row = query_by_columns(DBNanoParticles,{"elements": np_row.elements})[0]
-            update_row(DBNanoParticles, np_row.uuid,{"status": db_row.status, "step_status": db_row.step_status})

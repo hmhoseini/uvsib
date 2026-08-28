@@ -101,33 +101,6 @@ class DBSurface(Base):
     mtime = Column(DateTime(timezone=True), onupdate=func.now())
 
 
-#class DBSurfaceAdsorbate(Base):
-#    __tablename__ = "db_surface_adsorbate"
-#
-#    id = Column(Integer, primary_key=True)
-#    structure_uuid = Column(
-#        UUID(as_uuid=True),
-#        ForeignKey("db_structure.uuid", ondelete="CASCADE"),
-#        nullable=False
-#    )
-#    surface_id = Column(
-#        Integer,
-#        ForeignKey("db_surface.id", ondelete="CASCADE"),
-#        nullable=False
-#    )
-#    composition = Column(String, nullable=True)
-#    reaction = Column(String, nullable=False)
-#    reaction_path = Column(String, nullable=False)
-#    site_type = Column(String, nullable=False)
-#    ads_coord = Column(Text, nullable=False)
-#    repeat = Column(Text, nullable=False)
-#    eta = Column(DOUBLE_PRECISION, nullable=True)
-#    dG = Column(JSONB, nullable=True)
-#    adsorb_set = Column(JSONB, nullable=False) # structures & energies
-#    attributes = Column(JSONB, nullable=True)
-#    ctime = Column(DateTime(timezone=True), server_default=func.now())
-#    mtime = Column(DateTime(timezone=True), onupdate=func.now())
-
 class DBSurfaceMLAdsorbate(Base):
     __tablename__ = "db_surface_ml_adsorbate"
 
@@ -204,35 +177,12 @@ class DBFrontend(Base):
     status = Column(String, nullable=False, default="Created")
     step_status = Column(JSONB, nullable=True)
     result = Column(String, nullable=True)
-    nano_particles = Column(String, nullable=True)
     attributes = Column(JSONB, nullable=True)
     ctime = Column(DateTime(timezone=True), server_default=func.now())
     mtime = Column(DateTime(timezone=True), onupdate=func.now())
 
     def __repr__(self):
         return f"<DBFrontend(uuid={self.uuid}, username={self.username})>"
-
-class DBNanoParticles(Base):
-    """Frontend table"""
-    __tablename__ = 'db_nano_particles'
-    uuid = Column(
-        UUID(as_uuid=True),
-        primary_key=True,
-        default=uuid.uuid4,
-        unique=True,
-        nullable=False
-    )
-    num_atoms = Column(Integer, nullable=True)
-    elements = Column(String, nullable=True)
-    energy = Column(DOUBLE_PRECISION, nullable=True)
-    special_type = Column(String, nullable=True)
-    structure = Column(JSONB, nullable=True)
-    model = Column(String, nullable=True)
-    status = Column(String, nullable=False, default="Created")
-    step_status = Column(JSONB, nullable=False, default=dict)
-    attributes = Column(JSONB, nullable=True)
-    ctime = Column(DateTime(timezone=True), server_default=func.now())
-    mtime = Column(DateTime(timezone=True), onupdate=func.now())
 
 class DBSimilarities(Base):
     __tablename__ = "db_similarities"

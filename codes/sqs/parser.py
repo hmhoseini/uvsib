@@ -18,18 +18,4 @@ class SQSParser(Parser):
         with retrieved_folder.open(output_filename, 'r') as f:
             data = json.load(f)
 
-        # num_filename = 'total.txt'
-        # if num_filename not in retrieved_folder.list_object_names():
-        #     return self.exit_codes.ERROR_MISSING_OUTPUT
-        # with retrieved_folder.open(num_filename, 'r') as f:
-        #     content = f.read()
-        # num_structures = int(content)
-        #
-        # failed_filename = 'failed.txt'
-        # if num_filename not in retrieved_folder.list_object_names():
-        #     return self.exit_codes.ERROR_MISSING_OUTPUT
-        # with retrieved_folder.open(failed_filename, 'r') as f:
-        #     content = f.read()
-        # num_failed = int(content)
-
         self.out("output_dict", Dict(dict=data))

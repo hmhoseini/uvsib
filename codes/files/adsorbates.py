@@ -409,18 +409,6 @@ def _flag_energy_outliers(relaxed_sets, model_key, factor: float):
     return kept, rejects
 
 
-#def ase_to_pmg(atoms):
-#    """Convert an ASE Atoms object to a pymatgen Structure"""
-#    lattice = atoms.cell.array.tolist()
-#    symbols = atoms.get_chemical_symbols()
-#    frac_coords = atoms.get_scaled_positions().tolist()
-#    lattice_obj = Lattice(lattice)
-#    return Structure(lattice_obj,
-#                     symbols,
-#                     frac_coords,
-#                     coords_are_cartesian=False)
-
-
 def pmg_to_ase(pmg_structure):
     """Convert a pymatgen Structure to an ASE Atoms object"""
     scaled_positions = pmg_structure.frac_coords

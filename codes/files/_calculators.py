@@ -1,7 +1,7 @@
-"""ASE calculator factory used by relax / face_build / adsorbates / mh / nano_particles.
+"""ASE calculator factory used by relax / face_build / adsorbates / mh.
 
 Shipped as a sidecar alongside each ``aiida.py`` script (see the CalcJob
-``prepare_for_submission`` of mace / mattersim / upet / uma / nano_particles /
+``prepare_for_submission`` of mace / mattersim / upet / uma /
 minimahopping). Each script does ``from _calculators import make_calculator``
 and the workchain controls the backend + UMA task head via ``--ML_model`` and
 ``--task_name``.
@@ -36,8 +36,6 @@ def make_calculator(ml_model, *, model=None, model_path=None, device="cuda",
             raise ValueError(f"Unknown MACE task_name '{task_name}'. Expected one of: {', '.join(_MACE_TASKS)}.")
         from mace.calculators import mace_mp
         return mace_mp(model=model_path, default_dtype="float64", device=device, head=task_name)
-        # from mace.calculators import MACECalculator
-        # return MACECalculator(model_paths=model_path, device=device)
 
     if "uPET" in ml_model:
         from upet.calculator import UPETCalculator

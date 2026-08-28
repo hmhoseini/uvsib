@@ -75,9 +75,6 @@ class SQSWorkChain(WorkChain):
 
         output_dict = wch.outputs.output_dict.get_dict()
 
-        print('INSPECT SQS')
-        # print(output_dict)
-
         self.ctx.structures = output_dict.get("structures", [])
         self.ctx.metadata = output_dict.get("metadata", [])
 
