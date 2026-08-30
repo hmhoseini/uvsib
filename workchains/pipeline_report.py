@@ -14,6 +14,7 @@ Public API:
     bulk_candidates(chemical_formula) -> [bulk dict, ...]  # now includes "source"/"ml_bulk_model"
     surfaces_for_bulk(chemical_formula) -> {structure_uuid: [surface dict, ...]}  # now includes "n_atoms"/"area"/"shift"
     reaction_results(chemical_formula, reaction, reaction_path) -> {structure_uuid: [candidate dict, ...]}  # now includes "repeat"/"coverage" (adsorbate concentration, in ML)
+    electronic_for_bulk(chemical_formula) -> {structure_uuid: band_info dict}  # no-DFT light screen (empty if OpticalScreenWorkChain not run)
     step_labels(reaction, reaction_path) -> [str, ...] | None
     summarize(chemical_formula, reaction, reaction_path) -> [bulk summary dict, ...]  # each surface now also carries its OWN reaction_candidates/best_candidate
     report(chemical_formula, reaction, reaction_path, plot_dir=None) -> [bulk summary dict, ...]
@@ -266,6 +267,27 @@ def reaction_results(chemical_formula, reaction, reaction_path):
     return dict(by_uuid)
 
 
+def electronic_for_bulk(chemical_formula):
+    """``{structure_uuid: band_info}`` -- the no-DFT light-harvesting screen
+    (ML gap + Butler--Ginley band edges + per-(reaction, pathway) straddle
+    verdict) OpticalScreenWorkChain wrote onto ``DBStructureVersion.band_info``.
+
+    Only the version PhaseDiagramMLWorkChain ranked (``method == ml_bulk_model``)
+    is considered, matching ``bulk_candidates()``. Empty when the optical screen
+    was not run. DB-only, no AiiDA profile needed."""
+    rows = query_by_columns(DBComposition, {"composition": chemical_formula})
+    model = (rows[0].stable_struct or {}).get("ml_bulk_model") if rows else None
+
+    out = {}
+    for version in query_structure({"composition": chemical_formula}):
+        if version.band_info is None:
+            continue
+        if model is not None and version.method != model:
+            continue
+        out[str(version.structure_uuid)] = version.band_info
+    return out
+
+
 _OER_LABELS = ["*", "*OH", "*O", "*OOH", "O2 + *"]
 
 _REACTION_MODULES = {
@@ -325,6 +347,7 @@ def summarize(chemical_formula, reaction, reaction_path):
     bulks = {b["structure_uuid"]: b for b in bulk_candidates(chemical_formula)}
     surfaces_by_uuid = surfaces_for_bulk(chemical_formula)
     results_by_uuid = reaction_results(chemical_formula, reaction, reaction_path)
+    electronic_by_uuid = electronic_for_bulk(chemical_formula)
 
     all_uuids = set(bulks) | set(surfaces_by_uuid) | set(results_by_uuid)
     summaries = []
@@ -351,6 +374,7 @@ def summarize(chemical_formula, reaction, reaction_path):
             "reaction_candidates": candidates,
             "n_reaction_candidates": len(candidates),
             "best_candidate": candidates[0] if candidates else None,
+            "electronic": electronic_by_uuid.get(uid),
         })
 
     summaries.sort(key=lambda s: (s["bulk"] is None,
@@ -472,6 +496,85 @@ def plot_bulk_comparison(summaries, ax_ehull=None, ax_eta=None):
         fig.tight_layout()
         return fig, (ax_ehull, ax_eta)
     return ax_ehull, ax_eta
+
+
+def _reaction_couple(reaction, reaction_path):
+    """The redox couple (``{"role","u_red","u_ox","label"}``) the band gap must
+    straddle for this (reaction, reaction_path), or ``None``. Lazily imports
+    ``uvsib.workchains.redox_couples`` (AiiDA-profile-loading, like
+    ``step_labels``); returns ``None`` if that import fails."""
+    try:
+        from uvsib.workchains.redox_couples import couple_for
+        return couple_for(reaction, reaction_path)
+    except Exception:
+        return None
+
+
+def bulk_straddle(electronic, reaction, reaction_path):
+    """The stored straddle verdict for this (reaction, reaction_path) out of a
+    bulk's ``electronic`` (``band_info``) blob, tolerant of the OER
+    ``default``/``none`` spellings. ``None`` if the optical screen was not run
+    or produced no band edges."""
+    if not electronic:
+        return None
+    by_path = (electronic.get("straddle") or {}).get((reaction or "").strip().upper(), {})
+    if not by_path:
+        return None
+    rp = (reaction_path or "").strip().lower()
+    if rp in by_path:
+        return by_path[rp]
+    if len(by_path) == 1:
+        return next(iter(by_path.values()))
+    return by_path.get("default")
+
+
+def plot_band_alignment(summaries, reaction, reaction_path, ax=None):
+    """One vertical CB->VB bar per bulk on an inverted potential axis (V vs RHE,
+    increasing downward, as in the usual band diagram), with the reaction's
+    reduction/oxidation levels drawn as dashed lines. Bars that straddle the
+    couple with margin are green, the rest grey. Returns ``None`` if no bulk has
+    band edges (optical screen not run)."""
+    plt = _require_matplotlib()
+
+    edged = [s for s in summaries
+             if (s.get("electronic") or {}).get("band_edges_vs_rhe_V")]
+    if not edged:
+        return None
+
+    own_fig = ax is None
+    if own_fig:
+        fig, ax = plt.subplots(figsize=(max(4, 1.1 * len(edged)), 4.5))
+
+    couple = _reaction_couple(reaction, reaction_path)
+    labels = []
+    for i, s in enumerate(edged):
+        e = s["electronic"]
+        cb = e["band_edges_vs_rhe_V"]["cb"]
+        vb = e["band_edges_vs_rhe_V"]["vb"]
+        verdict = bulk_straddle(e, reaction, reaction_path)
+        colour = "seagreen" if (verdict and verdict.get("straddles")) else "silver"
+        ax.bar(i, vb - cb, bottom=cb, width=0.55, color=colour, edgecolor="black", linewidth=0.6)
+        gap = e.get("gap_eV")
+        ax.text(i, cb, f" {gap:.2f} eV" if gap is not None else "", ha="center", va="bottom", fontsize=8)
+        labels.append(s["structure_uuid"][:8])
+
+    if couple:
+        ax.axhline(couple["u_red"], color="crimson", linestyle="--", linewidth=1,
+                   label=f'reduction {couple["u_red"]:.2f} V')
+        ax.axhline(couple["u_ox"], color="royalblue", linestyle="--", linewidth=1,
+                   label=f'oxidation {couple["u_ox"]:.2f} V')
+        ax.legend(fontsize=8, loc="best")
+
+    ax.set_xticks(range(len(edged)))
+    ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=9)
+    ax.set_ylabel("Potential (V vs RHE)")
+    ax.invert_yaxis()
+    ax.set_title(f"ML band edges vs {reaction}/{reaction_path} redox window", fontsize=10)
+
+    if own_fig:
+        fig.tight_layout()
+        return fig, ax
+    return ax
 
 
 def plot_surface_fed(surface, reaction, reaction_path, ax=None):
@@ -729,10 +832,35 @@ def render_html_report(chemical_formula, reaction, reaction_path, summaries=None
     bulk_task = _ml_stage_head("bulk_relax")
     surface_model = _ml_surface_model()
     surface_task = _ml_stage_head("face_build")
-    threshold = next((s["bulk"]["ehull_threshold"] for s in summaries if s["bulk"]), None)
+
+    # -- light-harvesting screen (OpticalScreenWorkChain) --------------------
+    electronic_present = any(s.get("electronic") for s in summaries)
+    couple = _reaction_couple(reaction, reaction_path)
+    n_light = 0
+    screen_models = screen_fidelity = None
+    for s in summaries:
+        e = s.get("electronic")
+        if not e:
+            continue
+        if screen_models is None:
+            screen_models = ", ".join(e.get("gap_models") or []) or None
+            screen_fidelity = e.get("megnet_fidelity_label")
+        verdict = bulk_straddle(e, reaction, reaction_path)
+        if verdict and verdict.get("straddles"):
+            n_light += 1
 
     def esc(x):
         return _html.escape(str(x)) if x is not None else "&mdash;"
+
+    def straddle_badge(verdict):
+        if not verdict:
+            return "&mdash;"
+        if verdict.get("straddles"):
+            return ('<span class="px-2 py-0.5 rounded bg-green-100 text-green-700 '
+                    'text-xs font-bold">straddles</span>')
+        return ('<span class="px-2 py-0.5 rounded bg-red-100 text-red-700 text-xs '
+                f'font-bold" title="reduction margin {verdict.get("margin_reduction_V")} V, '
+                f'oxidation margin {verdict.get("margin_oxidation_V")} V">no</span>')
 
     # -- stable-bulks table ----------------------------------------------
     bulk_rows = []
@@ -742,12 +870,21 @@ def render_html_report(chemical_formula, reaction, reaction_path, summaries=None
             ehull_cell, source_cell = f'{b["ehull"]:.4f}', esc(b["source"])
         else:
             ehull_cell = source_cell = "&mdash;"
+        e = s.get("electronic") or {}
+        gap, gap_std = e.get("gap_eV"), e.get("gap_std_eV")
+        if gap is None:
+            gap_cell = "&mdash;"
+        elif gap_std:
+            gap_cell = f'{gap:.2f} &plusmn; {gap_std:.2f}'
+        else:
+            gap_cell = f'{gap:.2f}'
         bulk_rows.append(f"""
                   <tr class="border-t">
                     <td class="px-6 py-4 font-mono text-xs text-slate-900" title="{esc(uid)}">{esc(uid[:8])}</td>
                     <td class="px-6 py-4">{source_cell}</td>
                     <td class="px-6 py-4">{ehull_cell}</td>
                     <td class="px-6 py-4">{s["n_surfaces"]}</td>
+                    <td class="px-6 py-4">{gap_cell}</td>
                   </tr>""")
 
     # -- per-bulk sections: surfaces table + reaction-path FED grid ------
@@ -829,7 +966,99 @@ def render_html_report(chemical_formula, reaction, reaction_path, summaries=None
         </div>""")
 
     best_eta_cell = f"{best_eta:.3f} V" if best_eta is not None else "&mdash;"
-    threshold_cell = f"{threshold:.3f} eV/atom" if threshold is not None else "&mdash;"
+    n_light_cell = str(n_light) if electronic_present else "&mdash;"
+
+    # -- light-harvesting section (only when the optical screen ran) ---------
+    if electronic_present:
+        light_rows = []
+        for s in summaries:
+            e = s.get("electronic")
+            uid = s["structure_uuid"]
+            if not e:
+                light_rows.append(
+                    f'<tr class="border-t"><td class="px-4 py-3 font-mono text-xs">{esc(uid[:8])}</td>'
+                    '<td class="px-4 py-3 text-slate-400 italic" colspan="7">not screened</td></tr>')
+                continue
+            gap, gap_std = e.get("gap_eV"), e.get("gap_std_eV")
+            gap_cell = "&mdash;" if gap is None else (
+                f'{gap:.2f} &plusmn; {gap_std:.2f}' if gap_std else f'{gap:.2f}')
+            edges = e.get("band_edges_vs_rhe_V") or {}
+            cb_cell = f'{edges["cb"]:.2f}' if "cb" in edges else "&mdash;"
+            vb_cell = f'{edges["vb"]:.2f}' if "vb" in edges else "&mdash;"
+            verdict = bulk_straddle(e, reaction, reaction_path)
+            straddle_cell = straddle_badge(verdict)
+            if verdict:
+                min_gap_cell = f'{verdict["min_gap_eV"]:.2f}'
+                red_cell = f'{verdict["margin_reduction_V"]:+.2f}'
+                ox_cell = f'{verdict["margin_oxidation_V"]:+.2f}'
+            else:
+                min_gap_cell = red_cell = ox_cell = "&mdash;"
+            light_rows.append(f"""
+                      <tr class="border-t">
+                        <td class="px-4 py-3 font-mono text-xs" title="{esc(uid)}">{esc(uid[:8])}</td>
+                        <td class="px-4 py-3">{gap_cell}</td>
+                        <td class="px-4 py-3">{straddle_cell}</td>
+                        <td class="px-4 py-3">{cb_cell}</td>
+                        <td class="px-4 py-3">{vb_cell}</td>
+                        <td class="px-4 py-3">{min_gap_cell}</td>
+                        <td class="px-4 py-3">{red_cell}</td>
+                        <td class="px-4 py-3">{ox_cell}</td>
+                      </tr>""")
+
+        couple_bit = esc(couple["label"]) if couple else "&mdash;"
+
+        light_section = f"""
+        <section>
+          <div class="flex items-center gap-2 mb-4">
+            <i data-lucide="sun" class="w-5 h-5 text-primary"></i>
+            <h2 class="text-xl font-bold text-slate-900">Light Harvesting</h2>
+          </div>
+          <div class="bg-white border rounded-xl p-6">
+            <div class="border-l-4 border-primary bg-blue-50 text-slate-700 text-sm rounded-r-lg p-4 mb-5 space-y-2">
+              <p>
+                A photocatalyst can drive this reaction under illumination only if its band
+                gap <strong>straddles</strong> the redox window: the conduction-band edge
+                (E<sub>CB</sub>) must sit above the reduction level and the valence-band edge
+                (E<sub>VB</sub>) below the oxidation level, each by at least the required
+                margin. Target for <strong>{esc(reaction)} / {esc(reaction_path)}</strong>:
+                {couple_bit}.
+              </p>
+              <p>
+                <strong>Straddle</strong> = both edges clear their level with margin
+                (<strong>{n_light_cell}</strong> of {len(summaries)} bulk(s) here).
+                <strong>Red. / Ox. margin</strong> is the head-room beyond the required
+                potential &mdash; positive clears it, negative is how far short the edge
+                falls. <strong>Req. min gap</strong> is the smallest gap that could
+                straddle at all, <em>(U<sub>ox</sub> &minus; U<sub>red</sub>) + 2&times;margin</em>.
+              </p>
+              <p class="text-xs text-slate-500">
+                Gap from pretrained ML models ({esc(screen_models)}); edges from the
+                empirical Butler&ndash;Ginley / Mulliken relation (E<sub>e</sub> = 4.5 eV),
+                V vs RHE &mdash; treat the edges as &plusmn;0.3&ndash;0.5 eV and use this to
+                rank, not to decide.
+              </p>
+            </div>
+            <div class="overflow-x-auto border rounded-lg">
+              <table class="w-full text-sm text-left text-slate-700">
+                <thead class="bg-slate-50 text-slate-500 uppercase text-xs">
+                  <tr>
+                    <th class="px-4 py-3">Bulk</th>
+                    <th class="px-4 py-3">Gap (eV)</th>
+                    <th class="px-4 py-3">Straddle</th>
+                    <th class="px-4 py-3">E<sub>CB</sub> (V<sub>RHE</sub>)</th>
+                    <th class="px-4 py-3">E<sub>VB</sub> (V<sub>RHE</sub>)</th>
+                    <th class="px-4 py-3">Req. min gap (eV)</th>
+                    <th class="px-4 py-3">Red. margin (V)</th>
+                    <th class="px-4 py-3">Ox. margin (V)</th>
+                  </tr>
+                </thead>
+                <tbody>{"".join(light_rows)}</tbody>
+              </table>
+            </div>
+          </div>
+        </section>"""
+    else:
+        light_section = ""
 
     html_doc = f"""<!doctype html>
 <html lang="en">
@@ -866,7 +1095,7 @@ def render_html_report(chemical_formula, reaction, reaction_path, summaries=None
             <h2 class="text-xl font-bold text-slate-900">Executive Summary</h2>
           </div>
           <div class="rounded-xl border bg-white shadow-sm p-6">
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
               <div class="p-3 rounded-xl bg-slate-50 border border-slate-100">
                 <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Bulk Candidates</p>
                 <p class="text-lg font-bold text-slate-900">{n_bulks}</p>
@@ -882,6 +1111,10 @@ def render_html_report(chemical_formula, reaction, reaction_path, summaries=None
               <div class="p-3 rounded-xl bg-slate-50 border border-slate-100">
                 <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Best &eta;</p>
                 <p class="text-lg font-bold text-slate-900">{best_eta_cell}</p>
+              </div>
+              <div class="p-3 rounded-xl bg-slate-50 border border-slate-100" title="Bulks whose ML band gap straddles this reaction's redox couple with margin">
+                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Light-viable</p>
+                <p class="text-lg font-bold text-slate-900">{n_light_cell}</p>
               </div>
             </div>
           </div>
@@ -901,13 +1134,16 @@ def render_html_report(chemical_formula, reaction, reaction_path, summaries=None
                     <th class="px-6 py-3">Source</th>
                     <th class="px-6 py-3">E above hull (eV/atom)</th>
                     <th class="px-6 py-3">Surfaces</th>
+                    <th class="px-6 py-3" title="ML-predicted band gap; &plusmn; is the model spread">Gap (eV)</th>
                   </tr>
                 </thead>
-                <tbody>{"".join(bulk_rows) or '<tr><td colspan="4" class="px-6 py-4 text-slate-400 italic">no bulk candidates found</td></tr>'}</tbody>
+                <tbody>{"".join(bulk_rows) or '<tr><td colspan="5" class="px-6 py-4 text-slate-400 italic">no bulk candidates found</td></tr>'}</tbody>
               </table>
             </div>
           </div>
         </section>
+
+        {light_section}
 
         <section class="flex flex-col gap-6">
           <div class="flex items-center gap-2">
@@ -969,12 +1205,12 @@ def render_html_report(chemical_formula, reaction, reaction_path, summaries=None
               </div>
             </div>
             <div class="flex items-center gap-4">
-              <div class="size-10 rounded-full bg-green-100 text-green-600 flex items-center justify-center shrink-0">
-                <i data-lucide="gauge" class="w-6 h-6"></i>
+              <div class="size-10 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center shrink-0">
+                <i data-lucide="sun" class="w-6 h-6"></i>
               </div>
               <div>
-                <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">E-hull Threshold</p>
-                <p class="text-sm font-bold text-slate-900">{threshold_cell}</p>
+                <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Light Screen</p>
+                <p class="text-sm font-bold text-slate-900">{esc(screen_models) if electronic_present else "not run"}{f" &middot; {esc(screen_fidelity)}" if electronic_present and screen_fidelity else ""}</p>
               </div>
             </div>
           </div>

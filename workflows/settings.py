@@ -68,6 +68,17 @@ SYNTH_ENABLED = bool(inputs.get('synthesizability', {}).get('enabled', False))
 # because dimer searches are much more expensive than the CHE adsorbate pass.
 AKMC_ENABLED = bool(inputs.get('akmc', {}).get('enabled', True))
 
+# No-DFT electronic / light-harvesting screen (ML band gap + Butler-Ginley band
+# edges + photocatalytic straddle test) as a PhaseDiagramMLWorkChain branch,
+# right after the ML bulk selection. Opt-in via input.yaml (`optical_screen:
+# {enabled: true}`) because it needs a dedicated `Electronic` code (see
+# config.yaml) whose environment provides the pretrained gap models (matgl,
+# optionally alignn). Default OFF, so runs without the block are unaffected.
+# `optical_screen.gate_surface_builder: true` additionally restricts the bulks
+# handed to SurfaceBuilderWorkChain to those predicted to absorb visible light
+# (reaction-agnostic gap window); default off.
+OPTICAL_SCREEN_ENABLED = bool(inputs.get('optical_screen', {}).get('enabled', False))
+
 # Soft stop: gracefully end the MainWorkChain after the generation/phase-diagram/
 # synthesizability stages, before the surface builder (and adsorbates) start.
 # Opt-in via input.yaml (`soft_stop: {before_surface_builder: true}`); absent or

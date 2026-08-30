@@ -89,6 +89,10 @@ class PhaseDiagramMLWorkChain(WorkChain):
             cls.wait_for_data,
             cls.check_pythonjob,
             cls.store_stable_structs,
+            if_(cls.should_run_optical_screen)(
+                cls.optical_screen,
+                cls.inspect_optical_screen
+            ),
             cls.final_report
         )
 
@@ -304,6 +308,39 @@ class PhaseDiagramMLWorkChain(WorkChain):
         update_row(DBComposition, row.uuid, {"stable_struct": stable_struct})
         self.report(f"{len(unique_entries)} stable structures for {chemical_formula} were stored.")
 
+    def should_run_optical_screen(self):
+        """Run the no-DFT light-harvesting screen (OpticalScreenWorkChain) on
+        the ML bulk selection. Opt-in (``settings.OPTICAL_SCREEN_ENABLED``);
+        skipped if there is nothing selected to screen."""
+        if not settings.OPTICAL_SCREEN_ENABLED:
+            return False
+        rows = query_by_columns(DBComposition, {"composition": self.ctx.chemical_formula})
+        if not rows or not (rows[0].stable_struct or {}).get("ml_uuid_list"):
+            self.report("Optical screen: no ML bulk selection to screen; skipping.")
+            return False
+        return True
+
+    def optical_screen(self):
+        """Submit OpticalScreenWorkChain for the ML bulk selection."""
+        try:
+            builder = self._construct_optical_screen_builder()
+        except Exception as exc:  # e.g. the `Electronic` code is not configured
+            self.report(f"Optical screen: cannot build builder ({exc}); skipping.")
+            return
+        future = self.submit(builder)
+        self.to_context(**{"optical_screen": future})
+
+    def inspect_optical_screen(self):
+        """Advisory stage: never fail the phase diagram on the light screen."""
+        if "optical_screen" not in self.ctx:
+            return
+        wch = self.ctx.optical_screen
+        if not wch.is_finished_ok:
+            self.report(f"OpticalScreenWorkChain did not finish OK (exit {wch.exit_status}); "
+                        "continuing without band-edge screening.")
+            return
+        self.report("OpticalScreenWorkChain finished; band_info written for the ML bulk selection.")
+
     def final_report(self):
         """Final report"""
         self.report("PhaseDiagramML WorkChain finished successfully")
@@ -332,4 +369,11 @@ class PhaseDiagramMLWorkChain(WorkChain):
         builder.chemical_formula = Str(self.ctx.chemical_formula)
         builder.chemical_systems = List(self.ctx.chemical_systems)
         builder.ml_bulk_model = Str(self.ctx.ml_bulk_model)
+        return builder
+
+    def _construct_optical_screen_builder(self):
+        """OpticalScreenWorkChain builder (no-DFT light-harvesting screen)."""
+        Workflow = WorkflowFactory("opticalscreen")
+        builder = Workflow.get_builder()
+        builder.chemical_formula = Str(self.ctx.chemical_formula)
         return builder

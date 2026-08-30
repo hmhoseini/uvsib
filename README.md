@@ -35,8 +35,8 @@ This repository contains the computational backend and workflow components of Uv
 ### Materials generation and exploration
 
 - crystal-structure prediction and generation workflows;
-- integrations for **MatterGen** and **GNoME**;
-- minima-hopping and similarity-analysis tools;
+- integrations for **MatterGen**, **GNoME**, and **DiffCSP**;
+- minima-hopping structure search.
 
 ### Machine-learning interatomic potentials
 
@@ -49,12 +49,28 @@ AiiDA calculation, parser, and workchain integrations are provided for several m
 
 These models can be used for rapid structure relaxation and screening before more expensive first-principles verification.
 
+### Thermodynamic stability
+
+- machine-learning phase-diagram construction and convex-hull analysis;
+- DFT phase-diagram verification;
+- precursor / synthesis-route search.
+
+### Electronic structure and light harvesting
+
+- band-alignment workflows with hybrid-functional (HSE) band edges and core-level referencing;
+- a no-DFT light-harvesting screen (`OpticalScreenWorkChain` / `ElectronicWorkChain`) that predicts the
+  band gap from pretrained ML property models (matgl MEGNet multi-fidelity, optional ALIGNN) and the
+  absolute band-edge positions from the empirical Butler–Ginley / Mulliken-electronegativity relation;
+- a photocatalytic band-edge *straddle* test against the target reaction redox couples (`redox_couples`).
+
 ### Surfaces and photocatalytic reactions
 
-- surface and slab construction;
-- adsorption-site and adsorbate generation;
+- surface and slab construction and selection (`SurfaceBuilderWorkChain`);
+- adsorption-site and adsorbate generation (ML and DFT variants);
 - reaction-path and free-energy data models;
-- workflows for catalytic-reaction analysis.
+- workflows for catalytic-reaction analysis (HER, OER, ORR, CER, CO2RR, NRR, NOxRR);
+- adaptive kinetic Monte Carlo (`AKMCWorkChain`) using MLIP dimer / saddle searches;
+- an end-to-end pipeline report that aggregates stability, light harvesting, surfaces, and activity per composition.
 
 ## Software architecture
 
@@ -63,6 +79,8 @@ UvSiB is structured as an **AiiDA plugin**. The main components are:
 ```text
 uvsib/
 ├── codes/          # AiiDA calculations, parsers, workchains, and executable templates
+│                   #   (mattergen, gnome, diffcsp, mattersim, mace, upet, uma,
+│                   #    minimahopping, electronic, precursor_search, vasp)
 ├── workchains/     # Higher-level scientific workflows
 ├── workflows/      # Workflow orchestration and settings
 ├── db/             # SQLAlchemy database models and utility functions
@@ -71,20 +89,74 @@ uvsib/
 └── setup.json      # Package metadata, dependencies, and AiiDA entry points
 ```
 
-The registered AiiDA entry points cover structure generation, ML potentials, minima hopping, similarity analysis, SQS, phonons, phase diagrams, band alignment, surface construction, adsorbates, and related workflows.
+### Registered workflows
+
+The `aiida.workflows` entry points currently include:
+
+| Entry point | Purpose |
+|---|---|
+| `mattergen.base`, `mattergen.csp`, `gnome.base`, `gnome.csp`, `diffcsp.csp` | Generative structure generation and composition-conditioned CSP |
+| `csp`, `gen` | Crystal-structure prediction and de-novo generation orchestration |
+| `mattersim`, `mace`, `upet`, `uma` | ML-interatomic-potential relaxation / single points |
+| `minimahopping` | Minima-hopping structure search |
+| `mpdbml` | ML relaxation of Materials Project database structures |
+| `phasediagram` | ML phase-diagram construction and stable-structure selection |
+| `opticalscreen`, `electronic` | No-DFT band-gap / band-edge light-harvesting screen |
+| `bandalignment` | DFT (PBE + HSE) band alignment |
+| `surfacebuilder` | Slab construction, relaxation, and surface selection |
+| `adsorbates` | Adsorbate generation and reaction free-energy analysis |
+| `akmc` | Adaptive kinetic Monte Carlo with MLIP saddle searches |
+
+The `aiida.calculations` and `aiida.parsers` groups register the matching low-level codes, including
+`electronic` (ML band gap / band edges) and `precursor_search`.
 
 ## Requirements
 
-The package currently declares:
+### Core package (`setup.json` → `install_requires`)
 
-- Python 3.10 or newer;
-- AiiDA and `aiida-pythonjob`;
-- ASE;
-- pymatgen;
-- Materials Project API client (`mp-api`);
-- `aiida-submission-controller`.
+Installed automatically with `pip install -e .`:
 
-Individual workflows may require additional external codes, trained model files, pseudopotentials, databases, scheduler configurations, and AiiDA computer/code registrations.
+- **Python** 3.10 or newer;
+- **AiiDA** (`aiida-core`, pulled in via the plugins below) and `aiida-pythonjob==0.4.8`;
+- `aiida-vasp==4.1.0` — DFT CalcJobs (band alignment, DFT phase-diagram verification, DFT adsorbates);
+- `aiida-submission-controller==0.1.2` — high-throughput submission;
+- `ase` — atomic structures, optimizers, and the MLIP calculator interface;
+- `pymatgen` — structure I/O, symmetry, surfaces, phase diagrams, electronegativities;
+- `mp-api` — Materials Project database client.
+
+Also imported by the workchains and expected in the daemon environment: `numpy`, `scipy`,
+`sqlalchemy` (the UvSiB database models), `pyyaml`, and `matplotlib` (only for the pipeline
+report / plotting helpers, imported lazily).
+
+### Per-workflow / remote-code packages
+
+Most heavy calculations run on remote computers, each with its **own isolated virtual environment**
+holding only what that one runner (`codes/files/*.py`) needs. These are **not** declared in `setup.json`.
+
+**Band-gap / light-harvesting screen** (`electronic` code — see `docs/venv_electronic_build.md`):
+
+- `matgl==1.1.3` — MEGNet multi-fidelity band-gap model (`megnet_mfi`, the workhorse; PBE / GLLB-SC / HSE / SCAN fidelities);
+- `dgl==2.1.0` — DGL backend required by matgl 1.x;
+- `torch==2.2.0` (CPU build) and `torchdata==0.7.1`;
+- `numpy<2` (dgl 2.1.0 is built against the NumPy 1.x ABI);
+- `lightning==2.2.5`, `pydantic`, `pydantic-settings`, `pyparsing<3`;
+- `alignn==2024.5.27` + `jarvis-tools` — optional ALIGNN (`alignn_pbe`, `alignn_mbj`) cross-check;
+- `pymatgen`, `ase` — structure I/O and Mulliken-electronegativity band edges.
+
+  The pretrained models (`MEGNet-MP-2019.4.1-BandGap-mfi`, optional ALIGNN zips) must be **pre-staged**
+  into the cache; compute nodes cannot download them at run time.
+
+**ML interatomic potentials** (one env per backend): `mattersim`, `mace-torch` (MACE), `upet` (uPET),
+`fairchem` (UMA) — each with its own `torch` build; plus `minimahopping` for the minima-hopping runner.
+
+**Generative models**: `mattergen`, the GNoME SAPS runner (pymatgen only), and `diffcsp` (its upstream
+repo checkout, `torch`, `pytorch-lightning`, `hydra-core`, …).
+
+**Precursor search**: an external containerized agent (optionally literature APIs such as
+Crossref / OpenAlex / Semantic Scholar); no fixed Python dependency in this repo.
+
+Individual workflows may also require external DFT codes, trained model checkpoints, pseudopotentials,
+PostgreSQL/database access, scheduler configuration, API keys, and AiiDA computer/code registrations.
 
 ## Installation
 
@@ -114,8 +186,11 @@ Before running workflows, configure:
 1. an AiiDA profile;
 2. one or more local or remote computers;
 3. the required simulation codes and ML executables;
-4. PostgreSQL/database access where needed;
-5. API keys and project-specific settings.
+4. one isolated virtual environment per remote code (the ML potentials, generative models, the
+   `electronic` band-gap runner, …), with the pretrained model files pre-staged into their
+   caches — see `docs/venv_electronic_build.md` for the worked example;
+5. PostgreSQL/database access where needed;
+6. API keys and project-specific settings.
 
 Because the repository is under active development, consult the source code and files in `docs/` for workflow-specific configuration.
 

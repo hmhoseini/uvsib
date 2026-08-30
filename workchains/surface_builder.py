@@ -38,12 +38,32 @@ def get_struct_uuid(chemical_formula):
         if stable_structs and stable_structs.get("ml_uuid_list"):
             uuid_list = stable_structs["ml_uuid_list"]
 
+        gate = bool(settings.inputs.get("optical_screen", {}).get("gate_surface_builder", False))
         for uuid_str in uuid_list:
             row = query_structure({"uuid": uuid_str}, method=ml_bulk_model)
             if row:
                 result = row[0]
+                if gate and not _light_absorbing(getattr(result, "band_info", None)):
+                    continue
                 filtered_results.append([result.structure, result.source, uuid_str ])
+        if not filtered_results and uuid_list:
+            # optical gate removed everything (or no band_info yet) -- fall back
+            # to the unfiltered ML selection rather than starving the pipeline.
+            for uuid_str in uuid_list:
+                row = query_structure({"uuid": uuid_str}, method=ml_bulk_model)
+                if row:
+                    result = row[0]
+                    filtered_results.append([result.structure, result.source, uuid_str])
     return filtered_results[:MAX_NUM_BULK], False
+
+def _light_absorbing(band_info):
+    """True if the no-DFT optical screen marked this bulk as absorbing visible
+    light (reaction-agnostic gate). Missing / un-screened band_info -> False so
+    the caller's fallback decides."""
+    if not band_info:
+        return False
+    absorption = band_info.get("absorption") or {}
+    return bool(absorption.get("absorbs_visible"))
 
 def read_yaml(file_path):
     """Read a yaml file"""

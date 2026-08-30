@@ -283,6 +283,28 @@ def update_version_attributes(structure_uuid, method, new_attributes, source=Non
     return True
 
 
+def update_structure_band_info(structure_uuid, method, band_info, source=None):
+    """Set the ``band_info`` JSONB **column** (not ``attributes``) of the
+    DBStructureVersion selected by ``(structure_uuid, method[, source])``.
+
+    Used by OpticalScreenWorkChain to attach the no-DFT band gap / band-edge /
+    straddle screen to the version PhaseDiagramMLWorkChain ranked
+    (``method == ml_bulk_model``). Overwrites any previous value. Returns
+    ``False`` if no matching version exists.
+    """
+    with get_session() as session:
+        query = session.query(DBStructureVersion).filter_by(
+            structure_uuid=structure_uuid, method=method)
+        if source is not None:
+            query = query.filter_by(source=source)
+        version = query.first()
+        if version is None:
+            return False
+        version.band_info = band_info
+        session.commit()
+    return True
+
+
 def query_by_columns(table_class, filters):
     """
     Query a given table for rows matching all column-value pairs in "filters"
