@@ -116,6 +116,14 @@ def get_structures_from_mpdb_by_composition(chemical_formula, e_hull=0.1):
     chemical_formula : str
     e_hull : float
         Maximum energy above hull in eV/atom.
+
+    Returns
+    -------
+    stable_structures, exp_structures : list[tuple[dict, str]]
+        Two lists of ``(structure_dict, mp_id)`` pairs, where ``mp_id`` is the
+        Materials Project material id (e.g. ``"mp-1234"``) the structure came
+        from. ``stable_structures`` holds the theoretical entries, and
+        ``exp_structures`` the experimentally observed ones.
     """
     stable_structures = []
     exp_structures = []
@@ -124,19 +132,24 @@ def get_structures_from_mpdb_by_composition(chemical_formula, e_hull=0.1):
     search_kwargs = {
         "formula": chemical_formula,
         "energy_above_hull": (0, e_hull),
-        "fields": ["structure", "energy_above_hull", "theoretical"],
+        "fields": ["material_id", "structure", "energy_above_hull", "theoretical"],
     }
 
     with MPRester(api_key) as mpr:
+        mpr.materials.summary.use_document_model = False
         summaries = mpr.materials.summary.search(**search_kwargs)
 
     if not summaries:
         return [], []
 
     for summary in summaries:
-        if summary.theoretical:
-            stable_structures.append(summary.structure.as_dict())
+        raw_id = summary.get("material_id")
+        mp_id = str(raw_id) if raw_id is not None else None
+        structure = summary["structure"]
+        struct_dict = structure.as_dict() if hasattr(structure, "as_dict") else structure
+        if summary.get("theoretical"):
+            stable_structures.append((struct_dict, mp_id))
         else:
-            exp_structures.append(summary.structure.as_dict())
+            exp_structures.append((struct_dict, mp_id))
 
     return stable_structures, exp_structures

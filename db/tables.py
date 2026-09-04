@@ -58,6 +58,7 @@ class DBStructure(Base):
     )
     composition = Column(String, nullable=False)
     chemsys = Column(String, nullable=False)
+    mp_id = Column(String, nullable=True)  # Materials Project id, set when source is MPDB
     attributes = Column(JSONB, nullable=True)
     ctime = Column(DateTime(timezone=True), server_default=func.now())
     mtime = Column(DateTime(timezone=True), onupdate=func.now())
@@ -75,6 +76,7 @@ class DBStructureVersion(Base):
     composition = Column(String, nullable=False)
     chemsys = Column(String, nullable=False)
     source = Column(String, nullable=False)
+    mp_id = Column(String, nullable=True)  # Materials Project id, set when source is MPDB
     method = Column(String, nullable=False)
     energy = Column(DOUBLE_PRECISION, nullable=True)
     ehull = Column(DOUBLE_PRECISION, nullable=True)

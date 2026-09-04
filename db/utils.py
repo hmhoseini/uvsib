@@ -81,21 +81,30 @@ def add_structures(
         source,
         method,
         structure_energy_pairs,
-        attributes={}
+        attributes={},
+        mp_ids=None
     ):
-    """Add new structures and associated energies to the database"""
+    """Add new structures and associated energies to the database.
+
+    ``mp_ids``, when given, is a list of Materials Project ids parallel to
+    ``structure_energy_pairs`` (use ``None`` for entries with no id). It is
+    stored on both the ``DBStructure`` and ``DBStructureVersion`` rows and is
+    only meaningful when ``source`` is an MPDB source.
+    """
     with get_session() as session:
         db_structures = []
         db_versions = []
 
-        for struct_dict, energy in structure_energy_pairs:
+        for idx, (struct_dict, energy) in enumerate(structure_energy_pairs):
             struct = Structure.from_dict(struct_dict)
             composition = struct.composition.reduced_formula
             chemical_system = Composition(composition).chemical_system
+            mp_id = mp_ids[idx] if mp_ids is not None else None
 
             db_structure = DBStructure(
                 composition=composition,
                 chemsys=chemical_system,
+                mp_id=mp_id,
                 attributes=attributes
             )
             session.add(db_structure)
@@ -107,6 +116,7 @@ def add_structures(
                 chemsys=chemical_system,
                 method=method,
                 source=source,
+                mp_id=mp_id,
                 structure=struct_dict,
                 energy=energy,
             )

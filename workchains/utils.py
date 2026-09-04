@@ -287,11 +287,13 @@ def add_from_mpdb(chemical_formula):
             )
         )
     if missing_stb and stb_structures:
-        structures = [(get_primitive_cell(structure).as_dict(), None) for structure in stb_structures ]
-        add_structures("MPDB_stb", "DFT", structures)
+        structures = [(get_primitive_cell(structure).as_dict(), None) for structure, _ in stb_structures ]
+        mp_ids = [mp_id for _, mp_id in stb_structures]
+        add_structures("MPDB_stb", "DFT", structures, mp_ids=mp_ids)
     if missing_exp and exp_structures:
-        structures = [(get_primitive_cell(structure).as_dict(), None) for structure in exp_structures ]
-        add_structures("MPDB_exp", "DFT", structures)
+        structures = [(get_primitive_cell(structure).as_dict(), None) for structure, _ in exp_structures ]
+        mp_ids = [mp_id for _, mp_id in exp_structures]
+        add_structures("MPDB_exp", "DFT", structures, mp_ids=mp_ids)
     # add reference structures (elements)
     elements = Composition(chemical_formula).chemical_system.split("-")
     missing_el = []

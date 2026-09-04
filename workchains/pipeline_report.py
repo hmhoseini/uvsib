@@ -11,7 +11,7 @@ to keep, and what does the resulting free-energy diagram look like.
 
 Public API:
 
-    bulk_candidates(chemical_formula) -> [bulk dict, ...]  # now includes "source"/"ml_bulk_model"
+    bulk_candidates(chemical_formula) -> [bulk dict, ...]  # now includes "source"/"mp_id"/"ml_bulk_model"
     surfaces_for_bulk(chemical_formula) -> {structure_uuid: [surface dict, ...]}  # now includes "n_atoms"/"area"/"shift"
     reaction_results(chemical_formula, reaction, reaction_path) -> {structure_uuid: [candidate dict, ...]}  # now includes "repeat"/"coverage" (adsorbate concentration, in ML)
     electronic_for_bulk(chemical_formula) -> {structure_uuid: band_info dict}  # no-DFT light screen (empty if OpticalScreenWorkChain not run)
@@ -96,22 +96,28 @@ from uvsib.db.utils import query_by_columns, query_structure
 
 
 def _bulk_source(structure_uuid, method=None):
-    """Provenance of one bulk structure: the ``source``/``method`` of its
-    ``DBStructureVersion`` row (e.g. source="MPDB_stb"/"csp"/"generated",
-    method="MACE"/... -- see ``add_structures`` in ``db/utils.py``). Prefers
-    the version matching ``method`` (the composition's ``ml_bulk_model``,
-    i.e. the version PhaseDiagramMLWorkChain actually ranked) when given and
-    present; otherwise falls back to the first version found. Returns
-    ``None`` if the structure has no stored version at all."""
+    """Provenance of one bulk structure: the ``source``/``method``/``mp_id`` of
+    its ``DBStructureVersion`` row (e.g. source="MPDB_stb"/"csp"/"generated",
+    method="MACE"/..., mp_id="mp-1234" for MPDB sources -- see ``add_structures``
+    in ``db/utils.py``). Prefers the version matching ``method`` (the
+    composition's ``ml_bulk_model``, i.e. the version PhaseDiagramMLWorkChain
+    actually ranked) when given and present; otherwise falls back to the first
+    version found. Returns ``None`` if the structure has no stored version at
+    all."""
     versions = query_structure({"uuid": structure_uuid})
     if not versions:
         return None
+    # mp_id is a property of the underlying structure, not a given version --
+    # the DFT (MPDB) version carries it, but the ML-relaxed version added later
+    # (add_version_to_existing_structure in mpdb_ml.py) does not -- so resolve it
+    # from whichever version has it rather than only the method-matched one.
+    mp_id = next((v.mp_id for v in versions if v.mp_id), None)
     if method is not None:
         for v in versions:
             if v.method == method:
-                return {"source": v.source, "method": v.method}
+                return {"source": v.source, "method": v.method, "mp_id": mp_id}
     v = versions[0]
-    return {"source": v.source, "method": v.method}
+    return {"source": v.source, "method": v.method, "mp_id": mp_id}
 
 
 def bulk_candidates(chemical_formula):
@@ -135,6 +141,7 @@ def bulk_candidates(chemical_formula):
             "ehull_threshold": threshold,
             "ml_bulk_model": model,
             "source": provenance["source"] if provenance else None,
+            "mp_id": provenance["mp_id"] if provenance else None,
         })
     candidates.sort(key=lambda c: c["ehull"])
     return candidates
@@ -800,7 +807,8 @@ def render_html_report(chemical_formula, reaction, reaction_path, summaries=None
                         output_path="report.html"):
     """Render a self-contained HTML report (layout mirrors ``result-sample.html``)
     for one (composition, reaction, reaction_path): a table of stable bulks
-    (uuid + provenance source), one surfaces table per bulk (miller index,
+    (uuid + provenance source + MP id for MPDB-sourced bulks), one surfaces
+    table per bulk (miller index,
     surface formation energy, size), and one reaction-path free-energy
     diagram per surface. Figures are embedded as base64 PNGs, so the output
     file has no external dependencies besides the Tailwind/lucide CDN
@@ -852,6 +860,19 @@ def render_html_report(chemical_formula, reaction, reaction_path, summaries=None
     def esc(x):
         return _html.escape(str(x)) if x is not None else "&mdash;"
 
+    def mp_id_cell(bulk):
+        """Materials Project id for a bulk whose provenance is the MPDB, as a
+        link to its MP page; ``&mdash;`` for any other source (csp/generated/
+        ...) or when no id was stored."""
+        if not bulk:
+            return "&mdash;"
+        source, mp_id = bulk.get("source"), bulk.get("mp_id")
+        if not mp_id or not (source or "").startswith("MPDB"):
+            return "&mdash;"
+        return (f'<a href="https://materialsproject.org/materials/{esc(mp_id)}" '
+                f'target="_blank" rel="noopener" class="text-primary hover:underline '
+                f'font-mono text-xs">{esc(mp_id)}</a>')
+
     def straddle_badge(verdict):
         if not verdict:
             return "&mdash;"
@@ -882,6 +903,7 @@ def render_html_report(chemical_formula, reaction, reaction_path, summaries=None
                   <tr class="border-t">
                     <td class="px-6 py-4 font-mono text-xs text-slate-900" title="{esc(uid)}">{esc(uid[:8])}</td>
                     <td class="px-6 py-4">{source_cell}</td>
+                    <td class="px-6 py-4">{mp_id_cell(b)}</td>
                     <td class="px-6 py-4">{ehull_cell}</td>
                     <td class="px-6 py-4">{s["n_surfaces"]}</td>
                     <td class="px-6 py-4">{gap_cell}</td>
@@ -893,6 +915,7 @@ def render_html_report(chemical_formula, reaction, reaction_path, summaries=None
         uid, b = s["structure_uuid"], s["bulk"]
         ehull_bit = f'E<sub>hull</sub> = {b["ehull"]:.4f} eV/atom' if b else "E<sub>hull</sub> unknown"
         source_bit = esc(b["source"]) if b else "&mdash;"
+        mp_id_bit = f' &nbsp;|&nbsp; MP ID: {mp_id_cell(b)}' if (b and mp_id_cell(b) != "&mdash;") else ""
 
         surface_rows = []
         for surf in s["surfaces"]:
@@ -939,7 +962,7 @@ def render_html_report(chemical_formula, reaction, reaction_path, summaries=None
         <div class="rounded-xl border bg-white p-6">
           <h3 class="font-bold text-slate-900 mb-1">Bulk {esc(uid[:8])}</h3>
           <p class="text-xs text-slate-400 font-mono mb-3">{esc(uid)}</p>
-          <p class="text-sm text-slate-600 mb-4">{ehull_bit} &nbsp;|&nbsp; source: {source_bit}</p>
+          <p class="text-sm text-slate-600 mb-4">{ehull_bit} &nbsp;|&nbsp; source: {source_bit}{mp_id_bit}</p>
 
           <div class="overflow-x-auto mb-6 border rounded-lg">
             <table class="w-full text-sm text-left text-slate-700">
@@ -1132,12 +1155,13 @@ def render_html_report(chemical_formula, reaction, reaction_path, summaries=None
                   <tr>
                     <th class="px-6 py-3">UUID</th>
                     <th class="px-6 py-3">Source</th>
+                    <th class="px-6 py-3" title="Materials Project id (MPDB-sourced bulks only)">MP ID</th>
                     <th class="px-6 py-3">E above hull (eV/atom)</th>
                     <th class="px-6 py-3">Surfaces</th>
                     <th class="px-6 py-3" title="ML-predicted band gap; &plusmn; is the model spread">Gap (eV)</th>
                   </tr>
                 </thead>
-                <tbody>{"".join(bulk_rows) or '<tr><td colspan="5" class="px-6 py-4 text-slate-400 italic">no bulk candidates found</td></tr>'}</tbody>
+                <tbody>{"".join(bulk_rows) or '<tr><td colspan="6" class="px-6 py-4 text-slate-400 italic">no bulk candidates found</td></tr>'}</tbody>
               </table>
             </div>
           </div>
